@@ -1,0 +1,6 @@
+{
+  "name": "모닝브리프 AI - 대한민국 주요 언론사 매일 아침 뉴스 요약",
+  "description": "매일 오전 9시 기준 국내 주요 10대 언론사의 신문 1면 핵심 기사, 공통 이슈 및 단독 보도를 3줄로 스마트 요약하고, 맞춤형 이메일 발송과 주간 분석 리포트를 제공하는 프리미엄 뉴스 브리핑 플랫폼.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
