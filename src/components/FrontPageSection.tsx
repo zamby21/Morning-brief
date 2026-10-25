@@ -22,6 +22,8 @@ interface FrontPageSectionProps {
   onScrollToTop?: () => void;
   newspaperViewMode?: boolean;
   onToggleNewspaperViewMode?: () => void;
+  onOpenOutletSettings?: () => void;
+  isMobileView?: boolean;
 }
 
 export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
@@ -35,6 +37,8 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
   onScrollToTop,
   newspaperViewMode = false,
   onToggleNewspaperViewMode,
+  onOpenOutletSettings,
+  isMobileView = false,
 }) => {
   return (
     <section id="section-frontpage" className="bg-gradient-to-b from-blue-50/80 via-blue-50/40 to-white/90 border border-blue-200/80 rounded-3xl p-4 sm:p-6 space-y-4 scroll-mt-24 shadow-2xs">
@@ -59,8 +63,18 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
           </div>
         </div>
 
-        {/* Section Actions: Newspaper View Mode Toggle, Collapse/Expand, Scroll to Top */}
+        {/* Section Actions: Outlet settings, Newspaper View Mode Toggle, Collapse/Expand, Scroll to Top */}
         <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+          {onOpenOutletSettings && (
+            <button
+              onClick={onOpenOutletSettings}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 shadow-2xs transition active:scale-95 cursor-pointer"
+              title="1면 핵심 수집 언론사 맞춤 변경"
+            >
+              <span>1면 언론사 ({stories.length}사)</span>
+            </button>
+          )}
+
           {/* Newspaper Facsimile Style Toggle */}
           {onToggleNewspaperViewMode && (
             <button
@@ -130,7 +144,7 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
         </div>
       ) : newspaperViewMode ? (
         /* REALISTIC NEWSPAPER 1-PAGE FACSIMILE GRID VIEW */
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div className={isMobileView ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 lg:grid-cols-2 gap-5"}>
           {stories.map((story) => {
             const outletMeta = PRESS_OUTLETS.find((p) => p.name === story.outletName || p.id === story.outletId);
 
@@ -212,10 +226,6 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
 
                   {/* 3-Column Newspaper Article Synopsis */}
                   <div className="bg-[#f0ebe0] border border-[#ded8cb] rounded-xl p-3 space-y-1.5 font-serif">
-                    <div className="flex items-center justify-between pb-1 border-b border-[#ded8cb] text-[10px] font-bold text-slate-600">
-                      <span>1면 톱기사 3줄 요약</span>
-                      <span className="text-amber-800">3-Lines Brief</span>
-                    </div>
                     {story.leadSummary.slice(0, 3).map((line, idx) => (
                       <p key={idx} className="text-xs text-slate-800 leading-relaxed font-normal">
                         {line}
@@ -229,7 +239,7 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
         </div>
       ) : (
         /* STANDARD COMPACT CARD VIEW (WITH DIRECT 1면 지면보기 BUTTON) */
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className={isMobileView ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 lg:grid-cols-2 gap-4"}>
           {stories.map((story) => {
             const outletMeta = PRESS_OUTLETS.find((p) => p.name === story.outletName || p.id === story.outletId);
 
@@ -287,13 +297,7 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
                   </h3>
 
                   {/* 3-line Core Summary Box (Light, high-contrast readability) */}
-                  <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 space-y-2 mb-3">
-                    <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center justify-between border-b border-slate-200/80 pb-1.5 mb-1.5">
-                      <span className="text-slate-800">핵심 요약 (3줄 요약)</span>
-                      <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded font-bold text-[10px]">
-                        3 Lines Brief
-                      </span>
-                    </div>
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 sm:p-3.5 space-y-1.5 mb-3">
                     {story.leadSummary.slice(0, 3).map((line, idx) => (
                       <p
                         key={idx}

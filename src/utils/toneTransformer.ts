@@ -1,5 +1,5 @@
-import { DailyBriefing, BriefingTone } from '../types/news';
-import { getCurrentKoreanDateString } from './dateUtils';
+import type { DailyBriefing, BriefingTone } from '../types/news.ts';
+import { getCurrentKoreanDateString } from './dateUtils.ts';
 
 /**
  * Transforms the tone and wording of a DailyBriefing object client-side or server-side.

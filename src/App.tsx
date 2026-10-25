@@ -7,6 +7,7 @@ import { TopicFilter } from './components/TopicFilter';
 import { FrontPageSection } from './components/FrontPageSection';
 import { OverlappingStoriesSection } from './components/OverlappingStoriesSection';
 import { ExclusiveStoriesSection } from './components/ExclusiveStoriesSection';
+import { RealEstateFinanceSection } from './components/RealEstateFinanceSection';
 import { PressSelectorModal } from './components/PressSelectorModal';
 import { DashboardModal } from './components/DashboardModal';
 import { EmailModal } from './components/EmailModal';
@@ -22,6 +23,8 @@ import {
   MOCK_WEEKLY_REPORT,
   INITIAL_EMAIL_LOGS,
   DEFAULT_10_OUTLETS,
+  PRESS_OUTLETS,
+  MOCK_SECTOR_HEADLINES,
 } from './data/mockNewsData';
 import { ensureFrontPageStories } from './utils/outletStories';
 import { getCurrentKoreanDateString, getCurrentYMD } from './utils/dateUtils';
@@ -50,11 +53,57 @@ import {
   ChevronDown,
   ChevronUp,
   SlidersHorizontal,
+  Building,
 } from 'lucide-react';
 
+const STORAGE_KEY_PREFERENCES = 'morning_brief_user_preferences_v2';
+
+const loadSavedPreferences = (): UserPreferences => {
+  if (typeof window === 'undefined') return INITIAL_USER_PREFERENCES;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_PREFERENCES);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        const validFront = Array.isArray(parsed.frontPageOutlets) && parsed.frontPageOutlets.length > 0
+          ? parsed.frontPageOutlets
+          : (Array.isArray(parsed.selectedOutlets) && parsed.selectedOutlets.length > 0 ? parsed.selectedOutlets : DEFAULT_10_OUTLETS);
+        const validOverlap = Array.isArray(parsed.overlappingOutlets) && parsed.overlappingOutlets.length > 0
+          ? parsed.overlappingOutlets
+          : (Array.isArray(parsed.selectedOutlets) && parsed.selectedOutlets.length > 0 ? parsed.selectedOutlets : DEFAULT_10_OUTLETS);
+        const combined = Array.from(new Set([...validFront, ...validOverlap]));
+
+        return {
+          ...INITIAL_USER_PREFERENCES,
+          ...parsed,
+          selectedOutlets: combined,
+          frontPageOutlets: validFront,
+          overlappingOutlets: validOverlap,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to load preferences from localStorage', err);
+  }
+  return INITIAL_USER_PREFERENCES;
+};
+
 export default function App() {
-  const [briefing, setBriefing] = useState<DailyBriefing>(INITIAL_DAILY_BRIEFING);
-  const [preferences, setPreferences] = useState<UserPreferences>(INITIAL_USER_PREFERENCES);
+  const [preferences, setPreferences] = useState<UserPreferences>(loadSavedPreferences);
+  const [briefing, setBriefing] = useState<DailyBriefing>(() => {
+    const saved = loadSavedPreferences();
+    const frontOutlets = saved.frontPageOutlets || DEFAULT_10_OUTLETS;
+    const overlapOutlets = saved.overlappingOutlets || DEFAULT_10_OUTLETS;
+    const combined = saved.selectedOutlets || DEFAULT_10_OUTLETS;
+
+    return {
+      ...INITIAL_DAILY_BRIEFING,
+      selectedOutletIds: combined,
+      frontPageOutletIds: frontOutlets,
+      overlappingOutletIds: overlapOutlets,
+      frontPageStories: ensureFrontPageStories(INITIAL_DAILY_BRIEFING.frontPageStories, frontOutlets),
+    };
+  });
   const [weeklyReport, setWeeklyReport] = useState<WeeklyReport>(MOCK_WEEKLY_REPORT);
   const [emailLogs, setEmailLogs] = useState<EmailDispatchLog[]>(INITIAL_EMAIL_LOGS);
 
@@ -68,11 +117,12 @@ export default function App() {
   // Newspaper View Mode (신문 지면 스타일 토글)
   const [newspaperViewMode, setNewspaperViewMode] = useState(false);
 
-  // Section Collapse State (1.첫페이지, 2.공통이슈, 3.단독보도)
+  // Section Collapse State (1.첫페이지, 2.공통이슈, 3.단독보도, 4.건설부동산금융)
   const [collapsedSections, setCollapsedSections] = useState({
     frontPage: false,
     overlapping: false,
     exclusive: false,
+    realEstateFinance: false,
   });
 
   // Scroll to Top visibility state
@@ -80,6 +130,7 @@ export default function App() {
 
   // Modals
   const [isPressModalOpen, setIsPressModalOpen] = useState(false);
+  const [pressModalInitialSection, setPressModalInitialSection] = useState<'frontPage' | 'overlapping'>('frontPage');
   const [isToneModalOpen, setIsToneModalOpen] = useState(false);
   const [isDashboardOpen, setIsDashboardOpen] = useState(false);
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
@@ -103,6 +154,15 @@ export default function App() {
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  // Save preferences to localStorage automatically whenever updated
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_PREFERENCES, JSON.stringify(preferences));
+    } catch (err) {
+      console.warn('Failed to save preferences to localStorage', err);
+    }
+  }, [preferences]);
 
   // Dynamic date synchronization: guarantees today's date (KST) on mount and prevents stale dates
   useEffect(() => {
@@ -133,8 +193,13 @@ export default function App() {
     }, 3200);
   };
 
+  const handleOpenPressModal = (section: 'frontPage' | 'overlapping' = 'frontPage') => {
+    setPressModalInitialSection(section);
+    setIsPressModalOpen(true);
+  };
+
   // Section Toggle Helpers
-  const toggleSection = (section: 'frontPage' | 'overlapping' | 'exclusive') => {
+  const toggleSection = (section: 'frontPage' | 'overlapping' | 'exclusive' | 'realEstateFinance') => {
     setCollapsedSections((prev) => ({
       ...prev,
       [section]: !prev[section],
@@ -145,11 +210,13 @@ export default function App() {
     const allCollapsed =
       collapsedSections.frontPage &&
       collapsedSections.overlapping &&
-      collapsedSections.exclusive;
+      collapsedSections.exclusive &&
+      collapsedSections.realEstateFinance;
     setCollapsedSections({
       frontPage: !allCollapsed,
       overlapping: !allCollapsed,
       exclusive: !allCollapsed,
+      realEstateFinance: !allCollapsed,
     });
   };
 
@@ -227,16 +294,30 @@ export default function App() {
     }
   };
 
-  // 3. Update Press Outlets
-  const handleApplyOutlets = (outlets: string[]) => {
-    const validOutlets = outlets && outlets.length > 0 ? outlets : DEFAULT_10_OUTLETS;
-    setPreferences((prev) => ({ ...prev, selectedOutlets: validOutlets }));
+  // 3. Update Press Outlets (1면 핵심 & 공통이슈 개별 지정)
+  const handleApplyOutlets = (frontPageOutlets: string[], overlappingOutlets: string[]) => {
+    const validFront = frontPageOutlets && frontPageOutlets.length > 0 ? frontPageOutlets : DEFAULT_10_OUTLETS;
+    const validOverlap = overlappingOutlets && overlappingOutlets.length > 0 ? overlappingOutlets : DEFAULT_10_OUTLETS;
+    const combined = Array.from(new Set([...validFront, ...validOverlap]));
+
+    setPreferences((prev) => ({
+      ...prev,
+      selectedOutlets: combined,
+      frontPageOutlets: validFront,
+      overlappingOutlets: validOverlap,
+    }));
+
     setBriefing((prev) => ({
       ...prev,
-      selectedOutletIds: validOutlets,
-      frontPageStories: ensureFrontPageStories(prev.frontPageStories, validOutlets),
+      selectedOutletIds: combined,
+      frontPageOutletIds: validFront,
+      overlappingOutletIds: validOverlap,
+      frontPageStories: ensureFrontPageStories(prev.frontPageStories, validFront),
     }));
-    triggerNotification(`수집 언론사(${validOutlets.length}개사) 설정이 업데이트되었습니다.`);
+
+    triggerNotification(
+      `수집 언론사(1면: ${validFront.length}개사, 공통: ${validOverlap.length}개사) 설정이 브라우저에 저장되었습니다.`
+    );
   };
 
   // 4. Update Topic subscriptions
@@ -321,31 +402,22 @@ export default function App() {
     triggerNotification('공감 반응이 등록되었습니다.');
   };
 
-  // 8. Filter Logic
-  const filterStory = (s: NewsStory) => {
-    // Outlet filter
-    if (
-      s.outletId !== 'multiple' &&
-      s.outletId !== 'exclusive' &&
-      preferences.selectedOutlets &&
-      preferences.selectedOutlets.length > 0 &&
-      !preferences.selectedOutlets.includes(s.outletId)
-    ) {
-      return false;
-    }
-
+  // 8. Filter Logic: Separate rules for 1면 핵심 vs 공통이슈
+  const matchesKeywordAndTopic = (title: string, summary: string[] | string, keywords: string[] = [], topic = '') => {
     // Keyword filter
     if (selectedKeyword) {
       const cleanKw = selectedKeyword.replace('#', '');
-      const matchInKeywords = s.keywords?.some((k) => k && k.includes(cleanKw));
-      const matchInTitle = s.title && s.title.includes(cleanKw);
-      const matchInSummary = s.leadSummary && s.leadSummary.some((l) => l && l.includes(cleanKw));
+      const matchInKeywords = keywords?.some((k) => k && k.includes(cleanKw));
+      const matchInTitle = title && title.includes(cleanKw);
+      const summaryArr = Array.isArray(summary) ? summary : [summary];
+      const matchInSummary = summaryArr.some((l) => l && l.includes(cleanKw));
       if (!matchInKeywords && !matchInTitle && !matchInSummary) return false;
     }
 
     // Topic filter
     if (selectedTopic !== '전체') {
-      if (s.topic && !s.topic.includes(selectedTopic.split('·')[0])) {
+      const topicKeyword = selectedTopic.split('·')[0];
+      if (topic && !topic.includes(topicKeyword)) {
         return false;
       }
     }
@@ -353,9 +425,59 @@ export default function App() {
     return true;
   };
 
-  const filteredFrontPage = briefing.frontPageStories.filter(filterStory);
-  const filteredOverlapping = briefing.overlappingStories.filter(filterStory);
-  const filteredExclusive = briefing.exclusiveStories.filter(filterStory);
+  // 1면 핵심 기사 필터링: preferences.frontPageOutlets 기준
+  const activeFrontOutlets = preferences.frontPageOutlets && preferences.frontPageOutlets.length > 0
+    ? preferences.frontPageOutlets
+    : (preferences.selectedOutlets && preferences.selectedOutlets.length > 0 ? preferences.selectedOutlets : DEFAULT_10_OUTLETS);
+
+  const filteredFrontPage = briefing.frontPageStories.filter((s) => {
+    if (s.outletId && !activeFrontOutlets.includes(s.outletId)) {
+      return false;
+    }
+    return matchesKeywordAndTopic(s.title, s.leadSummary, s.keywords, s.topic);
+  });
+
+  // 공통 이슈 기사 필터링: 수집 언론사 중 50% 이상 언론사가 유사도 70% 이상으로 보도한 기사
+  const activeOverlapOutlets = preferences.overlappingOutlets && preferences.overlappingOutlets.length > 0
+    ? preferences.overlappingOutlets
+    : (preferences.selectedOutlets && preferences.selectedOutlets.length > 0 ? preferences.selectedOutlets : DEFAULT_10_OUTLETS);
+
+  const filteredOverlapping = briefing.overlappingStories.filter((s) => {
+    // 1. 기사 유사도 70% 이상 검증 (미설정 시 기본 75% 부여)
+    const similarity = s.similarityScore ?? 75;
+    if (similarity < 70) return false;
+
+    // 2. 선택된 수집 언론사 중 50% 이상 언론사 보도 검증
+    if (s.coveredOutlets && s.coveredOutlets.length > 0) {
+      const matchingCount = s.coveredOutlets.filter((outletName) => {
+        return activeOverlapOutlets.some((id) => {
+          const outletMeta = PRESS_OUTLETS.find((p) => p.id === id);
+          return outletMeta && (outletName.includes(outletMeta.name) || outletMeta.name.includes(outletName));
+        });
+      }).length;
+
+      // 선택된 언론사 중 50% 이상 (수집 언론사 수의 절반 이상 포함 필수)
+      const minRequired = Math.max(1, Math.ceil(activeOverlapOutlets.length * 0.5));
+      if (matchingCount < minRequired) {
+        return false;
+      }
+    } else {
+      return false;
+    }
+
+    return matchesKeywordAndTopic(s.title, s.leadSummary, s.keywords, s.topic);
+  });
+
+  // 단독·특별 기사 필터링
+  const filteredExclusive = briefing.exclusiveStories.filter((s) => {
+    return matchesKeywordAndTopic(s.title, s.leadSummary, s.keywords, s.topic);
+  });
+
+  // 4번째 기능: 건설·부동산·금융 헤드라인 필터링
+  const rawSectorHeadlines = briefing.sectorHeadlines || MOCK_SECTOR_HEADLINES;
+  const filteredSectorHeadlines = rawSectorHeadlines.filter((h) => {
+    return matchesKeywordAndTopic(h.title, h.summary, h.tags, h.sectorLabel);
+  });
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans antialiased selection:bg-blue-600 selection:text-white">
@@ -382,7 +504,7 @@ export default function App() {
         onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
         preferences={preferences}
         currentTone={briefing.tone}
-        onOpenPressModal={() => setIsPressModalOpen(true)}
+        onOpenPressModal={() => handleOpenPressModal('frontPage')}
         onOpenToneModal={() => setIsToneModalOpen(true)}
         onOpenDashboard={() => setIsDashboardOpen(true)}
         onOpenEmailModal={() => setIsEmailModalOpen(true)}
@@ -396,6 +518,9 @@ export default function App() {
         selectedTopic={selectedTopic}
         onSelectTopic={(t) => setSelectedTopic(t)}
         subscribedTopics={preferences.subscribedTopics}
+        frontPageCount={preferences.frontPageOutlets?.length || preferences.selectedOutlets?.length || 10}
+        overlappingCount={preferences.overlappingOutlets?.length || preferences.selectedOutlets?.length || 10}
+        onScrollToSection={scrollToSection}
       />
 
       {/* Main Content Layout with Sidebar offset on Desktop */}
@@ -406,7 +531,7 @@ export default function App() {
           briefingDate={briefing.briefingDate}
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           isSidebarOpen={isSidebarOpen}
-          onOpenPressModal={() => setIsPressModalOpen(true)}
+          onOpenPressModal={() => handleOpenPressModal('frontPage')}
           onOpenToneModal={() => setIsToneModalOpen(true)}
           currentTone={briefing.tone}
           onOpenDashboard={() => setIsDashboardOpen(true)}
@@ -417,6 +542,8 @@ export default function App() {
           onRefreshLive={handleRefreshLive}
           isLoading={isLoading}
           selectedOutletsCount={preferences.selectedOutlets?.length || 0}
+          frontPageCount={preferences.frontPageOutlets?.length || preferences.selectedOutlets?.length || 10}
+          overlappingCount={preferences.overlappingOutlets?.length || preferences.selectedOutlets?.length || 10}
         />
 
         {/* Outer Container (with optional Mobile Frame simulator) */}
@@ -518,6 +645,17 @@ export default function App() {
                     {filteredExclusive.length}
                   </span>
                 </button>
+
+                <button
+                  onClick={() => scrollToSection('section-realestate-finance')}
+                  className="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-bold transition flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                >
+                  <Building className="w-3.5 h-3.5 text-amber-600" />
+                  <span>4. 건설·부동산·금융</span>
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-600 text-white font-bold">
+                    {filteredSectorHeadlines.length}
+                  </span>
+                </button>
               </div>
 
               <div className="flex items-center gap-2">
@@ -526,7 +664,10 @@ export default function App() {
                   className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-xs font-bold transition flex items-center gap-1.5 active:scale-95 cursor-pointer"
                   title="모든 섹션 일괄 접기 / 펼치기"
                 >
-                  {collapsedSections.frontPage && collapsedSections.overlapping && collapsedSections.exclusive ? (
+                  {collapsedSections.frontPage &&
+                  collapsedSections.overlapping &&
+                  collapsedSections.exclusive &&
+                  collapsedSections.realEstateFinance ? (
                     <>
                       <ChevronDown className="w-3.5 h-3.5 text-blue-600" />
                       <span>전체 펼치기</span>
@@ -562,6 +703,8 @@ export default function App() {
               onScrollToTop={scrollToTop}
               newspaperViewMode={newspaperViewMode}
               onToggleNewspaperViewMode={() => setNewspaperViewMode(!newspaperViewMode)}
+              onOpenOutletSettings={() => handleOpenPressModal('frontPage')}
+              isMobileView={isMobilePreview}
             />
 
             {/* 4. Section 2: 언론사들에서 중복적으로 낸 공통 핵심 기사 */}
@@ -573,6 +716,8 @@ export default function App() {
               isCollapsed={collapsedSections.overlapping}
               onToggleCollapse={() => toggleSection('overlapping')}
               onScrollToTop={scrollToTop}
+              onOpenOutletSettings={() => handleOpenPressModal('overlapping')}
+              isMobileView={isMobilePreview}
             />
 
             {/* 5. Section 3: 각 언론사만의 단독 및 특별 기사 */}
@@ -584,6 +729,18 @@ export default function App() {
               isCollapsed={collapsedSections.exclusive}
               onToggleCollapse={() => toggleSection('exclusive')}
               onScrollToTop={scrollToTop}
+              isMobileView={isMobilePreview}
+            />
+
+            {/* 6. Section 4: 건설, 부동산, 금융 관련 주제 기사들 제목 모아보기 및 핵심 정리 */}
+            <RealEstateFinanceSection
+              headlines={filteredSectorHeadlines}
+              isCollapsed={collapsedSections.realEstateFinance}
+              onToggleCollapse={() => toggleSection('realEstateFinance')}
+              onScrollToTop={scrollToTop}
+              onOpenArticleModal={(s) => setArticleModalStory(s)}
+              onOpenShareModal={(s) => setShareStory(s)}
+              isMobileView={isMobilePreview}
             />
 
             {/* Weekly Report Promotion Banner (Light Theme) */}
@@ -632,6 +789,9 @@ export default function App() {
           isOpen={isPressModalOpen}
           onClose={() => setIsPressModalOpen(false)}
           selectedOutletIds={preferences.selectedOutlets || []}
+          frontPageOutletIds={preferences.frontPageOutlets || preferences.selectedOutlets || []}
+          overlappingOutletIds={preferences.overlappingOutlets || preferences.selectedOutlets || []}
+          initialSection={pressModalInitialSection}
           onApplyOutlets={handleApplyOutlets}
         />
       )}

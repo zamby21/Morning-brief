@@ -1,5 +1,8 @@
-import type { PressOutlet, DailyBriefing, WeeklyReport, UserPreferences, EmailDispatchLog } from '../types/news.ts';
+import type { PressOutlet, DailyBriefing, WeeklyReport, UserPreferences, EmailDispatchLog, SectorHeadlineItem } from '../types/news.ts';
 import { getCurrentKoreanDateString } from '../utils/dateUtils.ts';
+import { MOCK_SECTOR_HEADLINES } from './mockSectorHeadlines.ts';
+
+export { MOCK_SECTOR_HEADLINES };
 
 export const PRESS_OUTLETS: PressOutlet[] = [
   // ==========================================
@@ -1595,6 +1598,8 @@ export const INITIAL_USER_PREFERENCES: UserPreferences = {
   preferredTone: 'formal',
   subscribedTopics: ['반도체·AI', '금융·거시경제', '증시·투자', '정치·정책', '부동산·건설'],
   selectedOutlets: DEFAULT_10_OUTLETS,
+  frontPageOutlets: DEFAULT_10_OUTLETS,
+  overlappingOutlets: DEFAULT_10_OUTLETS,
 };
 
 // Rich Korean news data representing today's morning briefing (9:00 AM standard)
@@ -1613,6 +1618,9 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
   ],
   tone: 'formal',
   selectedOutletIds: DEFAULT_10_OUTLETS,
+  frontPageOutletIds: DEFAULT_10_OUTLETS,
+  overlappingOutletIds: DEFAULT_10_OUTLETS,
+  sectorHeadlines: MOCK_SECTOR_HEADLINES,
   summaryNote:
     '대한민국 10대 주요 언론사(종합지 5사, 경제지 5사)의 지면 1면 톱기사와 당일 온라인 집중 보도를 분석하여 3줄 이내로 핵심만 요약한 공식 모닝 브리핑입니다.',
 
@@ -1949,6 +1957,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
       publishedAt: '2026-10-19 08:00',
       keywords: ['기준금리', '가계대출', 'DSR규제', '공통보도'],
       topic: '금융·거시경제',
+      similarityScore: 88,
       coveredOutlets: ['조선일보', '중앙일보', '동아일보', '매일경제', '한국경제', '서울경제', '연합뉴스', 'YTN'],
       consensusPoints: [
         '금리 인하의 방향성 자체에는 모든 언론이 동의',
@@ -2049,6 +2058,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
       publishedAt: '2026-10-19 08:15',
       keywords: ['HBM3E', 'CXL', '용인반도체', '빅테크'],
       topic: '반도체·AI',
+      similarityScore: 84,
       coveredOutlets: ['매일경제', '한국경제', '서울경제', '조선일보', '동아일보', '전자신문', 'ZDNet Korea'],
       consensusPoints: [
         'HBM 수요는 2027년까지 공급 부족 지속 전망에 일치',
@@ -2119,6 +2129,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
       publishedAt: '2026-10-19 08:30',
       keywords: ['국정감사', '세수결손', '여야대치', '민생법안'],
       topic: '정치·정책',
+      similarityScore: 76,
       coveredOutlets: ['한겨레', '경향신문', '조선일보', '중앙일보', '동아일보', 'KBS 뉴스'],
       consensusPoints: [
         '여야의 극한 대립으로 정책 감사 본연의 취지가 퇴색되었다는 공통 지적',
@@ -2172,6 +2183,50 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
         },
       ],
       reactions: { insightful: 65, important: 142, surprising: 22 },
+    },
+    {
+      id: 'ol-4',
+      outletId: 'multiple',
+      outletName: '7개 언론사 공통 보도 (매경, 한경, 서경, 조선, 동아, 중앙, 한국일보)',
+      category: 'overlapping',
+      title: '[에너지·원전] 체코 신규 원전 24조 원 본계약 체결 가시화… K-원전 르네상스 개막',
+      leadSummary: [
+        '1. 체코 반독점 당국의 프랑스·미국 경쟁사 이의제기 기각으로 한수원의 체코 두코바니 원전 최종 계약이 본궤도에 올랐습니다.',
+        '2. 주요 경제지와 종합지는 15년 만의 대규모 한국형 원전 수출 쾌거로 평가하며 두산에너빌리티 등 기자재 업계 수혜를 집중 보도했습니다.',
+        '3. 웨스팅하우스와의 지식재산권 분쟁 원만한 타결과 장기 금융 지원 패키지 조달이 차기 수출의 핵심 과제로 지목됐습니다.',
+      ],
+      originalUrl: 'https://search.naver.com/search.naver?where=news&query=%EC%B2%B4%EC%BD%94+%EC%9B%90%EC%A0%84+%EB%B3%B8%EA%B3%84%EC%95%BD+%EB%91%90%EC%BD%94%EB%B0%94%EB%8B%88',
+      publishedAt: '2026-10-19 08:45',
+      keywords: ['체코원전', 'K원전', '두코바니', '두산에너빌리티'],
+      topic: '에너지·원전',
+      similarityScore: 82,
+      coveredOutlets: ['매일경제', '한국경제', '서울경제', '조선일보', '동아일보', '중앙일보', '한국일보'],
+      consensusPoints: [
+        '체코 반독점 당국의 이의제기 기각으로 본계약 지연 리스크 해소',
+        '원전 밸류체인 1,000여 개 중소 기자재 업체의 일감 가뭄 해소에 큰 기대',
+        '미국 웨스팅하우스와의 글로벌 지재권 협상 마무리가 필수적',
+      ],
+      reactions: { insightful: 82, important: 175, surprising: 28 },
+    },
+    {
+      id: 'ol-5-low',
+      outletId: 'multiple',
+      outletName: '2개 언론사 단순 단신 (조선, 동아)',
+      category: 'overlapping',
+      title: '[단순 단신] 국립공원 단풍 절정기 맞이 주말 등산객 안전 수칙 당부',
+      leadSummary: [
+        '1. 전국 주요 산간 지역에 첫 단풍이 시작되면서 등산객이 급증하고 있습니다.',
+        '2. 소방청은 일교차에 따른 체온 저하와 낙상 사고 예방을 당부했습니다.',
+        '3. 일부 지자체는 주말 등산로 입산 통제 구역을 임시 공고했습니다.',
+      ],
+      originalUrl: 'https://search.naver.com/search.naver?where=news&query=%EB%8B%A8%ED%92%8D+%EB%93%B1%EC%82%B0%EA%B0%9D+%EC%95%88%EC%A0%84%EC%88%98%EC%B9%99',
+      publishedAt: '2026-10-19 08:50',
+      keywords: ['단풍', '등산객안전', '가을산행'],
+      topic: '사회·노동',
+      similarityScore: 56,
+      coveredOutlets: ['조선일보', '동아일보'],
+      consensusPoints: ['가을철 등산 안전 주의 당부'],
+      reactions: { insightful: 10, important: 15, surprising: 2 },
     },
   ],
 

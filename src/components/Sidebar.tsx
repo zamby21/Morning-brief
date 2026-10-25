@@ -39,6 +39,9 @@ interface SidebarProps {
   selectedTopic: string;
   onSelectTopic: (topic: string) => void;
   subscribedTopics: string[];
+  frontPageCount?: number;
+  overlappingCount?: number;
+  onScrollToSection?: (id: string) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -60,6 +63,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   selectedTopic,
   onSelectTopic,
   subscribedTopics,
+  frontPageCount,
+  overlappingCount,
+  onScrollToSection,
 }) => {
   const getToneShortLabel = (tone: BriefingTone) => {
     switch (tone) {
@@ -75,7 +81,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  const selectedCount = preferences.selectedOutlets?.length || 0;
+  const frontTotal = frontPageCount ?? (preferences.frontPageOutlets?.length || preferences.selectedOutlets?.length || 10);
+  const overlapTotal = overlappingCount ?? (preferences.overlappingOutlets?.length || preferences.selectedOutlets?.length || 10);
 
   return (
     <>
@@ -154,7 +161,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     ? 'hover:bg-slate-100 text-slate-700 hover:text-slate-900'
                     : 'justify-center hover:bg-slate-100 text-slate-600'
                 }`}
-                title={`언론사 선택 (${selectedCount}개사 지정)`}
+                title={`언론사 선택 (1면 ${frontTotal}사 · 공통 ${overlapTotal}사)`}
               >
                 <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 group-hover:bg-blue-600 group-hover:text-white transition-colors">
                   <SlidersHorizontal className="w-4 h-4" />
@@ -164,11 +171,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <div className="flex items-center justify-between text-xs font-bold text-slate-800">
                       <span>수집 언론사</span>
                       <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
-                        {selectedCount}개사
+                        1면 {frontTotal} · 공통 {overlapTotal}
                       </span>
                     </div>
                     <div className="text-[11px] text-slate-400 truncate">
-                      10대 메이저/경제/IT/지역 선택
+                      1면 핵심 & 공통이슈 개별 설정
                     </div>
                   </div>
                 )}

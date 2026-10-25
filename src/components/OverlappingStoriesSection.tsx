@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronUp,
   ArrowUp,
+  Sparkles,
 } from 'lucide-react';
 import { NewsStory } from '../types/news';
 
@@ -16,6 +17,8 @@ interface OverlappingStoriesSectionProps {
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
   onScrollToTop?: () => void;
+  onOpenOutletSettings?: () => void;
+  isMobileView?: boolean;
 }
 
 export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps> = ({
@@ -26,6 +29,8 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
   isCollapsed = false,
   onToggleCollapse,
   onScrollToTop,
+  onOpenOutletSettings,
+  isMobileView = false,
 }) => {
   return (
     <section id="section-overlapping" className="bg-gradient-to-b from-purple-50/80 via-purple-50/40 to-white/90 border border-purple-200/80 rounded-3xl p-4 sm:p-6 space-y-4 scroll-mt-24 shadow-2xs">
@@ -36,20 +41,33 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
             <Layers className="w-4 h-4" />
           </div>
           <div>
-            <h2 className="text-base sm:text-lg font-black text-slate-900 flex items-center gap-2">
-              2. 언론사 공통 핵심 이슈 (중복 집중 보도)
+            <h2 className="text-base sm:text-lg font-black text-slate-900 flex items-center gap-2 flex-wrap">
+              <span>2. 언론사 공통 핵심 이슈 (중복 집중 보도)</span>
               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
                 주요 {stories.length}대 어젠다
               </span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                언론사 50%↑ · 유사도 70%↑ 엄선
+              </span>
             </h2>
             <p className="text-xs text-slate-500">
-              다수의 언론사에서 일제히 중요하게 다룬 중복 기사를 종합하고, 언론사 간 합의점과 시각차를 3줄로 정리했습니다.
+              수집 언론사 중 50% 이상이 유사도 70% 이상으로 일제히 다룬 중복 기사를 종합하고, 언론사 간 합의점과 시각차를 정리했습니다.
             </p>
           </div>
         </div>
 
-        {/* Section Actions: Collapse/Expand and Scroll to Top */}
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        {/* Section Actions: Outlet Settings, Collapse/Expand and Scroll to Top */}
+        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+          {onOpenOutletSettings && (
+            <button
+              onClick={onOpenOutletSettings}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 shadow-2xs transition active:scale-95 cursor-pointer"
+              title="공통 이슈 수집 언론사 맞춤 변경"
+            >
+              <span>공통이슈 언론사 설정</span>
+            </button>
+          )}
+
           {onToggleCollapse && (
             <button
               onClick={onToggleCollapse}
@@ -98,11 +116,12 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
           </span>
         </div>
       ) : stories.length === 0 ? (
-        <div className="text-center py-10 bg-white rounded-2xl border border-slate-200 text-slate-500 text-sm shadow-xs">
-          선택하신 필터에 해당하는 공통 이슈가 없습니다.
+        <div className="text-center py-10 bg-white rounded-2xl border border-slate-200 text-slate-500 text-sm shadow-xs space-y-1">
+          <p className="font-semibold text-slate-700">선택하신 수집 언론사 기준(50% 이상 보도 & 유사도 70% 이상)에 일치하는 공통 이슈가 없습니다.</p>
+          <p className="text-xs text-slate-400">공통이슈 언론사 설정을 통해 수집 대상 언론사를 늘려보세요.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className={isMobileView ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 lg:grid-cols-2 gap-4"}>
           {stories.map((story) => (
             <div
               key={story.id}
@@ -111,7 +130,7 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
               <div>
                 {/* Topic & Covered Outlets */}
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5 pb-2 border-b border-slate-100">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                     <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-purple-600 text-white shadow-xs">
                       {story.topic || '종합 어젠다'}
                     </span>
@@ -119,6 +138,12 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
                       <CheckCircle2 className="w-3 h-3 text-purple-600" />
                       {story.coveredOutlets?.length || 0}개 언론사 동시 집중 보도
                     </span>
+                    {story.similarityScore && (
+                      <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-emerald-600" />
+                        유사도 {story.similarityScore}%
+                      </span>
+                    )}
                   </div>
                   <span className="text-[11px] text-slate-400 font-medium">
                     {(story.publishedAt && story.publishedAt.includes(' ')
@@ -152,13 +177,7 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
                 </h3>
 
                 {/* 3-line Summary Box */}
-                <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 space-y-2 mb-2.5">
-                  <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center justify-between border-b border-slate-200/80 pb-1.5 mb-1.5">
-                    <span className="text-slate-800">공통 보도 핵심 3줄 요약</span>
-                    <span className="text-purple-700 bg-purple-50 px-1.5 py-0.2 rounded font-bold text-[10px]">
-                      Cross Analysis
-                    </span>
-                  </div>
+                <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 sm:p-3.5 space-y-1.5 mb-2.5">
                   {story.leadSummary.slice(0, 3).map((line, idx) => (
                     <p
                       key={idx}

@@ -29,6 +29,8 @@ interface HeaderProps {
   onRefreshLive: () => void;
   isLoading: boolean;
   selectedOutletsCount: number;
+  frontPageCount?: number;
+  overlappingCount?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -47,6 +49,8 @@ export const Header: React.FC<HeaderProps> = ({
   onRefreshLive,
   isLoading,
   selectedOutletsCount,
+  frontPageCount,
+  overlappingCount,
 }) => {
   const getToneShortLabel = (tone: BriefingTone) => {
     switch (tone) {
@@ -144,12 +148,15 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onOpenPressModal}
             className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200/80 transition cursor-pointer"
-            title="언론사 맞춤 선택"
+            title="언론사 맞춤 개별 설정 (1면 핵심 & 공통이슈)"
           >
             <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600" />
             <span>수집 언론사</span>
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-600 text-white font-bold">
-              {selectedOutletsCount}개
+            <span className="px-1.5 py-0.2 rounded-md text-[10px] bg-blue-50 text-blue-700 border border-blue-200 font-bold">
+              1면 {frontPageCount ?? selectedOutletsCount}사
+            </span>
+            <span className="px-1.5 py-0.2 rounded-md text-[10px] bg-purple-50 text-purple-700 border border-purple-200 font-bold">
+              공통 {overlappingCount ?? selectedOutletsCount}사
             </span>
           </button>
 

@@ -47,6 +47,7 @@ export interface NewsStory {
   coveredOutlets?: string[];
   consensusPoints?: string[];
   clusterOutlets?: ClusterOutletItem[]; // 언론사별 원문 클러스터 세부 정보
+  similarityScore?: number; // 기사 유사도 점수 (0~100%, 70% 이상 엄선 기준)
   // Specific to exclusive stories
   exclusiveBadge?: string;
   importanceRating?: 'High' | 'Crucial' | 'Medium';
@@ -76,7 +77,10 @@ export interface DailyBriefing {
   frontPageStories: NewsStory[];
   overlappingStories: NewsStory[];
   exclusiveStories: NewsStory[];
+  sectorHeadlines?: SectorHeadlineItem[]; // 4번째 기능: 건설·부동산·금융 특화 헤드라인
   selectedOutletIds: string[];
+  frontPageOutletIds?: string[];
+  overlappingOutletIds?: string[];
   summaryNote: string;
 }
 
@@ -106,6 +110,25 @@ export interface WeeklyReport {
   outlookNextWeek: string[];
 }
 
+export type RealEstateFinanceSector = 'all' | 'construction' | 'realestate' | 'finance';
+
+export interface SectorHeadlineItem {
+  id: string;
+  sector: 'construction' | 'realestate' | 'finance';
+  sectorLabel: string; // e.g. '건설·SOC' | '부동산·주택' | '금융·금리'
+  outletId: string;
+  outletName: string;
+  title: string;
+  summary: string; // 1~2줄 핵심 요약 및 시장 파급 효과
+  publishedAt: string;
+  originalUrl: string;
+  tags: string[];
+  impactRating?: 'High' | 'Crucial' | 'Medium';
+  highlightBadge?: string; // e.g. "수주 3.2조", "청약 350:1", "금리 0.25%p↓"
+  keyFigure?: string;
+  fullContent?: string;
+}
+
 export interface UserPreferences {
   recipientEmail: string;
   deliveryTime: string; // "09:00"
@@ -114,7 +137,9 @@ export interface UserPreferences {
   pushNotificationEnabled: boolean;
   preferredTone: BriefingTone;
   subscribedTopics: string[];
-  selectedOutlets: string[];
+  selectedOutlets: string[]; // 전체 기본/호환 언론사 목록
+  frontPageOutlets?: string[]; // 1면 핵심 기사 맞춤 언론사 목록
+  overlappingOutlets?: string[]; // 공통 이슈 기사 맞춤 언론사 목록
 }
 
 export interface EmailDispatchLog {

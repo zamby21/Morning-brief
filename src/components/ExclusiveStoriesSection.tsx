@@ -16,6 +16,7 @@ interface ExclusiveStoriesSectionProps {
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
   onScrollToTop?: () => void;
+  isMobileView?: boolean;
 }
 
 export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = ({
@@ -26,6 +27,7 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
   isCollapsed = false,
   onToggleCollapse,
   onScrollToTop,
+  isMobileView = false,
 }) => {
   return (
     <section id="section-exclusive" className="bg-gradient-to-b from-rose-50/80 via-rose-50/40 to-white/90 border border-rose-200/80 rounded-3xl p-4 sm:p-6 space-y-4 scroll-mt-24 shadow-2xs">
@@ -102,7 +104,7 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
           선택하신 필터에 해당하는 단독 기사가 없습니다.
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className={isMobileView ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 lg:grid-cols-2 gap-4"}>
           {stories.map((story) => {
             const outletMeta = PRESS_OUTLETS.find((p) => p.name === story.outletName || p.id === story.outletId);
 
@@ -148,13 +150,7 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
                   </h3>
 
                   {/* 3-line Summary Box */}
-                  <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 space-y-2 mb-3">
-                    <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center justify-between border-b border-slate-200/80 pb-1.5 mb-1.5">
-                      <span className="text-slate-800">단독 취재 핵심 3줄 요약</span>
-                      <span className="text-rose-700 bg-rose-50 px-1.5 py-0.2 rounded font-bold text-[10px]">
-                        Exclusive
-                      </span>
-                    </div>
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 sm:p-3.5 space-y-1.5 mb-3">
                     {story.leadSummary.slice(0, 3).map((line, idx) => (
                       <p
                         key={idx}
