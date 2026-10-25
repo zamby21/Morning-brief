@@ -9,9 +9,10 @@ import {
   INITIAL_EMAIL_LOGS,
   PRESS_OUTLETS,
 } from './src/data/mockNewsData.ts';
-import type { DailyBriefing, EmailDispatchLog, WeeklyReport } from './src/types/news.ts';
+import type { DailyBriefing, EmailDispatchLog, WeeklyReport, BriefingTone } from './src/types/news.ts';
 import { getCurrentKoreanDateString } from './src/utils/dateUtils.ts';
 import { extractSearchKeywords } from './src/utils/linkUtils.ts';
+import { transformBriefingTone } from './src/utils/toneTransformer.ts';
 
 dotenv.config();
 
@@ -23,6 +24,16 @@ app.use(express.json());
 
 // In-memory logs
 const emailLogs: EmailDispatchLog[] = [...INITIAL_EMAIL_LOGS];
+
+// Health check endpoint for Vercel and uptime monitoring
+app.get(['/api/health', '/health'], (_req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'Morning Brief AI API',
+    geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // Shared Gemini AI client
 const apiKey = process.env.GEMINI_API_KEY || '';
@@ -51,7 +62,7 @@ function getToneDescription(tone: string): string {
 }
 
 // 1. API: Generate / Refresh daily briefing
-app.post('/api/summarize', async (req, res) => {
+app.post(['/api/summarize', '/summarize'], async (req, res) => {
   try {
     const { outletIds, tone = 'formal', topics = [] } = req.body;
     const selectedOutlets = PRESS_OUTLETS.filter((o) =>
@@ -61,7 +72,7 @@ app.post('/api/summarize', async (req, res) => {
 
     if (!apiKey) {
       // Fallback with styled existing data
-      const adjustedBriefing = transformTone(INITIAL_DAILY_BRIEFING, tone);
+      const adjustedBriefing = transformBriefingTone(INITIAL_DAILY_BRIEFING, tone as BriefingTone);
       return res.json({
         success: true,
         data: adjustedBriefing,
@@ -221,67 +232,20 @@ app.post('/api/summarize', async (req, res) => {
     return res.json({ success: true, data: briefing, source: 'gemini-live' });
   } catch (error: any) {
     console.error('Error generating summary:', error);
-    const fallback = transformTone(INITIAL_DAILY_BRIEFING, req.body.tone || 'formal');
+    const fallback = transformBriefingTone(INITIAL_DAILY_BRIEFING, (req.body.tone || 'formal') as BriefingTone);
     return res.json({ success: true, data: fallback, source: 'fallback', error: error.message });
   }
 });
 
-// Helper for local tone conversion
-function transformTone(briefing: DailyBriefing, tone: string): DailyBriefing {
-  const deepCopy: DailyBriefing = JSON.parse(JSON.stringify(briefing));
-  deepCopy.tone = tone as any;
-  deepCopy.briefingDate = getCurrentKoreanDateString();
-
-  const rewriteLine = (text: string, t: string) => {
-    // Strip existing prefix numbering if any
-    const clean = text.replace(/^[0-9]\.\s*/, '');
-    if (t === 'bullet') {
-      return (
-        clean
-          .replace(/했습니다|였습니다|되었습니다/g, '함')
-          .replace(/있습니다/g, '있음')
-          .replace(/입니다/g, '임')
-          .replace(/실정입니다/g, '실정임') + ''
-      );
-    }
-    if (t === 'friendly') {
-      return clean
-        .replace(/했습니다|였습니다/g, '했어요!')
-        .replace(/되었습니다/g, '되었답니다.')
-        .replace(/있습니다/g, '있어요.')
-        .replace(/입니다/g, '이에요.');
-    }
-    if (t === 'insight') {
-      return `[시사점] ${clean.replace(/했습니다/g, '한 것으로 분석되며, 향후 시장 변동성에 대비가 요구됩니다.')}`;
-    }
-    return clean;
-  };
-
-  const processStories = (stories: any[]) =>
-    stories.map((s) => ({
-      ...s,
-      leadSummary: s.leadSummary.map((line: string, idx: number) => {
-        const transformed = rewriteLine(line, tone);
-        return `${idx + 1}. ${transformed.replace(/^[0-9]\.\s*/, '')}`;
-      }),
-    }));
-
-  deepCopy.frontPageStories = processStories(deepCopy.frontPageStories);
-  deepCopy.overlappingStories = processStories(deepCopy.overlappingStories);
-  deepCopy.exclusiveStories = processStories(deepCopy.exclusiveStories);
-
-  return deepCopy;
-}
-
 // 2. API: Rewrite briefing tone via Gemini
-app.post('/api/rewrite-tone', async (req, res) => {
+app.post(['/api/rewrite-tone', '/rewrite-tone'], async (req, res) => {
   const { currentBriefing, targetTone } = req.body;
   if (!currentBriefing || !targetTone) {
     return res.status(400).json({ error: 'Missing currentBriefing or targetTone' });
   }
 
   if (!apiKey) {
-    const transformed = transformTone(currentBriefing, targetTone);
+    const transformed = transformBriefingTone(currentBriefing, targetTone as BriefingTone);
     return res.json({ success: true, data: transformed });
   }
 
@@ -330,12 +294,12 @@ ${JSON.stringify({
     return res.json({ success: true, data: updated });
   } catch (err: any) {
     console.error('Rewrite tone error:', err);
-    return res.json({ success: true, data: transformTone(currentBriefing, targetTone) });
+    return res.json({ success: true, data: transformBriefingTone(currentBriefing, targetTone as BriefingTone) });
   }
 });
 
 // 3. API: Weekly Report Generator
-app.post('/api/weekly-report', async (req, res) => {
+app.post(['/api/weekly-report', '/weekly-report'], async (req, res) => {
   try {
     if (!apiKey) {
       return res.json({ success: true, data: MOCK_WEEKLY_REPORT, source: 'cached' });
@@ -367,7 +331,7 @@ app.post('/api/weekly-report', async (req, res) => {
 });
 
 // 4. API: Send / Preview Briefing Email
-app.post('/api/send-email', (req, res) => {
+app.post(['/api/send-email', '/send-email'], (req, res) => {
   const { recipient, briefing, scheduledTime = '09:00' } = req.body;
   const targetEmail = recipient || 'sr.JI78@gmail.com';
 
@@ -486,26 +450,31 @@ app.post('/api/send-email', (req, res) => {
 });
 
 // 5. API: Get Email Logs
-app.get('/api/email-logs', (req, res) => {
+app.get(['/api/email-logs', '/email-logs'], (req, res) => {
   res.json({ logs: emailLogs });
 });
 
 // Vite middleware in dev or static files in prod
-if (process.env.NODE_ENV !== 'production') {
-  const { createServer } = await import('vite');
-  const vite = await createServer({
-    server: { middlewareMode: true },
-    appType: 'spa',
-  });
-  app.use(vite.middlewares);
-} else {
-  app.use(express.static(path.resolve(__dirname, 'dist')));
-  app.get('*', (req, res) => {
-    res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+// Only activate when not running in Vercel Serverless Function
+if (!process.env.VERCEL) {
+  if (process.env.NODE_ENV !== 'production') {
+    const { createServer } = await import('vite');
+    const vite = await createServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    app.use(express.static(path.resolve(__dirname, 'dist')));
+    app.get('*', (req, res) => {
+      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+    });
+  }
+
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Morning Brief Server running on http://0.0.0.0:${PORT}`);
   });
 }
 
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Morning Brief Server running on http://0.0.0.0:${PORT}`);
-});
+export default app;
