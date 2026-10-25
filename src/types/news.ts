@@ -140,6 +140,8 @@ export interface UserPreferences {
   selectedOutlets: string[]; // 전체 기본/호환 언론사 목록
   frontPageOutlets?: string[]; // 1면 핵심 기사 맞춤 언론사 목록
   overlappingOutlets?: string[]; // 공통 이슈 기사 맞춤 언론사 목록
+  minOutletCoverageRatio?: number; // 공통 이슈 수집 언론사 보도 비율 기준 (% 단위, 기본 50)
+  minSimilarityScore?: number; // 공통 이슈 기사 유사도 기준 (% 단위, 기본 70)
 }
 
 export interface EmailDispatchLog {

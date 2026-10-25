@@ -1600,6 +1600,8 @@ export const INITIAL_USER_PREFERENCES: UserPreferences = {
   selectedOutlets: DEFAULT_10_OUTLETS,
   frontPageOutlets: DEFAULT_10_OUTLETS,
   overlappingOutlets: DEFAULT_10_OUTLETS,
+  minOutletCoverageRatio: 50,
+  minSimilarityScore: 70,
 };
 
 // Rich Korean news data representing today's morning briefing (9:00 AM standard)

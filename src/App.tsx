@@ -79,6 +79,8 @@ const loadSavedPreferences = (): UserPreferences => {
           selectedOutlets: combined,
           frontPageOutlets: validFront,
           overlappingOutlets: validOverlap,
+          minOutletCoverageRatio: typeof parsed.minOutletCoverageRatio === 'number' ? parsed.minOutletCoverageRatio : 50,
+          minSimilarityScore: typeof parsed.minSimilarityScore === 'number' ? parsed.minSimilarityScore : 70,
         };
       }
     }
@@ -320,6 +322,15 @@ export default function App() {
     );
   };
 
+  // 3-1. 공통 이슈 기준 비율(언론사 보도율 & 유사도) 실시간 조정
+  const handleChangeOverlapThresholds = (coverageRatio: number, similarityScore: number) => {
+    setPreferences((prev) => ({
+      ...prev,
+      minOutletCoverageRatio: coverageRatio,
+      minSimilarityScore: similarityScore,
+    }));
+  };
+
   // 4. Update Topic subscriptions
   const handleToggleSubscribedTopic = (topic: string) => {
     setPreferences((prev) => {
@@ -437,17 +448,20 @@ export default function App() {
     return matchesKeywordAndTopic(s.title, s.leadSummary, s.keywords, s.topic);
   });
 
-  // 공통 이슈 기사 필터링: 수집 언론사 중 50% 이상 언론사가 유사도 70% 이상으로 보도한 기사
+  // 공통 이슈 기사 필터링: 수집 언론사 중 minCoverageRatio% 이상 언론사가 유사도 minSimilarityScore% 이상으로 보도한 기사
   const activeOverlapOutlets = preferences.overlappingOutlets && preferences.overlappingOutlets.length > 0
     ? preferences.overlappingOutlets
     : (preferences.selectedOutlets && preferences.selectedOutlets.length > 0 ? preferences.selectedOutlets : DEFAULT_10_OUTLETS);
 
-  const filteredOverlapping = briefing.overlappingStories.filter((s) => {
-    // 1. 기사 유사도 70% 이상 검증 (미설정 시 기본 75% 부여)
-    const similarity = s.similarityScore ?? 75;
-    if (similarity < 70) return false;
+  const minCoverageRatio = preferences.minOutletCoverageRatio ?? 50;
+  const minSimilarityScore = preferences.minSimilarityScore ?? 70;
 
-    // 2. 선택된 수집 언론사 중 50% 이상 언론사 보도 검증
+  const filteredOverlapping = briefing.overlappingStories.filter((s) => {
+    // 1. 기사 유사도 기준 검증 (동적 설정값 적용)
+    const similarity = s.similarityScore ?? 75;
+    if (similarity < minSimilarityScore) return false;
+
+    // 2. 선택된 수집 언론사 중 설정 비율(%) 이상 언론사 보도 검증
     if (s.coveredOutlets && s.coveredOutlets.length > 0) {
       const matchingCount = s.coveredOutlets.filter((outletName) => {
         return activeOverlapOutlets.some((id) => {
@@ -456,8 +470,8 @@ export default function App() {
         });
       }).length;
 
-      // 선택된 언론사 중 50% 이상 (수집 언론사 수의 절반 이상 포함 필수)
-      const minRequired = Math.max(1, Math.ceil(activeOverlapOutlets.length * 0.5));
+      // 선택된 언론사 수 대비 최소 필요 언론사 수 계산 (동적 비율 적용)
+      const minRequired = Math.max(1, Math.ceil(activeOverlapOutlets.length * (minCoverageRatio / 100)));
       if (matchingCount < minRequired) {
         return false;
       }
@@ -718,6 +732,11 @@ export default function App() {
               onScrollToTop={scrollToTop}
               onOpenOutletSettings={() => handleOpenPressModal('overlapping')}
               isMobileView={isMobilePreview}
+              minCoverageRatio={minCoverageRatio}
+              minSimilarityScore={minSimilarityScore}
+              onChangeThresholds={handleChangeOverlapThresholds}
+              totalSelectedOutletsCount={activeOverlapOutlets.length}
+              totalAvailableStoriesCount={briefing.overlappingStories.length}
             />
 
             {/* 5. Section 3: 각 언론사만의 단독 및 특별 기사 */}
