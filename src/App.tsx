@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { KeywordTags } from './components/KeywordTags';
@@ -891,6 +892,9 @@ export default function App() {
           <span className="hidden sm:inline">맨위로</span>
         </button>
       )}
+
+      {/* Vercel Web Analytics */}
+      <Analytics />
     </div>
   );
 }
