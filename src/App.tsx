@@ -73,14 +73,24 @@ const loadSavedPreferences = (): UserPreferences => {
           : (Array.isArray(parsed.selectedOutlets) && parsed.selectedOutlets.length > 0 ? parsed.selectedOutlets : DEFAULT_10_OUTLETS);
         const combined = Array.from(new Set([...validFront, ...validOverlap]));
 
+        const targetEmail = typeof parsed.recipientEmail === 'string' && parsed.recipientEmail.includes('@')
+          ? parsed.recipientEmail
+          : INITIAL_USER_PREFERENCES.recipientEmail;
+
+        const savedEmails = Array.isArray(parsed.savedRecipientEmails) && parsed.savedRecipientEmails.length > 0
+          ? Array.from(new Set([targetEmail, ...parsed.savedRecipientEmails]))
+          : [targetEmail];
+
         return {
           ...INITIAL_USER_PREFERENCES,
           ...parsed,
+          recipientEmail: targetEmail,
+          savedRecipientEmails: savedEmails,
           selectedOutlets: combined,
           frontPageOutlets: validFront,
           overlappingOutlets: validOverlap,
-          minOutletCoverageRatio: typeof parsed.minOutletCoverageRatio === 'number' ? parsed.minOutletCoverageRatio : 50,
-          minSimilarityScore: typeof parsed.minSimilarityScore === 'number' ? parsed.minSimilarityScore : 70,
+          minOutletCoverageRatio: typeof parsed.minOutletCoverageRatio === 'number' && parsed.minOutletCoverageRatio > 0 ? parsed.minOutletCoverageRatio : 50,
+          minSimilarityScore: typeof parsed.minSimilarityScore === 'number' && parsed.minSimilarityScore > 0 ? parsed.minSimilarityScore : 70,
         };
       }
     }
@@ -322,13 +332,70 @@ export default function App() {
     );
   };
 
-  // 3-1. 공통 이슈 기준 비율(언론사 보도율 & 유사도) 실시간 조정
-  const handleChangeOverlapThresholds = (coverageRatio: number, similarityScore: number) => {
-    setPreferences((prev) => ({
-      ...prev,
+  // 3-1. 공통 이슈 기준 비율(언론사 보도율 & 유사도) 실시간 조정 및 브라우저 영구 저장
+  const handleChangeOverlapThresholds = (coverageRatio: number, similarityScore: number, notify = false) => {
+    const updated: UserPreferences = {
+      ...preferences,
       minOutletCoverageRatio: coverageRatio,
       minSimilarityScore: similarityScore,
-    }));
+    };
+    setPreferences(updated);
+    try {
+      localStorage.setItem(STORAGE_KEY_PREFERENCES, JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Failed to save threshold preferences', e);
+    }
+    if (notify) {
+      triggerNotification(
+        `공통 이슈 기준 비율(언론사 ${coverageRatio}% 이상, 유사도 ${similarityScore}% 이상)이 브라우저에 저장되었습니다.`
+      );
+    }
+  };
+
+  // 3-2. 수신 이메일 주소 설정 및 영구 저장 핸들러
+  const handleSaveRecipientEmail = (email: string, alsoAddToList = true) => {
+    const clean = email.trim();
+    if (!clean || !clean.includes('@')) {
+      triggerNotification('올바른 이메일 주소를 입력해주세요.');
+      return;
+    }
+    const currentList = preferences.savedRecipientEmails && preferences.savedRecipientEmails.length > 0
+      ? preferences.savedRecipientEmails
+      : [preferences.recipientEmail || 'sr.JI78@gmail.com'];
+
+    const updatedList = alsoAddToList
+      ? Array.from(new Set([clean, ...currentList]))
+      : currentList;
+
+    const updated: UserPreferences = {
+      ...preferences,
+      recipientEmail: clean,
+      savedRecipientEmails: updatedList,
+    };
+    setPreferences(updated);
+    try {
+      localStorage.setItem(STORAGE_KEY_PREFERENCES, JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Failed to save email to localStorage', e);
+    }
+    triggerNotification(`수신 이메일 '${clean}'(이)가 브라우저에 저장되었습니다. (다시 열어도 유지)`);
+  };
+
+  const handleDeleteSavedEmail = (emailToDelete: string) => {
+    const currentList = preferences.savedRecipientEmails || [preferences.recipientEmail || 'sr.JI78@gmail.com'];
+    const filtered = currentList.filter((e) => e !== emailToDelete);
+    const updatedList = filtered.length > 0 ? filtered : [preferences.recipientEmail || 'sr.JI78@gmail.com'];
+    const updated: UserPreferences = {
+      ...preferences,
+      savedRecipientEmails: updatedList,
+    };
+    setPreferences(updated);
+    try {
+      localStorage.setItem(STORAGE_KEY_PREFERENCES, JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Failed to delete email from localStorage', e);
+    }
+    triggerNotification(`수신 이메일 '${emailToDelete}'이(가) 목록에서 삭제되었습니다.`);
   };
 
   // 4. Update Topic subscriptions
@@ -734,7 +801,8 @@ export default function App() {
               isMobileView={isMobilePreview}
               minCoverageRatio={minCoverageRatio}
               minSimilarityScore={minSimilarityScore}
-              onChangeThresholds={handleChangeOverlapThresholds}
+              onChangeThresholds={(ratio, score) => handleChangeOverlapThresholds(ratio, score, false)}
+              onSaveThresholds={(ratio, score) => handleChangeOverlapThresholds(ratio, score, true)}
               totalSelectedOutletsCount={activeOverlapOutlets.length}
               totalAvailableStoriesCount={briefing.overlappingStories.length}
             />
@@ -831,9 +899,12 @@ export default function App() {
         onClose={() => setIsEmailModalOpen(false)}
         briefing={briefing}
         recipientEmail={preferences.recipientEmail}
+        savedRecipientEmails={preferences.savedRecipientEmails || [preferences.recipientEmail || 'sr.JI78@gmail.com']}
         deliveryTime={preferences.deliveryTime}
         emailLogs={emailLogs}
         onSendEmail={handleSendEmail}
+        onSaveRecipientEmail={handleSaveRecipientEmail}
+        onDeleteSavedEmail={handleDeleteSavedEmail}
       />
 
       <WeeklyReportModal

@@ -1591,6 +1591,7 @@ export const AVAILABLE_TOPICS = [
 
 export const INITIAL_USER_PREFERENCES: UserPreferences = {
   recipientEmail: 'sr.JI78@gmail.com',
+  savedRecipientEmails: ['sr.JI78@gmail.com'],
   deliveryTime: '09:00',
   deliveryDays: ['월', '화', '수', '목', '금'],
   autoEmailEnabled: true,

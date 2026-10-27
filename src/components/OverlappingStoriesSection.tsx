@@ -8,6 +8,9 @@ import {
   Sparkles,
   SlidersHorizontal,
   RotateCcw,
+  Save,
+  Check,
+  ShieldCheck,
 } from 'lucide-react';
 import { NewsStory } from '../types/news';
 
@@ -24,6 +27,7 @@ interface OverlappingStoriesSectionProps {
   minCoverageRatio?: number;
   minSimilarityScore?: number;
   onChangeThresholds?: (coverageRatio: number, similarityScore: number) => void;
+  onSaveThresholds?: (coverageRatio: number, similarityScore: number) => void;
   totalSelectedOutletsCount?: number;
   totalAvailableStoriesCount?: number;
 }
@@ -41,10 +45,22 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
   minCoverageRatio = 50,
   minSimilarityScore = 70,
   onChangeThresholds,
+  onSaveThresholds,
   totalSelectedOutletsCount = 10,
   totalAvailableStoriesCount,
 }) => {
   const [isAdjustPanelOpen, setIsAdjustPanelOpen] = useState(false);
+  const [savedBadge, setSavedBadge] = useState(false);
+
+  const handleSaveSettings = () => {
+    if (onSaveThresholds) {
+      onSaveThresholds(minCoverageRatio, minSimilarityScore);
+    } else if (onChangeThresholds) {
+      onChangeThresholds(minCoverageRatio, minSimilarityScore);
+    }
+    setSavedBadge(true);
+    setTimeout(() => setSavedBadge(false), 2800);
+  };
 
   // Minimum required outlets count calculated dynamically based on current coverage ratio
   const minRequiredOutlets = Math.max(1, Math.ceil(totalSelectedOutletsCount * (minCoverageRatio / 100)));
@@ -145,19 +161,52 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
       {isAdjustPanelOpen && (
         <div className="bg-white/95 border border-purple-200 rounded-2xl p-4 sm:p-5 shadow-xs space-y-4 animate-in fade-in duration-200">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
-            <div className="flex items-center gap-2">
-              <SlidersHorizontal className="w-4 h-4 text-purple-600" />
-              <span className="text-sm font-bold text-slate-900">공통 핵심 이슈 엄선 기준 비율 실시간 조정</span>
-            </div>
-            <div className="flex items-center gap-2 text-xs">
-              <span className="text-slate-500">
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <SlidersHorizontal className="w-4 h-4 text-purple-600" />
+                <span className="text-sm font-bold text-slate-900">공통 핵심 이슈 엄선 기준 비율 실시간 조정 및 저장</span>
+                <span className="text-[11px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
+                  언론사 {minCoverageRatio}%↑ · 유사도 {minSimilarityScore}%↑
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
                 현재 기준 충족: <strong className="text-purple-700 font-bold">{stories.length}건</strong>
-                {totalAvailableStoriesCount !== undefined && ` (전체 ${totalAvailableStoriesCount}건 중)`}
-              </span>
+                {totalAvailableStoriesCount !== undefined && ` (전체 ${totalAvailableStoriesCount}건 중)`} · 설정값은 브라우저에 저장되어 재실행 시 유지됩니다.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap text-xs">
+              {/* Save Settings Button */}
               <button
-                onClick={() => onChangeThresholds && onChangeThresholds(50, 70)}
-                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition cursor-pointer flex items-center gap-1 active:scale-95"
-                title="기본값 (언론사 50% / 유사도 70%)으로 복원"
+                type="button"
+                onClick={handleSaveSettings}
+                className="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold transition flex items-center gap-1.5 active:scale-95 cursor-pointer shadow-xs"
+                title="설정한 언론사 보도율과 유사도를 브라우저(localStorage)에 영구 저장합니다."
+              >
+                {savedBadge ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-white" />
+                    <span>설정 저장 완료! ✓</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-3.5 h-3.5" />
+                    <span>비율 설정 저장</span>
+                  </>
+                )}
+              </button>
+
+              {/* Reset to Default Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (onChangeThresholds) onChangeThresholds(50, 70);
+                  if (onSaveThresholds) onSaveThresholds(50, 70);
+                  setSavedBadge(true);
+                  setTimeout(() => setSavedBadge(false), 2400);
+                }}
+                className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold transition cursor-pointer flex items-center gap-1 active:scale-95 border border-slate-200"
+                title="기본값 (언론사 50% / 유사도 70%)으로 복원 및 저장"
               >
                 <RotateCcw className="w-3 h-3 text-slate-500" />
                 <span>기본값(50%/70%) 리셋</span>
@@ -216,7 +265,12 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
                 ].map((item) => (
                   <button
                     key={item.val}
-                    onClick={() => onChangeThresholds && onChangeThresholds(item.val, minSimilarityScore)}
+                    onClick={() => {
+                      if (onChangeThresholds) onChangeThresholds(item.val, minSimilarityScore);
+                      if (onSaveThresholds) onSaveThresholds(item.val, minSimilarityScore);
+                      setSavedBadge(true);
+                      setTimeout(() => setSavedBadge(false), 2400);
+                    }}
                     className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
                       minCoverageRatio === item.val
                         ? 'bg-purple-600 text-white shadow-2xs'
@@ -279,7 +333,12 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
                 ].map((item) => (
                   <button
                     key={item.val}
-                    onClick={() => onChangeThresholds && onChangeThresholds(minCoverageRatio, item.val)}
+                    onClick={() => {
+                      if (onChangeThresholds) onChangeThresholds(minCoverageRatio, item.val);
+                      if (onSaveThresholds) onSaveThresholds(minCoverageRatio, item.val);
+                      setSavedBadge(true);
+                      setTimeout(() => setSavedBadge(false), 2400);
+                    }}
                     className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
                       minSimilarityScore === item.val
                         ? 'bg-emerald-600 text-white shadow-2xs'
@@ -291,6 +350,25 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
                 ))}
               </div>
             </div>
+          </div>
+
+          {/* Persistence status notice bar */}
+          <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+              <span className="text-slate-600">
+                현재 기준: <strong>언론사 {minCoverageRatio}% 이상</strong> 및 <strong>유사도 {minSimilarityScore}% 이상</strong>
+              </span>
+              <span className="text-[10px] text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full font-bold">
+                브라우저(localStorage) 자동 유지
+              </span>
+            </div>
+            {savedBadge && (
+              <span className="text-emerald-700 font-bold bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg animate-in fade-in flex items-center gap-1 text-[11px]">
+                <Check className="w-3 h-3 text-emerald-600" />
+                <span>설정이 브라우저에 저장되었습니다</span>
+              </span>
+            )}
           </div>
         </div>
       )}

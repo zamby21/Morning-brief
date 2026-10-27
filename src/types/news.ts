@@ -131,6 +131,7 @@ export interface SectorHeadlineItem {
 
 export interface UserPreferences {
   recipientEmail: string;
+  savedRecipientEmails?: string[]; // 자주 쓰는 / 등록된 수신 이메일 목록
   deliveryTime: string; // "09:00"
   deliveryDays: string[]; // ["월", "화", "수", "목", "금"]
   autoEmailEnabled: boolean;

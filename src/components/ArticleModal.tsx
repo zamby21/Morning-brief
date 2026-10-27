@@ -21,9 +21,8 @@ import { NewsStory, ClusterOutletItem } from '../types/news';
 import { PRESS_OUTLETS } from '../data/mockNewsData';
 import {
   getNaverNewsUrl,
-  getDaumNewsUrl,
-  getGoogleNewsUrl,
-  getDirectOutletUrl,
+  getCleanNaverQuery,
+  getOfficialOutletHomepage,
   copyToClipboardSafe,
 } from '../utils/linkUtils';
 
@@ -44,6 +43,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
 }) => {
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedText, setCopiedText] = useState(false);
+  const [copiedNaverQuery, setCopiedNaverQuery] = useState(false);
   const [fontSize, setFontSize] = useState<'base' | 'lg'>('base');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [selectedOutletIdx, setSelectedOutletIdx] = useState(0);
@@ -54,24 +54,17 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     (p) => p.name === story.outletName || p.id === story.outletId
   );
 
+  const cleanSearchQuery = getCleanNaverQuery(story.title, story.outletName, story.keywords);
   const naverUrl = getNaverNewsUrl(story.title, story.outletName, story.keywords);
-  const daumUrl = getDaumNewsUrl(story.title, story.outletName, story.keywords);
-  const googleUrl = getGoogleNewsUrl(story.title, story.keywords);
-  const officialHomepage = outletMeta?.homepageUrl || 'https://news.naver.com';
+  const officialHomepage = getOfficialOutletHomepage(
+    story.outletId || outletMeta?.id,
+    story.outletName,
+    story.originalUrl || outletMeta?.homepageUrl
+  );
 
   const isCluster =
     story.category === 'overlapping' ||
     (story.coveredOutlets && story.coveredOutlets.length > 0);
-
-  const directOutletUrl = isCluster
-    ? naverUrl
-    : getDirectOutletUrl(
-        story.outletId || outletMeta?.id,
-        story.outletName,
-        story.title,
-        story.keywords,
-        officialHomepage
-      );
 
   const clusterItems: ClusterOutletItem[] = story.clusterOutlets || [];
   const currentClusterItem: ClusterOutletItem | undefined =
@@ -97,19 +90,30 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   };
 
   const handleCopyLink = async () => {
-    const linkToCopy = isCluster ? naverUrl : directOutletUrl;
+    const linkToCopy = officialHomepage || naverUrl;
     const ok = await copyToClipboardSafe(linkToCopy);
     if (ok) {
       setCopiedLink(true);
-      showToast('원문 기사 링크가 클립보드에 복사되었습니다.');
+      showToast('신문사 홈페이지 원문 링크가 클립보드에 복사되었습니다.');
       setTimeout(() => setCopiedLink(false), 2400);
     } else {
       showToast('링크 복사에 실패했습니다. 브라우저 설정을 확인해주세요.');
     }
   };
 
+  const handleCopyNaverQuery = async () => {
+    const ok = await copyToClipboardSafe(cleanSearchQuery);
+    if (ok) {
+      setCopiedNaverQuery(true);
+      showToast(`네이버 검색어가 복사되었습니다: "${cleanSearchQuery}"`);
+      setTimeout(() => setCopiedNaverQuery(false), 2400);
+    } else {
+      showToast('검색어 복사에 실패했습니다.');
+    }
+  };
+
   const handleCopyFullText = async () => {
-    const formattedText = `[${story.outletName}] ${story.title}\n\n출처: ${story.outletName} (${story.publishedAt})\n기자: ${story.reporter || '특별취재팀'}\n\n${fullArticleText}\n\n원문 링크: ${directOutletUrl}`;
+    const formattedText = `[${story.outletName}] ${story.title}\n\n출처: ${story.outletName} (${story.publishedAt})\n기자: ${story.reporter || '특별취재팀'}\n\n${fullArticleText}\n\n신문사 홈페이지: ${officialHomepage}\n네이버 검색: ${naverUrl}`;
     const ok = await copyToClipboardSafe(formattedText);
     if (ok) {
       setCopiedText(true);
@@ -466,99 +470,120 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
             </div>
           </div>
 
-          {/* Real Portal Search & Direct External Links Box */}
-          <div className="bg-gradient-to-r from-blue-50/60 via-indigo-50/40 to-slate-50 border border-blue-200/80 rounded-2xl p-5 space-y-3">
+          {/* External Links & Naver Connection Box (Exactly 2 Buttons + Option 2 Error-Free Keyword Search Fallback) */}
+          <div className="bg-gradient-to-r from-slate-50 via-blue-50/40 to-slate-50 border border-slate-200/90 rounded-2xl p-5 space-y-4 shadow-xs">
             <div>
-              <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <Search className="w-4 h-4 text-blue-600" />
-                <span>외부 포털 원기사 및 클러스터 실시간 바로가기</span>
-              </h4>
-              <p className="text-xs text-slate-500 mt-0.5">
-                안전한 새 탭 링크를 통해 네이버, 다음, 구글 및 해당 언론사에서 기사 전문과 실시간 반응을 확인하실 수 있습니다.
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Search className="w-4 h-4 text-blue-600" />
+                  <span>기사 원문 및 네이버 뉴스 실시간 연결</span>
+                </h4>
+                <span className="text-[11px] font-semibold text-blue-700 bg-blue-100/70 px-2 py-0.5 rounded-full">
+                  공식 2대 연결 링크
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                언론사 공식 홈페이지 원문과 문자 오류가 보완된 네이버 뉴스 실시간 연결을 제공합니다.
               </p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+            {/* Exactly 2 Link Buttons */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-0.5">
+              {/* 1. 신문사 홈페이지 원문 링크 */}
               <a
-                href={directOutletUrl}
+                href={officialHomepage}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="p-3 rounded-xl bg-blue-600 hover:bg-blue-700 border border-blue-600 text-white font-bold text-xs flex items-center justify-between transition active:scale-95 group shadow-xs sm:col-span-2 cursor-pointer"
+                className="p-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-between transition-all duration-150 active:scale-95 group shadow-sm hover:shadow-md cursor-pointer"
+                title={`${story.outletName} 공식 홈페이지로 이동 (새 창)`}
               >
-                <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-white text-blue-700 flex items-center justify-center text-[11px] font-black">
-                    ★
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="w-7 h-7 rounded-lg bg-white/10 text-white flex items-center justify-center shrink-0 border border-white/20">
+                    <Building2 className="w-4 h-4" />
                   </span>
-                  <span>
-                    {isCluster ? '언론사 공통 대표 원문 링크 열기' : `${story.outletName} 원기사 바로가기 (새 창)`}
-                  </span>
+                  <div className="truncate text-left">
+                    <div className="text-[12px] font-black text-white truncate">
+                      {story.outletName} 공식 홈페이지 원문
+                    </div>
+                    <div className="text-[10px] text-slate-300 font-normal truncate">
+                      신문사 공식 사이트에서 최신 기사 확인
+                    </div>
+                  </div>
                 </div>
-                <ExternalLink className="w-4 h-4 text-white group-hover:translate-x-0.5 transition-transform" />
+                <ExternalLink className="w-4 h-4 text-slate-300 group-hover:text-white group-hover:translate-x-0.5 transition-transform shrink-0 ml-2" />
               </a>
 
-              {/* Naver News Link */}
+              {/* 2. 네이버 기사 연결 링크 */}
               <a
                 href={naverUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="p-3 rounded-xl bg-white hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-slate-800 font-bold text-xs flex items-center justify-between transition active:scale-95 group shadow-xs"
+                className="p-3.5 rounded-xl bg-[#03C75A] hover:bg-[#02b350] text-white font-bold text-xs flex items-center justify-between transition-all duration-150 active:scale-95 group shadow-sm hover:shadow-md cursor-pointer"
+                title="네이버 뉴스에서 문자 오류 없이 관련 기사 검색 (새 창)"
               >
-                <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[11px] font-black">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="w-7 h-7 rounded-lg bg-white text-[#03C75A] flex items-center justify-center font-black text-sm shrink-0 shadow-xs">
                     N
                   </span>
-                  <span>네이버 뉴스에서 원문 보기</span>
-                </div>
-                <ExternalLink className="w-3.5 h-3.5 text-emerald-600 group-hover:translate-x-0.5 transition-transform" />
-              </a>
-
-              {/* Daum News Link */}
-              <a
-                href={daumUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-3 rounded-xl bg-white hover:bg-amber-50 border border-slate-200 hover:border-amber-300 text-slate-800 font-bold text-xs flex items-center justify-between transition active:scale-95 group shadow-xs"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-amber-500 text-white flex items-center justify-center text-[11px] font-black">
-                    D
-                  </span>
-                  <span>다음 뉴스에서 원문 보기</span>
-                </div>
-                <ExternalLink className="w-3.5 h-3.5 text-amber-600 group-hover:translate-x-0.5 transition-transform" />
-              </a>
-
-              {/* Google News Cluster Link */}
-              <a
-                href={googleUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-3 rounded-xl bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 text-slate-800 font-bold text-xs flex items-center justify-between transition active:scale-95 group shadow-xs"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[11px] font-black">
-                    G
-                  </span>
-                  <span>구글 뉴스 클러스터 보기</span>
-                </div>
-                <ExternalLink className="w-3.5 h-3.5 text-blue-600 group-hover:translate-x-0.5 transition-transform" />
-              </a>
-
-              {/* Outlet Homepage Link */}
-              {outletMeta && (
-                <a
-                  href={officialHomepage}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-3 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-800 font-bold text-xs flex items-center justify-between transition active:scale-95 group shadow-xs"
-                >
-                  <div className="flex items-center gap-2">
-                    <Building2 className="w-4 h-4 text-slate-600" />
-                    <span>{story.outletName} 공식 홈페이지</span>
+                  <div className="truncate text-left">
+                    <div className="text-[12px] font-black text-white truncate">
+                      네이버 뉴스 기사 연결
+                    </div>
+                    <div className="text-[10px] text-emerald-100 font-normal truncate">
+                      문자 오류 방지 최적화 검색 (새 창)
+                    </div>
                   </div>
-                  <ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:translate-x-0.5 transition-transform" />
-                </a>
-              )}
+                </div>
+                <ExternalLink className="w-4 h-4 text-emerald-100 group-hover:text-white group-hover:translate-x-0.5 transition-transform shrink-0 ml-2" />
+              </a>
+            </div>
+
+            {/* Option 2 Alternative: Error-Free Naver Search Keyword & One-Click Copy */}
+            <div className="pt-2 border-t border-slate-200/80">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white border border-slate-200 rounded-xl p-2.5 sm:p-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md shrink-0">
+                    대안 검색어
+                  </span>
+                  <div className="truncate font-mono text-xs text-slate-800 font-semibold select-all bg-slate-50 px-2 py-1 rounded border border-slate-200/70">
+                    {cleanSearchQuery}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
+                  <button
+                    onClick={handleCopyNaverQuery}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition active:scale-95 cursor-pointer shadow-2xs"
+                    title="네이버 검색창에 붙여넣을 수 있는 정제된 검색어를 복사합니다."
+                  >
+                    {copiedNaverQuery ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        <span className="text-emerald-700">복사 완료!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>네이버 검색어 복사</span>
+                      </>
+                    )}
+                  </button>
+
+                  <a
+                    href="https://search.naver.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 transition active:scale-95 cursor-pointer"
+                    title="네이버 메인 검색창 열기 (새 창)"
+                  >
+                    <span>네이버 열기</span>
+                    <ExternalLink className="w-3 h-3 text-slate-500" />
+                  </a>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1.5 px-0.5">
+                ※ 브라우저 보안/팝업 설정으로 링크 연결이 원활하지 않을 경우, 위 정제 검색어를 복사(Ctrl+C)하여 네이버 검색창에 붙여넣기(Ctrl+V)하시면 문자 오류 없이 즉시 조회하실 수 있습니다.
+              </p>
             </div>
           </div>
         </div>
