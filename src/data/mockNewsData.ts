@@ -1,4 +1,5 @@
 import type { PressOutlet, DailyBriefing, WeeklyReport, UserPreferences, EmailDispatchLog, SectorHeadlineItem } from '../types/news.ts';
+import { DEFAULT_SECTOR_PREFERENCES } from '../types/news.ts';
 import { getCurrentKoreanDateString } from '../utils/dateUtils.ts';
 import { MOCK_SECTOR_HEADLINES } from './mockSectorHeadlines.ts';
 
@@ -1603,6 +1604,7 @@ export const INITIAL_USER_PREFERENCES: UserPreferences = {
   overlappingOutlets: DEFAULT_10_OUTLETS,
   minOutletCoverageRatio: 50,
   minSimilarityScore: 70,
+  sectorPreferences: DEFAULT_SECTOR_PREFERENCES,
 };
 
 // Rich Korean news data representing today's morning briefing (9:00 AM standard)

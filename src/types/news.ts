@@ -129,6 +129,20 @@ export interface SectorHeadlineItem {
   fullContent?: string;
 }
 
+export interface SectorPreferences {
+  enabledSectors: ('construction' | 'realestate' | 'finance')[]; // 사용자가 활성화한 관심 섹터
+  favoriteKeywords: string[]; // 사용자가 집중 구독하는 세부 키워드/태그
+  defaultSector: RealEstateFinanceSector; // 기본 선택 탭
+  onlyCrucialOrHigh?: boolean; // 중요도 높은 핵심 기사 우선 보기
+}
+
+export const DEFAULT_SECTOR_PREFERENCES: SectorPreferences = {
+  enabledSectors: ['construction', 'realestate', 'finance'],
+  favoriteKeywords: [],
+  defaultSector: 'all',
+  onlyCrucialOrHigh: false,
+};
+
 export interface UserPreferences {
   recipientEmail: string;
   savedRecipientEmails?: string[]; // 자주 쓰는 / 등록된 수신 이메일 목록
@@ -143,6 +157,7 @@ export interface UserPreferences {
   overlappingOutlets?: string[]; // 공통 이슈 기사 맞춤 언론사 목록
   minOutletCoverageRatio?: number; // 공통 이슈 수집 언론사 보도 비율 기준 (% 단위, 기본 50)
   minSimilarityScore?: number; // 공통 이슈 기사 유사도 기준 (% 단위, 기본 70)
+  sectorPreferences?: SectorPreferences; // 4. 건설·부동산·금융 관심분야 개인설정
 }
 
 export interface EmailDispatchLog {

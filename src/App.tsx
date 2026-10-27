@@ -35,6 +35,8 @@ import {
   EmailDispatchLog,
   NewsStory,
   BriefingTone,
+  SectorPreferences,
+  DEFAULT_SECTOR_PREFERENCES,
 } from './types/news';
 import {
   fetchSummary,
@@ -81,6 +83,21 @@ const loadSavedPreferences = (): UserPreferences => {
           ? Array.from(new Set([targetEmail, ...parsed.savedRecipientEmails]))
           : [targetEmail];
 
+        const savedSectorPrefs = parsed.sectorPreferences && typeof parsed.sectorPreferences === 'object'
+          ? {
+              ...DEFAULT_SECTOR_PREFERENCES,
+              ...parsed.sectorPreferences,
+              enabledSectors: Array.isArray(parsed.sectorPreferences.enabledSectors) && parsed.sectorPreferences.enabledSectors.length > 0
+                ? parsed.sectorPreferences.enabledSectors
+                : DEFAULT_SECTOR_PREFERENCES.enabledSectors,
+              favoriteKeywords: Array.isArray(parsed.sectorPreferences.favoriteKeywords)
+                ? parsed.sectorPreferences.favoriteKeywords
+                : [],
+              defaultSector: parsed.sectorPreferences.defaultSector || 'all',
+              onlyCrucialOrHigh: !!parsed.sectorPreferences.onlyCrucialOrHigh,
+            }
+          : DEFAULT_SECTOR_PREFERENCES;
+
         return {
           ...INITIAL_USER_PREFERENCES,
           ...parsed,
@@ -91,6 +108,7 @@ const loadSavedPreferences = (): UserPreferences => {
           overlappingOutlets: validOverlap,
           minOutletCoverageRatio: typeof parsed.minOutletCoverageRatio === 'number' && parsed.minOutletCoverageRatio > 0 ? parsed.minOutletCoverageRatio : 50,
           minSimilarityScore: typeof parsed.minSimilarityScore === 'number' && parsed.minSimilarityScore > 0 ? parsed.minSimilarityScore : 70,
+          sectorPreferences: savedSectorPrefs,
         };
       }
     }
@@ -396,6 +414,22 @@ export default function App() {
       console.warn('Failed to delete email from localStorage', e);
     }
     triggerNotification(`수신 이메일 '${emailToDelete}'이(가) 목록에서 삭제되었습니다.`);
+  };
+
+  // 3-3. 건설·부동산·금융 관심분야 설정 영구 저장 핸들러
+  const handleSaveSectorPreferences = (newSectorPrefs: SectorPreferences) => {
+    const updated: UserPreferences = {
+      ...preferences,
+      sectorPreferences: newSectorPrefs,
+    };
+    setPreferences(updated);
+    try {
+      localStorage.setItem(STORAGE_KEY_PREFERENCES, JSON.stringify(updated));
+      localStorage.setItem('morning_brief_sector_preferences_v1', JSON.stringify(newSectorPrefs));
+    } catch (e) {
+      console.warn('Failed to save sector preferences to localStorage', e);
+    }
+    triggerNotification('건설·부동산·금융 관심분야 맞춤 설정이 브라우저에 저장되었습니다. (다시 열어도 유지)');
   };
 
   // 4. Update Topic subscriptions
@@ -828,6 +862,8 @@ export default function App() {
               onOpenArticleModal={(s) => setArticleModalStory(s)}
               onOpenShareModal={(s) => setShareStory(s)}
               isMobileView={isMobilePreview}
+              sectorPreferences={preferences.sectorPreferences || DEFAULT_SECTOR_PREFERENCES}
+              onSaveSectorPreferences={handleSaveSectorPreferences}
             />
 
             {/* Weekly Report Promotion Banner (Light Theme) */}
