@@ -121,39 +121,39 @@ export const EmailModal: React.FC<EmailModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-3xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden text-slate-800">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+      <div className="bg-white border-t sm:border border-slate-200 rounded-t-3xl sm:rounded-3xl w-full max-w-3xl h-[92dvh] sm:h-auto sm:max-h-[92vh] flex flex-col shadow-2xl overflow-hidden text-slate-800">
         {/* Header */}
-        <div className="px-6 py-5 border-b border-slate-200 flex items-center justify-between bg-slate-50/80">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-blue-100 text-blue-700">
-              <Mail className="w-5 h-5" />
+        <div className="px-4 sm:px-6 py-3.5 sm:py-5 border-b border-slate-200 flex items-center justify-between bg-slate-50/80 shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="p-2 rounded-xl bg-blue-100 text-blue-700 shrink-0">
+              <Mail className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-lg font-bold text-slate-900">
-                  모닝브리프 이메일 발송 & 수신 주소 관리
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <h3 className="text-sm sm:text-lg font-bold text-slate-900 truncate">
+                  이메일 발송 & 수신 주소 관리
                 </h3>
-                <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <span className="text-[10px] sm:text-[11px] font-bold text-emerald-800 bg-emerald-100 px-1.5 sm:px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
                   <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                  <span>설정 자동 저장 지원</span>
+                  <span>자동 저장</span>
                 </span>
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5 truncate">
                 매일 오전 {deliveryTime} 정각 자동 발송 관리 및 수신 이메일 영구 저장
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-slate-800 hover:bg-slate-200 transition cursor-pointer"
+            className="p-1.5 sm:p-2 rounded-xl text-slate-400 hover:text-slate-800 hover:bg-slate-200 transition cursor-pointer shrink-0 ml-2"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Tab Navigation */}
-        <div className="px-6 pt-3 pb-2 bg-slate-50 border-b border-slate-200 flex items-center gap-2 text-xs">
+        <div className="px-3 sm:px-6 pt-2 pb-1.5 bg-slate-50 border-b border-slate-200 flex items-center gap-1.5 text-xs overflow-x-auto scrollbar-none whitespace-nowrap shrink-0">
           <button
             onClick={() => setActiveTab('send')}
             className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer ${

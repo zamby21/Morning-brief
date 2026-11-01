@@ -226,6 +226,7 @@ export default function App() {
   const handleOpenPressModal = (section: 'frontPage' | 'overlapping' = 'frontPage') => {
     setPressModalInitialSection(section);
     setIsPressModalOpen(true);
+    setIsSidebarOpen(false);
   };
 
   // Section Toggle Helpers
@@ -330,12 +331,19 @@ export default function App() {
     const validOverlap = overlappingOutlets && overlappingOutlets.length > 0 ? overlappingOutlets : DEFAULT_10_OUTLETS;
     const combined = Array.from(new Set([...validFront, ...validOverlap]));
 
-    setPreferences((prev) => ({
-      ...prev,
+    const updated = {
+      ...preferences,
       selectedOutlets: combined,
       frontPageOutlets: validFront,
       overlappingOutlets: validOverlap,
-    }));
+    };
+
+    setPreferences(updated);
+    try {
+      localStorage.setItem(STORAGE_KEY_PREFERENCES, JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Failed to save outlet preferences to localStorage', e);
+    }
 
     setBriefing((prev) => ({
       ...prev,
@@ -346,7 +354,7 @@ export default function App() {
     }));
 
     triggerNotification(
-      `수집 언론사(1면: ${validFront.length}개사, 공통: ${validOverlap.length}개사) 설정이 브라우저에 저장되었습니다.`
+      `수집 언론사(1면: ${validFront.length}개사, 공통: ${validOverlap.length}개사) 설정이 정상 저장 및 적용되었습니다.`
     );
   };
 
@@ -722,18 +730,19 @@ export default function App() {
               </div>
             )}
 
-            {/* Quick Section Jump Navigation Bar & Global Collapse Controls */}
-            <div className="bg-white/95 border border-slate-200/90 rounded-2xl p-2.5 sm:p-3 flex flex-wrap items-center justify-between gap-2.5 shadow-xs backdrop-blur-md sticky top-[57px] z-20">
-              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline mr-1">
+            {/* Quick Section Jump Navigation Bar & Global Collapse Controls (Single Line, No Awkward Wrap on Mobile) */}
+            <div className="bg-white/95 border border-slate-200/90 rounded-2xl p-1.5 sm:p-2.5 flex items-center justify-between gap-1.5 sm:gap-2 shadow-xs backdrop-blur-md sticky top-[48px] sm:top-[57px] z-20 overflow-x-auto scrollbar-none">
+              <div className="flex items-center gap-1 sm:gap-1.5 flex-nowrap shrink-0">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider hidden md:inline mr-1 shrink-0">
                   섹션 바로가기:
                 </span>
                 <button
                   onClick={() => scrollToSection('section-frontpage')}
-                  className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold transition flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                  className="px-2 sm:px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold transition flex items-center gap-1 sm:gap-1.5 active:scale-95 cursor-pointer shrink-0"
                 >
                   <Newspaper className="w-3.5 h-3.5 text-blue-600" />
-                  <span>1. 1면 핵심</span>
+                  <span className="hidden sm:inline">1. 1면 핵심</span>
+                  <span className="sm:hidden">1. 1면</span>
                   <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-600 text-white font-bold">
                     {filteredFrontPage.length}
                   </span>
@@ -741,10 +750,11 @@ export default function App() {
 
                 <button
                   onClick={() => scrollToSection('section-overlapping')}
-                  className="px-2.5 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-xs font-bold transition flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                  className="px-2 sm:px-2.5 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-xs font-bold transition flex items-center gap-1 sm:gap-1.5 active:scale-95 cursor-pointer shrink-0"
                 >
                   <Layers className="w-3.5 h-3.5 text-purple-600" />
-                  <span>2. 공통 이슈</span>
+                  <span className="hidden sm:inline">2. 공통 이슈</span>
+                  <span className="sm:hidden">2. 공통</span>
                   <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-purple-600 text-white font-bold">
                     {filteredOverlapping.length}
                   </span>
@@ -752,10 +762,11 @@ export default function App() {
 
                 <button
                   onClick={() => scrollToSection('section-exclusive')}
-                  className="px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                  className="px-2 sm:px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition flex items-center gap-1 sm:gap-1.5 active:scale-95 cursor-pointer shrink-0"
                 >
                   <Zap className="w-3.5 h-3.5 text-rose-600" />
-                  <span>3. 단독·특별</span>
+                  <span className="hidden sm:inline">3. 단독·특별</span>
+                  <span className="sm:hidden">3. 단독</span>
                   <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-rose-600 text-white font-bold">
                     {filteredExclusive.length}
                   </span>
@@ -763,20 +774,21 @@ export default function App() {
 
                 <button
                   onClick={() => scrollToSection('section-realestate-finance')}
-                  className="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-bold transition flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                  className="px-2 sm:px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-bold transition flex items-center gap-1 sm:gap-1.5 active:scale-95 cursor-pointer shrink-0"
                 >
                   <Building className="w-3.5 h-3.5 text-amber-600" />
-                  <span>4. 건설·부동산·금융</span>
+                  <span className="hidden sm:inline">4. 건설·부동산·금융</span>
+                  <span className="sm:hidden">4. 건설·금융</span>
                   <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-600 text-white font-bold">
                     {filteredSectorHeadlines.length}
                   </span>
                 </button>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 pl-1">
                 <button
                   onClick={toggleAllSections}
-                  className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-xs font-bold transition flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                  className="px-2 sm:px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-xs font-bold transition flex items-center gap-1 active:scale-95 cursor-pointer shrink-0"
                   title="모든 섹션 일괄 접기 / 펼치기"
                 >
                   {collapsedSections.frontPage &&
@@ -785,23 +797,25 @@ export default function App() {
                   collapsedSections.realEstateFinance ? (
                     <>
                       <ChevronDown className="w-3.5 h-3.5 text-blue-600" />
-                      <span>전체 펼치기</span>
+                      <span className="hidden sm:inline">전체 펼치기</span>
+                      <span className="sm:hidden">펼치기</span>
                     </>
                   ) : (
                     <>
                       <ChevronUp className="w-3.5 h-3.5 text-blue-600" />
-                      <span>전체 접기</span>
+                      <span className="hidden sm:inline">전체 접기</span>
+                      <span className="sm:hidden">접기</span>
                     </>
                   )}
                 </button>
 
                 <button
                   onClick={scrollToTop}
-                  className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs flex items-center gap-1 active:scale-95 cursor-pointer"
-                  title="페이지 맨 위로 바로가기"
+                  className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs flex items-center gap-1 active:scale-95 cursor-pointer shrink-0"
+                  title="페이지 맨 위로 스크롤"
                 >
                   <ArrowUp className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">맨위로</span>
+                  <span className="hidden md:inline">맨위로</span>
                 </button>
               </div>
             </div>
