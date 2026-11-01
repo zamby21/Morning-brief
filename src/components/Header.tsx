@@ -130,9 +130,10 @@ export const Header: React.FC<HeaderProps> = ({
                   <Calendar className="w-3 h-3 text-blue-600" />
                   <span>{briefingDate || getCurrentKoreanDateString()}</span>
                 </span>
-                {/* Mobile Compact Date Badge (Only month/day) */}
-                <span className="inline-flex sm:hidden items-center text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200/90">
-                  {briefingDate ? briefingDate.replace(/^\d{4}\.\s*/, '') : '오늘'}
+                {/* Mobile Date Badge (Clean, without year prefix, fully visible without crowding) */}
+                <span className="inline-flex sm:hidden items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200/90 shrink-0">
+                  <Calendar className="w-2.5 h-2.5 text-blue-600" />
+                  <span>{(briefingDate || getCurrentKoreanDateString()).replace(/^\d{4}[년\.\-]\s*/, '')}</span>
                 </span>
                 <span className="hidden sm:inline-block text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-blue-600 text-white shadow-2xs">
                   9:00 AM
@@ -142,19 +143,9 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Right: Streamlined Quick Controls without Layout Distortion */}
-        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-          {/* Mobile Outlet Quick Button (Quick Access for Mobile) */}
-          <button
-            onClick={onOpenPressModal}
-            className="flex md:hidden items-center gap-1 px-2 py-1.5 rounded-xl text-xs font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition active:scale-95 cursor-pointer shrink-0"
-            title="언론사 맞춤 설정 열기"
-          >
-            <SlidersHorizontal className="w-3 h-3 text-blue-600" />
-            <span className="text-[11px]">{frontPageCount ?? selectedOutletsCount}사</span>
-          </button>
-
-          {/* Desktop Outlet Quick Indicator Button */}
+        {/* Right: Streamlined Quick Controls */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* Desktop Outlet Quick Indicator Button (Mobile uses left sidebar menu) */}
           <button
             onClick={onOpenPressModal}
             className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200/80 transition cursor-pointer"
