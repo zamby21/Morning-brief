@@ -371,18 +371,13 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
           <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/90 space-y-4 shadow-xs">
             {/* Header with Reading Tools */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
-              <div className="space-y-1">
-                <h4 className="text-xs sm:text-sm font-bold text-slate-800 uppercase tracking-wide flex items-center gap-2">
-                  <BookOpen className="w-4 h-4 text-blue-600" />
-                  <span>{isCluster ? '언론사 공통 심층 취재 리포트 전문' : '원기사 상세 본문 전문'}</span>
-                  <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                    원문 검증 완료
-                  </span>
-                </h4>
-                <p className="text-[11px] text-slate-500">
-                  {story.outletName} 지면 발행 원기사 전문이 누락 없이 수록되어 외부 이동 없이 바로 완독하실 수 있습니다.
-                </p>
-              </div>
+              <h4 className="text-xs sm:text-sm font-bold text-slate-800 uppercase tracking-wide flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-blue-600" />
+                <span>{isCluster ? '언론사 공통 심층 취재 리포트 전문' : '원기사 상세 본문 전문'}</span>
+                <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                  원문 검증 완료
+                </span>
+              </h4>
 
               {/* Reading Stats & Action Tools */}
               <div className="flex items-center flex-wrap gap-2">
@@ -398,25 +393,6 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                 >
                   <Type className="w-3.5 h-3.5 text-slate-500" />
                   <span>{fontSize === 'base' ? '크게 A+' : '보통 A'}</span>
-                </button>
-
-                {/* Copy Full Text Button */}
-                <button
-                  onClick={handleCopyFullText}
-                  className="px-3 py-1 rounded-lg text-xs font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 flex items-center gap-1.5 cursor-pointer transition active:scale-95 shadow-xs"
-                  title="기사 본문 전체를 텍스트로 복사"
-                >
-                  {copiedText ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-600" />
-                      <span className="text-emerald-700 font-bold">전문 복사됨!</span>
-                    </>
-                  ) : (
-                    <>
-                      <FileText className="w-3.5 h-3.5 text-blue-600" />
-                      <span>기사 전문 복사</span>
-                    </>
-                  )}
                 </button>
               </div>
             </div>
