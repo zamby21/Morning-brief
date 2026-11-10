@@ -15,7 +15,6 @@ import {
   Layers,
   Zap,
   CheckCircle2,
-  LayoutGrid,
 } from 'lucide-react';
 import { BriefingTone, UserPreferences } from '../types/news';
 import { AVAILABLE_TOPICS } from '../data/mockNewsData';
@@ -34,8 +33,6 @@ interface SidebarProps {
   isLoading: boolean;
   isMobilePreview: boolean;
   onToggleMobilePreview: () => void;
-  newspaperViewMode: boolean;
-  onToggleNewspaperViewMode: () => void;
   selectedTopic: string;
   onSelectTopic: (topic: string) => void;
   subscribedTopics: string[];
@@ -58,8 +55,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isLoading,
   isMobilePreview,
   onToggleMobilePreview,
-  newspaperViewMode,
-  onToggleNewspaperViewMode,
   selectedTopic,
   onSelectTopic,
   subscribedTopics,
@@ -335,40 +330,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
 
             <div className="space-y-1">
-              {/* Newspaper View Mode Toggle */}
-              <button
-                onClick={onToggleNewspaperViewMode}
-                className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-left transition group cursor-pointer ${
-                  newspaperViewMode
-                    ? 'bg-amber-50/80 border border-amber-200 text-amber-900'
-                    : 'hover:bg-slate-100 text-slate-700 hover:text-slate-900'
-                } ${!isOpen && 'justify-center'}`}
-                title={newspaperViewMode ? '신문 지면 뷰 활성' : '신문 지면 뷰로 전환'}
-              >
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
-                  newspaperViewMode
-                    ? 'bg-amber-600 text-white'
-                    : 'bg-slate-100 text-slate-600 group-hover:bg-amber-600 group-hover:text-white'
-                }`}>
-                  <LayoutGrid className="w-4 h-4" />
-                </div>
-                {isOpen && (
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between text-xs font-bold">
-                      <span>신문 지면 모드</span>
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                        newspaperViewMode ? 'bg-amber-200 text-amber-800' : 'bg-slate-200 text-slate-600'
-                      }`}>
-                        {newspaperViewMode ? 'ON' : 'OFF'}
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-slate-400 truncate">
-                      신문사 로고 & 지면 레이아웃
-                    </div>
-                  </div>
-                )}
-              </button>
-
               {/* Mobile Preview Toggle */}
               <button
                 onClick={onToggleMobilePreview}

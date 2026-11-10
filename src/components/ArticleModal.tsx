@@ -31,7 +31,6 @@ interface ArticleModalProps {
   onClose: () => void;
   story: NewsStory | null;
   onOpenShare: (story: NewsStory) => void;
-  onOpenNewspaperModal?: (story: NewsStory) => void;
 }
 
 export const ArticleModal: React.FC<ArticleModalProps> = ({
@@ -39,7 +38,6 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   onClose,
   story,
   onOpenShare,
-  onOpenNewspaperModal,
 }) => {
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedText, setCopiedText] = useState(false);
@@ -615,20 +613,6 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {onOpenNewspaperModal && (
-              <button
-                onClick={() => {
-                  onClose();
-                  onOpenNewspaperModal(story);
-                }}
-                className="px-3.5 py-2 rounded-xl text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
-                title="실제 종이신문 1면 지면 뷰어로 확인"
-              >
-                <Newspaper className="w-3.5 h-3.5 text-amber-700" />
-                <span>1면 지면 신문 뷰어</span>
-              </button>
-            )}
-
             <button
               onClick={() => {
                 onClose();

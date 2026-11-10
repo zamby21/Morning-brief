@@ -14,7 +14,6 @@ import { EmailModal } from './components/EmailModal';
 import { WeeklyReportModal } from './components/WeeklyReportModal';
 import { SocialShareModal } from './components/SocialShareModal';
 import { ArticleModal } from './components/ArticleModal';
-import { NewspaperViewerModal } from './components/NewspaperViewerModal';
 import { PushNotificationBanner } from './components/PushNotificationBanner';
 
 import {
@@ -144,9 +143,6 @@ export default function App() {
   // Sidebar Open/Close State (세로 접이식 메뉴)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // Newspaper View Mode (신문 지면 스타일 토글)
-  const [newspaperViewMode, setNewspaperViewMode] = useState(false);
-
   // Section Collapse State (1.첫페이지, 2.공통이슈, 3.단독보도, 4.건설부동산금융)
   const [collapsedSections, setCollapsedSections] = useState({
     frontPage: false,
@@ -167,7 +163,6 @@ export default function App() {
   const [isWeeklyModalOpen, setIsWeeklyModalOpen] = useState(false);
   const [shareStory, setShareStory] = useState<NewsStory | null>(null);
   const [articleModalStory, setArticleModalStory] = useState<NewsStory | null>(null);
-  const [newspaperModalStory, setNewspaperModalStory] = useState<NewsStory | null>(null);
 
   // States
   const [isLoading, setIsLoading] = useState(false);
@@ -636,8 +631,6 @@ export default function App() {
         isLoading={isLoading}
         isMobilePreview={isMobilePreview}
         onToggleMobilePreview={() => setIsMobilePreview(!isMobilePreview)}
-        newspaperViewMode={newspaperViewMode}
-        onToggleNewspaperViewMode={() => setNewspaperViewMode(!newspaperViewMode)}
         selectedTopic={selectedTopic}
         onSelectTopic={(t) => setSelectedTopic(t)}
         subscribedTopics={preferences.subscribedTopics}
@@ -825,13 +818,10 @@ export default function App() {
               stories={filteredFrontPage}
               onOpenShareModal={(s) => setShareStory(s)}
               onOpenArticleModal={(s) => setArticleModalStory(s)}
-              onOpenNewspaperModal={(s) => setNewspaperModalStory(s)}
               onReact={handleReaction}
               isCollapsed={collapsedSections.frontPage}
               onToggleCollapse={() => toggleSection('frontPage')}
               onScrollToTop={scrollToTop}
-              newspaperViewMode={newspaperViewMode}
-              onToggleNewspaperViewMode={() => setNewspaperViewMode(!newspaperViewMode)}
               onOpenOutletSettings={() => handleOpenPressModal('frontPage')}
               isMobileView={isMobilePreview}
             />
@@ -977,15 +967,6 @@ export default function App() {
         isOpen={!!articleModalStory}
         onClose={() => setArticleModalStory(null)}
         story={articleModalStory}
-        onOpenShare={(s) => setShareStory(s)}
-        onOpenNewspaperModal={(s) => setNewspaperModalStory(s)}
-      />
-
-      {/* Realistic 1-Page Newspaper Facsimile Viewer Modal */}
-      <NewspaperViewerModal
-        isOpen={!!newspaperModalStory}
-        onClose={() => setNewspaperModalStory(null)}
-        story={newspaperModalStory}
         onOpenShare={(s) => setShareStory(s)}
       />
 
