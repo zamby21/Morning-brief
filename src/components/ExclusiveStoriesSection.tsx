@@ -156,7 +156,7 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
                         key={idx}
                         className="text-xs sm:text-[13px] text-slate-700 leading-relaxed font-normal"
                       >
-                        {line}
+                        {line.replace(/^[0-9]+[.)]\s*/, '').trim()}
                       </p>
                     ))}
                   </div>

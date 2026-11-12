@@ -92,13 +92,13 @@ app.post(['/api/summarize', '/summarize'], async (req, res) => {
             })),
           }));
 
-        const prompt = `당신은 대한민국 대표 신문 뉴스 브리핑 에디터입니다.
-아래에 제공된 '실제 실시간 언론사 보도 기사 데이터'를 바탕으로 당일 모닝 브리핑을 작성해주세요.
+        const prompt = `당신은 대한민국 대표 신문 뉴스 브리핑 수석 에디터입니다.
+아래에 제공된 '실제 실시간 언론사 보도자료 및 기사 데이터'를 바탕으로 당일 모닝 브리핑을 작성해주세요.
 
 [중요 제약조건]:
 1. 절대로 가짜 뉴스나 존재하지 않는 기사 제목을 지어내지 마세요.
-2. 각 기사의 제목(title)과 원문 링크(originalUrl)는 아래에 제공된 실제 기사의 title과 link를 100% 그대로 유지해야 합니다.
-3. 3줄 요약(leadSummary)은 기사 본문과 스니펫을 바탕으로 정확히 3문장(1, 2, 3 번호 매김)으로 작성해주세요.
+2. 각 기사의 제목(title)은 언론사 보도자료/기사 원문 제목을 100% 그대로 유지하고 절대 축약하거나 단어를 수정하지 마세요.
+3. 3줄 요약(leadSummary)은 '1. 2. 3.' 숫자 번호 매김 없이, 기사 내용의 핵심 팩트, 원인/배경, 향후 전망을 정확하게 반영한 3개의 완성된 문장으로 작성해주세요.
 4. 희망 어조: ${getToneDescription(tone)}
 
 [제공된 실제 언론사 기사 목록]:
@@ -157,7 +157,9 @@ ${JSON.stringify(realNewsPayload, null, 2)}`;
               (s) => s.title === gStory.title || s.outletName === gStory.outletName
             );
             if (existing && gStory.leadSummary && gStory.leadSummary.length > 0) {
-              existing.leadSummary = gStory.leadSummary.slice(0, 3);
+              existing.leadSummary = gStory.leadSummary
+                .slice(0, 3)
+                .map((line: string) => line.replace(/^[0-9]+[.)]\s*/, '').trim());
             }
           });
         }

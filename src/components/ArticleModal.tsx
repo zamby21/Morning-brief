@@ -178,7 +178,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                   }`}
                 >
                   {story.category === 'frontpage'
-                    ? '1면 톱 보도'
+                    ? '첫화면 중앙 1면 톱'
                     : isCluster
                     ? `${story.coveredOutlets?.length || '다수'}개 언론사 교차 클러스터`
                     : story.exclusiveBadge || '단독 특종'}
@@ -235,7 +235,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
             </div>
             {story.leadSummary.map((line, idx) => (
               <p key={idx} className="text-xs sm:text-sm text-slate-700 leading-relaxed pl-1 font-normal">
-                {line}
+                {line.replace(/^[0-9]+[.)]\s*/, '').trim()}
               </p>
             ))}
           </div>
@@ -316,7 +316,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                       <div className="bg-slate-50 rounded-lg p-3 space-y-1 text-xs text-slate-700">
                         {currentClusterItem.leadSummary.map((line, i) => (
                           <p key={i} className="leading-relaxed">
-                            • {line}
+                            • {line.replace(/^[0-9]+[.)]\s*/, '').trim()}
                           </p>
                         ))}
                       </div>

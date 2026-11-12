@@ -44,14 +44,14 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-base sm:text-lg font-black text-slate-900">
-                1. 각 언론사 신문 1면(첫페이지) 핵심 보도
+                1. 각 언론사 공식 홈페이지 첫화면 중앙 1면 핵심 보도
               </h2>
               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
                 총 {stories.length}건
               </span>
             </div>
             <p className="text-xs text-slate-500">
-              오늘 아침 주요 언론사 1면 톱기사들을 엄선하여 핵심 3줄 브리핑으로 정밀 요약했습니다.
+              각 언론사 공식 홈페이지 첫화면 중앙에 가장 크게 떠있는 실시간 1면 톱기사를 엄선하여 3줄 브리핑으로 정밀 요약했습니다.
             </p>
           </div>
         </div>
@@ -141,7 +141,7 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
                         {outletMeta?.logoText || story.outletName}
                       </span>
                       <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                        신문 1면 톱
+                        첫화면 중앙 톱
                       </span>
                       {story.topic && (
                         <span className="text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
@@ -175,7 +175,7 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
                         key={idx}
                         className="text-xs sm:text-[13px] text-slate-700 leading-relaxed font-normal"
                       >
-                        {line}
+                        {line.replace(/^[0-9]+[.)]\s*/, '').trim()}
                       </p>
                     ))}
                   </div>
