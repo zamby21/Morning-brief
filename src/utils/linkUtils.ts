@@ -290,6 +290,87 @@ export function getOfficialOutletHomepage(
 }
 
 /**
+ * Generates direct search URL on the press outlet's OWN website
+ * (e.g. search.khan.co.kr for Kyunghyang, chosun.com/search for Chosun)
+ */
+export function getOfficialOutletSearchUrl(
+  outletId?: string,
+  outletName?: string,
+  title?: string,
+  keywords?: string[]
+): string {
+  const query = extractSearchKeywords(title || '', keywords).split(' ')[0] || '';
+  const encodedQuery = encodeURIComponent(query);
+  const id = (outletId || '').toLowerCase().trim();
+  const name = (outletName || '').trim();
+
+  if (id === 'khan' || name.includes('경향')) {
+    return `https://search.khan.co.kr/?q=${encodedQuery}`;
+  }
+  if (id === 'chosun' || name.includes('조선')) {
+    return `https://www.chosun.com/search/?query=${encodedQuery}`;
+  }
+  if (id === 'joongang' || name.includes('중앙')) {
+    return `https://www.joongang.co.kr/search?keyword=${encodedQuery}`;
+  }
+  if (id === 'donga' || name.includes('동아')) {
+    return `https://www.donga.com/news/search?query=${encodedQuery}`;
+  }
+  if (id === 'hani' || name.includes('한겨레')) {
+    return `https://search.hani.co.kr/search?q=${encodedQuery}`;
+  }
+  if (id === 'mk' || id === 'maeil' || name.includes('매일경제')) {
+    return `https://www.mk.co.kr/search?word=${encodedQuery}`;
+  }
+  if (id === 'hankyung' || name.includes('한국경제')) {
+    return `https://www.hankyung.com/search?query=${encodedQuery}`;
+  }
+  if (id === 'sedaily' || name.includes('서울경제')) {
+    return `https://www.sedaily.com/Search/?Query=${encodedQuery}`;
+  }
+  if (id === 'herald' || name.includes('헤럴드')) {
+    return `https://biz.heraldcorp.com/search.php?q=${encodedQuery}`;
+  }
+  if (id === 'asiae' || name.includes('아시아경제')) {
+    return `https://www.asiae.co.kr/search?query=${encodedQuery}`;
+  }
+
+  return getOfficialOutletHomepage(outletId, outletName);
+}
+
+/**
+ * Returns the best direct article URL or official in-site search URL on the press outlet's own portal.
+ */
+export function getArticleOrOutletUrl(
+  outletId?: string,
+  outletName?: string,
+  title?: string,
+  keywords?: string[],
+  providedUrl?: string
+): string {
+  if (
+    providedUrl &&
+    (providedUrl.startsWith('http://') || providedUrl.startsWith('https://')) &&
+    !providedUrl.includes('localhost') &&
+    providedUrl !== 'https://www.khan.co.kr' &&
+    providedUrl !== 'https://www.chosun.com' &&
+    providedUrl !== 'https://www.mk.co.kr' &&
+    providedUrl !== 'https://www.joongang.co.kr' &&
+    providedUrl !== 'https://www.donga.com' &&
+    providedUrl !== 'https://www.hani.co.kr' &&
+    providedUrl !== 'https://www.hankyung.com' &&
+    providedUrl !== 'https://www.sedaily.com' &&
+    providedUrl !== 'https://biz.heraldcorp.com' &&
+    providedUrl !== 'https://www.asiae.co.kr' &&
+    providedUrl !== 'https://news.naver.com'
+  ) {
+    return providedUrl;
+  }
+
+  return getOfficialOutletSearchUrl(outletId, outletName, title, keywords);
+}
+
+/**
  * Backward-compatible alias for getOfficialOutletHomepage
  */
 export const getDirectOutletUrl = (

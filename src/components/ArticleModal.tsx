@@ -23,6 +23,7 @@ import {
   getNaverNewsUrl,
   getCleanNaverQuery,
   getOfficialOutletHomepage,
+  getArticleOrOutletUrl,
   copyToClipboardSafe,
   openExternalSafe,
 } from '../utils/linkUtils';
@@ -69,6 +70,13 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
 
   const cleanSearchQuery = getCleanNaverQuery(activeTitle, activeOutletName, story.keywords);
   const naverUrl = getNaverNewsUrl(activeTitle, activeOutletName, story.keywords);
+  const officialArticleUrl = getArticleOrOutletUrl(
+    activeOutletId,
+    activeOutletName,
+    activeTitle,
+    story.keywords,
+    activeOriginalUrl || outletMeta?.homepageUrl
+  );
   const officialHomepage = getOfficialOutletHomepage(
     activeOutletId,
     activeOutletName,
@@ -95,11 +103,11 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   };
 
   const handleCopyLink = async () => {
-    const linkToCopy = officialHomepage || naverUrl;
+    const linkToCopy = officialArticleUrl || officialHomepage || naverUrl;
     const ok = await copyToClipboardSafe(linkToCopy);
     if (ok) {
       setCopiedLink(true);
-      showToast(`${activeOutletName} 공식 홈페이지 링크가 복사되었습니다.`);
+      showToast(`${activeOutletName} 공식 링크가 복사되었습니다.`);
       setTimeout(() => setCopiedLink(false), 2400);
     } else {
       showToast('링크 복사에 실패했습니다. 브라우저 설정을 확인해주세요.');
@@ -319,9 +327,11 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                           {currentClusterItem.outletName} 포털 공식 보도 전문
                         </span>
                         <a
-                          href={getOfficialOutletHomepage(
+                          href={getArticleOrOutletUrl(
                             currentClusterItem.outletId,
                             currentClusterItem.outletName,
+                            currentClusterItem.headline,
+                            story.keywords,
                             currentClusterItem.originalUrl
                           )}
                           target="_blank"
@@ -468,11 +478,11 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-0.5">
               {/* 1. 신문사 홈페이지 원문 링크 */}
               <a
-                href={officialHomepage}
+                href={officialArticleUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="p-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-between transition-all duration-150 active:scale-95 group shadow-sm hover:shadow-md cursor-pointer"
-                title={`${activeOutletName} 공식 홈페이지로 이동 (새 창)`}
+                title={`${activeOutletName} 공식 홈페이지 원문/기사로 이동 (새 창)`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
                   <span className="w-7 h-7 rounded-lg bg-white/10 text-white flex items-center justify-center shrink-0 border border-white/20">
@@ -483,7 +493,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                       {activeOutletName} 공식 홈페이지 원문
                     </div>
                     <div className="text-[10px] text-slate-300 font-normal truncate">
-                      공식 언론사 사이트 메인 및 최신 보도 확인
+                      공식 언론사 사이트 원문 및 최신 보도 확인
                     </div>
                   </div>
                 </div>

@@ -11,8 +11,9 @@ import {
 } from './src/data/mockNewsData.ts';
 import type { DailyBriefing, EmailDispatchLog, WeeklyReport, BriefingTone } from './src/types/news.ts';
 import { getCurrentKoreanDateString } from './src/utils/dateUtils.ts';
-import { extractSearchKeywords } from './src/utils/linkUtils.ts';
+import { extractSearchKeywords, getOfficialOutletHomepage } from './src/utils/linkUtils.ts';
 import { transformBriefingTone } from './src/utils/toneTransformer.ts';
+import { fetchRealArticlesForOutlets, buildRealBriefing } from './src/services/realNewsCollector.ts';
 
 dotenv.config();
 
@@ -68,168 +69,106 @@ app.post(['/api/summarize', '/summarize'], async (req, res) => {
     const selectedOutlets = PRESS_OUTLETS.filter((o) =>
       outletIds && outletIds.length > 0 ? outletIds.includes(o.id) : o.isDefaultMajor
     );
-    const outletNames = selectedOutlets.map((o) => o.name).join(', ');
+    const targetOutletIds = selectedOutlets.map((o) => o.id);
 
-    if (!apiKey) {
-      // Fallback with styled existing data
-      const adjustedBriefing = transformBriefingTone(INITIAL_DAILY_BRIEFING, tone as BriefingTone);
-      return res.json({
-        success: true,
-        data: adjustedBriefing,
-        source: 'database_cache',
-      });
-    }
+    // 1. Always harvest real-time verified articles from Korean media RSS
+    const realArticlesMap = await fetchRealArticlesForOutlets(targetOutletIds);
 
-    const prompt = `대한민국 대표 언론사 당일(오늘 오전 9시 기준) 뉴스 요약 브리핑을 작성해주세요.
-선택된 언론사: ${outletNames}
-희망 어조: ${getToneDescription(tone)}
-우선 관심 주제: ${topics.length > 0 ? topics.join(', ') : '반도체, 금융/거시, 부동산, 정치/국감, AI/테크'}
+    // 2. Build default robust briefing with verified real articles
+    const realBriefing = buildRealBriefing(realArticlesMap, tone as BriefingTone, targetOutletIds);
 
-요구사항:
-1. 상단에 오늘의 핵심 핫 키워드 태그 6~8개 (#키워드 형식)
-2. 각 언론사의 당일 신문 1면/첫페이지 핵심 기사 (선택된 언론사별 각 1건씩, 반드시 정확히 3줄 이내 요약, 원문 링크 포함)
-3. 언론사들에서 중복적으로 낸 공통 핵심 기사 3건 (각 3줄 이내 요약, 보도한 언론사 목록, 공통 합의점 요약)
-4. 각 언론사만의 단독 또는 심층 특별 기사 3건 (각 3줄 이내 요약, [단독] 뱃지)
-5. 모든 요약 문항은 각 기사별로 정확히 1, 2, 3번 3줄 번호 매김으로 작성해주세요.`;
+    // 3. If Gemini is available, summarize and enhance the REAL articles without fabricating titles
+    if (apiKey) {
+      try {
+        const realNewsPayload = Object.entries(realArticlesMap)
+          .filter(([id]) => targetOutletIds.includes(id))
+          .map(([id, articles]) => ({
+            outletId: id,
+            outletName: selectedOutlets.find((o) => o.id === id)?.name || id,
+            articles: (articles || []).slice(0, 2).map((a) => ({
+              title: a.title,
+              link: a.link,
+              snippet: a.snippet,
+            })),
+          }));
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            topKeywords: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-            },
-            summaryNote: { type: Type.STRING },
-            frontPageStories: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  outletName: { type: Type.STRING },
-                  title: { type: Type.STRING },
-                  leadSummary: {
-                    type: Type.ARRAY,
-                    items: { type: Type.STRING },
-                    description: '정확히 최대 3줄의 요약 문장 배열',
-                  },
-                  originalUrl: { type: Type.STRING },
-                  topic: { type: Type.STRING },
-                  keywords: {
-                    type: Type.ARRAY,
-                    items: { type: Type.STRING },
+        const prompt = `당신은 대한민국 대표 신문 뉴스 브리핑 에디터입니다.
+아래에 제공된 '실제 실시간 언론사 보도 기사 데이터'를 바탕으로 당일 모닝 브리핑을 작성해주세요.
+
+[중요 제약조건]:
+1. 절대로 가짜 뉴스나 존재하지 않는 기사 제목을 지어내지 마세요.
+2. 각 기사의 제목(title)과 원문 링크(originalUrl)는 아래에 제공된 실제 기사의 title과 link를 100% 그대로 유지해야 합니다.
+3. 3줄 요약(leadSummary)은 기사 본문과 스니펫을 바탕으로 정확히 3문장(1, 2, 3 번호 매김)으로 작성해주세요.
+4. 희망 어조: ${getToneDescription(tone)}
+
+[제공된 실제 언론사 기사 목록]:
+${JSON.stringify(realNewsPayload, null, 2)}`;
+
+        const geminiPromise = ai.models.generateContent({
+          model: 'gemini-3.8-flash',
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                topKeywords: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                },
+                summaryNote: { type: Type.STRING },
+                frontPageStories: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      outletName: { type: Type.STRING },
+                      title: { type: Type.STRING },
+                      leadSummary: {
+                        type: Type.ARRAY,
+                        items: { type: Type.STRING },
+                      },
+                      originalUrl: { type: Type.STRING },
+                      topic: { type: Type.STRING },
+                    },
+                    required: ['outletName', 'title', 'leadSummary', 'originalUrl'],
                   },
                 },
-                required: ['outletName', 'title', 'leadSummary', 'originalUrl'],
               },
-            },
-            overlappingStories: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  title: { type: Type.STRING },
-                  coveredOutlets: {
-                    type: Type.ARRAY,
-                    items: { type: Type.STRING },
-                  },
-                  leadSummary: {
-                    type: Type.ARRAY,
-                    items: { type: Type.STRING },
-                  },
-                  consensusPoints: {
-                    type: Type.ARRAY,
-                    items: { type: Type.STRING },
-                  },
-                  originalUrl: { type: Type.STRING },
-                  topic: { type: Type.STRING },
-                },
-                required: ['title', 'coveredOutlets', 'leadSummary'],
-              },
-            },
-            exclusiveStories: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  outletName: { type: Type.STRING },
-                  title: { type: Type.STRING },
-                  exclusiveBadge: { type: Type.STRING },
-                  leadSummary: {
-                    type: Type.ARRAY,
-                    items: { type: Type.STRING },
-                  },
-                  originalUrl: { type: Type.STRING },
-                  topic: { type: Type.STRING },
-                },
-                required: ['outletName', 'title', 'leadSummary'],
-              },
+              required: ['topKeywords', 'frontPageStories'],
             },
           },
-          required: ['topKeywords', 'frontPageStories', 'overlappingStories', 'exclusiveStories'],
-        },
-      },
-    });
+        });
 
-    const parsed = JSON.parse(response.text || '{}');
-    const briefing: DailyBriefing = {
-      id: `briefing-live-${Date.now()}`,
-      briefingDate: getCurrentKoreanDateString(),
-      briefingTime: '09:00 AM (실시간 생성)',
-      topKeywords: parsed.topKeywords || INITIAL_DAILY_BRIEFING.topKeywords,
-      tone,
-      selectedOutletIds: selectedOutlets.map((o) => o.id),
-      summaryNote: parsed.summaryNote || INITIAL_DAILY_BRIEFING.summaryNote,
-      frontPageStories: (parsed.frontPageStories || []).map((s: any, idx: number) => ({
-        id: `fp-live-${idx}`,
-        outletId: selectedOutlets[idx % selectedOutlets.length]?.id || 'live',
-        outletName: s.outletName || '주요 언론',
-        category: 'frontpage',
-        title: s.title,
-        leadSummary: (s.leadSummary || []).slice(0, 3),
-        originalUrl: `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(`${s.outletName ? s.outletName + ' ' : ''}${extractSearchKeywords(s.title, s.keywords)}`)}`,
-        publishedAt: `${getCurrentKoreanDateString()} 07:00`,
-        keywords: s.keywords || ['핵심보도'],
-        topic: s.topic || '종합',
-        reactions: { insightful: 15, important: 40, surprising: 5 },
-      })),
-      overlappingStories: (parsed.overlappingStories || []).map((s: any, idx: number) => ({
-        id: `ol-live-${idx}`,
-        outletId: 'multiple',
-        outletName: `${(s.coveredOutlets || []).length}개 언론사 공통 보도`,
-        category: 'overlapping',
-        title: s.title,
-        leadSummary: (s.leadSummary || []).slice(0, 3),
-        coveredOutlets: s.coveredOutlets || [],
-        consensusPoints: s.consensusPoints || [],
-        originalUrl: `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(extractSearchKeywords(s.title, ['공통이슈']))}`,
-        publishedAt: `${getCurrentKoreanDateString()} 08:00`,
-        keywords: ['공통이슈'],
-        topic: s.topic || '종합이슈',
-        reactions: { insightful: 25, important: 80, surprising: 10 },
-      })),
-      exclusiveStories: (parsed.exclusiveStories || []).map((s: any, idx: number) => ({
-        id: `ex-live-${idx}`,
-        outletId: 'exclusive',
-        outletName: s.outletName || '단독보도',
-        category: 'exclusive',
-        title: s.title,
-        exclusiveBadge: s.exclusiveBadge || `${s.outletName} 단독`,
-        leadSummary: (s.leadSummary || []).slice(0, 3),
-        originalUrl: `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(`${s.outletName ? s.outletName + ' ' : ''}${extractSearchKeywords(s.title, s.keywords)}`)}`,
-        publishedAt: `${getCurrentKoreanDateString()} 07:30`,
-        keywords: ['단독기획'],
-        topic: s.topic || '심층취재',
-        importanceRating: 'Crucial',
-        reactions: { insightful: 30, important: 95, surprising: 20 },
-      })),
-    };
+        // Add a timeout of 7s for Gemini call
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Gemini API timeout')), 7000)
+        );
 
-    return res.json({ success: true, data: briefing, source: 'gemini-live' });
+        const response: any = await Promise.race([geminiPromise, timeoutPromise]);
+        const parsed = JSON.parse(response.text || '{}');
+
+        if (parsed.frontPageStories && parsed.frontPageStories.length > 0) {
+          // Merge Gemini enhanced summaries with real articles
+          realBriefing.topKeywords = parsed.topKeywords || realBriefing.topKeywords;
+          realBriefing.summaryNote = parsed.summaryNote || realBriefing.summaryNote;
+          parsed.frontPageStories.forEach((gStory: any) => {
+            const existing = realBriefing.frontPageStories.find(
+              (s) => s.title === gStory.title || s.outletName === gStory.outletName
+            );
+            if (existing && gStory.leadSummary && gStory.leadSummary.length > 0) {
+              existing.leadSummary = gStory.leadSummary.slice(0, 3);
+            }
+          });
+        }
+        return res.json({ success: true, data: realBriefing, source: 'gemini-verified-real' });
+      } catch (geminiErr: any) {
+        console.warn('Gemini enhancement fallback to verified real RSS briefing:', geminiErr.message);
+        return res.json({ success: true, data: realBriefing, source: 'real-rss-verified' });
+      }
+    }
+
+    return res.json({ success: true, data: realBriefing, source: 'real-rss-verified' });
   } catch (error: any) {
     console.error('Error generating summary:', error);
     const fallback = transformBriefingTone(INITIAL_DAILY_BRIEFING, (req.body.tone || 'formal') as BriefingTone);
