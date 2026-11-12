@@ -32,6 +32,7 @@ import {
   SectorPreferences,
   DEFAULT_SECTOR_PREFERENCES,
 } from '../types/news';
+import { getOfficialOutletHomepage } from '../utils/linkUtils';
 
 const STORAGE_KEY_SECTOR_PREFS = 'morning_brief_sector_preferences_v1';
 
@@ -318,7 +319,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
         `2. 관련 핵심 동향 및 정책: ${item.tags.join(', ')}`,
         `3. 시장 지표/핵심 수치: ${item.keyFigure || item.highlightBadge || '관련 보도 확인'}`,
       ],
-      originalUrl: item.originalUrl,
+      originalUrl: getOfficialOutletHomepage(item.outletId, item.outletName, item.originalUrl),
       publishedAt: item.publishedAt,
       keywords: item.tags,
       topic: item.sectorLabel,

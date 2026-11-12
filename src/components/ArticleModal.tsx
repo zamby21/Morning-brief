@@ -24,6 +24,7 @@ import {
   getCleanNaverQuery,
   getOfficialOutletHomepage,
   copyToClipboardSafe,
+  openExternalSafe,
 } from '../utils/linkUtils';
 
 interface ArticleModalProps {
@@ -52,14 +53,6 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     (p) => p.name === story.outletName || p.id === story.outletId
   );
 
-  const cleanSearchQuery = getCleanNaverQuery(story.title, story.outletName, story.keywords);
-  const naverUrl = getNaverNewsUrl(story.title, story.outletName, story.keywords);
-  const officialHomepage = getOfficialOutletHomepage(
-    story.outletId || outletMeta?.id,
-    story.outletName,
-    story.originalUrl || outletMeta?.homepageUrl
-  );
-
   const isCluster =
     story.category === 'overlapping' ||
     (story.coveredOutlets && story.coveredOutlets.length > 0);
@@ -67,6 +60,20 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   const clusterItems: ClusterOutletItem[] = story.clusterOutlets || [];
   const currentClusterItem: ClusterOutletItem | undefined =
     clusterItems[selectedOutletIdx] || clusterItems[0];
+
+  // Dynamically adapt active outlet and title based on selected tab for clusters
+  const activeOutletName = isCluster && currentClusterItem ? currentClusterItem.outletName : story.outletName;
+  const activeOutletId = isCluster && currentClusterItem ? currentClusterItem.outletId : (story.outletId || outletMeta?.id);
+  const activeTitle = isCluster && currentClusterItem ? (currentClusterItem.headline || story.title) : story.title;
+  const activeOriginalUrl = isCluster && currentClusterItem ? currentClusterItem.originalUrl : story.originalUrl;
+
+  const cleanSearchQuery = getCleanNaverQuery(activeTitle, activeOutletName, story.keywords);
+  const naverUrl = getNaverNewsUrl(activeTitle, activeOutletName, story.keywords);
+  const officialHomepage = getOfficialOutletHomepage(
+    activeOutletId,
+    activeOutletName,
+    activeOriginalUrl || outletMeta?.homepageUrl
+  );
 
   // Resolve full content text
   const fullArticleText = story.fullContent || [
@@ -92,7 +99,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     const ok = await copyToClipboardSafe(linkToCopy);
     if (ok) {
       setCopiedLink(true);
-      showToast('신문사 홈페이지 원문 링크가 클립보드에 복사되었습니다.');
+      showToast(`${activeOutletName} 공식 홈페이지 링크가 복사되었습니다.`);
       setTimeout(() => setCopiedLink(false), 2400);
     } else {
       showToast('링크 복사에 실패했습니다. 브라우저 설정을 확인해주세요.');
@@ -103,7 +110,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     const ok = await copyToClipboardSafe(cleanSearchQuery);
     if (ok) {
       setCopiedNaverQuery(true);
-      showToast(`네이버 검색어가 복사되었습니다: "${cleanSearchQuery}"`);
+      showToast(`네이버 정제 검색어 복사 완료: "${cleanSearchQuery}"`);
       setTimeout(() => setCopiedNaverQuery(false), 2400);
     } else {
       showToast('검색어 복사에 실패했습니다.');
@@ -312,20 +319,16 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                           {currentClusterItem.outletName} 포털 공식 보도 전문
                         </span>
                         <a
-                          href={
-                            currentClusterItem.originalUrl && !currentClusterItem.originalUrl.includes('where=news')
-                              ? currentClusterItem.originalUrl
-                              : getNaverNewsUrl(
-                                  currentClusterItem.headline || story.title,
-                                  currentClusterItem.outletName,
-                                  story.keywords
-                                )
-                          }
+                          href={getOfficialOutletHomepage(
+                            currentClusterItem.outletId,
+                            currentClusterItem.outletName,
+                            currentClusterItem.originalUrl
+                          )}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs transition active:scale-95 shadow-xs cursor-pointer"
                         >
-                          <span>{currentClusterItem.outletName} 원기사 바로열기</span>
+                          <span>{currentClusterItem.outletName} 공식 홈페이지 바로가기</span>
                           <ExternalLink className="w-3.5 h-3.5" />
                         </a>
                       </div>
@@ -469,7 +472,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                 target="_blank"
                 rel="noopener noreferrer"
                 className="p-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-between transition-all duration-150 active:scale-95 group shadow-sm hover:shadow-md cursor-pointer"
-                title={`${story.outletName} 공식 홈페이지로 이동 (새 창)`}
+                title={`${activeOutletName} 공식 홈페이지로 이동 (새 창)`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
                   <span className="w-7 h-7 rounded-lg bg-white/10 text-white flex items-center justify-center shrink-0 border border-white/20">
@@ -477,10 +480,10 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                   </span>
                   <div className="truncate text-left">
                     <div className="text-[12px] font-black text-white truncate">
-                      {story.outletName} 공식 홈페이지 원문
+                      {activeOutletName} 공식 홈페이지 원문
                     </div>
                     <div className="text-[10px] text-slate-300 font-normal truncate">
-                      신문사 공식 사이트에서 최신 기사 확인
+                      공식 언론사 사이트 메인 및 최신 보도 확인
                     </div>
                   </div>
                 </div>
@@ -504,7 +507,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                       네이버 뉴스 기사 연결
                     </div>
                     <div className="text-[10px] text-emerald-100 font-normal truncate">
-                      문자 오류 방지 최적화 검색 (새 창)
+                      핵심 키워드 최적화 검색 결과 바로가기 (새 창)
                     </div>
                   </div>
                 </div>
@@ -514,12 +517,12 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
 
             {/* Option 2 Alternative: Error-Free Naver Search Keyword & One-Click Copy */}
             <div className="pt-2 border-t border-slate-200/80">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white border border-slate-200 rounded-xl p-2.5 sm:p-3">
-                <div className="flex items-center gap-2 min-w-0">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-white border border-slate-200 rounded-xl p-3">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
                   <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md shrink-0">
                     대안 검색어
                   </span>
-                  <div className="truncate font-mono text-xs text-slate-800 font-semibold select-all bg-slate-50 px-2 py-1 rounded border border-slate-200/70">
+                  <div className="truncate font-mono text-xs text-slate-800 font-semibold select-all bg-slate-50 px-2.5 py-1 rounded border border-slate-200/70">
                     {cleanSearchQuery}
                   </div>
                 </div>
@@ -538,7 +541,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                     ) : (
                       <>
                         <Copy className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>네이버 검색어 복사</span>
+                        <span>검색어 복사</span>
                       </>
                     )}
                   </button>
@@ -547,16 +550,24 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                     href="https://search.naver.com"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 transition active:scale-95 cursor-pointer"
-                    title="네이버 메인 검색창 열기 (새 창)"
+                    onClick={async (e) => {
+                      e.preventDefault();
+                      await copyToClipboardSafe(cleanSearchQuery);
+                      setCopiedNaverQuery(true);
+                      showToast(`검색어 "${cleanSearchQuery}" 복사 완료! 네이버 검색창에 붙여넣기(Ctrl+V)하세요.`);
+                      openExternalSafe('https://search.naver.com');
+                      setTimeout(() => setCopiedNaverQuery(false), 2400);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-[#03C75A] hover:bg-[#02b350] transition active:scale-95 cursor-pointer shadow-2xs"
+                    title="검색어를 자동 복사한 뒤 네이버 메인 검색창을 엽니다."
                   >
-                    <span>네이버 열기</span>
-                    <ExternalLink className="w-3 h-3 text-slate-500" />
+                    <span>자동 복사 후 네이버 열기</span>
+                    <ExternalLink className="w-3 h-3 text-white" />
                   </a>
                 </div>
               </div>
-              <p className="text-[11px] text-slate-500 mt-1.5 px-0.5">
-                ※ 브라우저 보안/팝업 설정으로 링크 연결이 원활하지 않을 경우, 위 정제 검색어를 복사(Ctrl+C)하여 네이버 검색창에 붙여넣기(Ctrl+V)하시면 문자 오류 없이 즉시 조회하실 수 있습니다.
+              <p className="text-[11px] text-slate-500 mt-1.5 px-0.5 leading-relaxed">
+                ※ 링크 직접 연결이 차단되는 브라우저 환경에서는 [자동 복사 후 네이버 열기]를 누르신 후, 열린 네이버 검색창에서 붙여넣기(Ctrl+V 또는 길게 터치)하시면 문자 오류 없이 즉시 최신 기사를 검색하실 수 있습니다.
               </p>
             </div>
           </div>
