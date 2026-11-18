@@ -69,11 +69,30 @@ export interface NewsStory {
   quoteHighlight?: string;
 }
 
+export interface KeywordTrendPoint {
+  hourLabel: string;
+  timeLabel: string;
+  outletCount: number;
+}
+
+export interface KeywordTrendData {
+  keyword: string;
+  dailyChangePercent: number;
+  direction: 'up' | 'down' | 'flat';
+  currentOutletCount: number;
+  previousOutletCount: number;
+  coveredOutlets: string[];
+  hourlySeries: KeywordTrendPoint[];
+  peakHourLabel: string;
+  peakOutletCount: number;
+}
+
 export interface DailyBriefing {
   id: string;
   briefingDate: string; // e.g. "2026년 10월 19일 (월)"
   briefingTime: string; // e.g. "09:00 AM"
   topKeywords: string[];
+  keywordTrends?: Record<string, KeywordTrendData>;
   tone: BriefingTone;
   frontPageStories: NewsStory[];
   overlappingStories: NewsStory[];
@@ -144,6 +163,8 @@ export const DEFAULT_SECTOR_PREFERENCES: SectorPreferences = {
   onlyCrucialOrHigh: false,
 };
 
+export type ThemeMode = 'light' | 'dark' | 'system';
+
 export interface UserPreferences {
   recipientEmail: string;
   savedRecipientEmails?: string[]; // 자주 쓰는 / 등록된 수신 이메일 목록
@@ -153,6 +174,7 @@ export interface UserPreferences {
   pushNotificationEnabled: boolean;
   preferredTone: BriefingTone;
   toneExplicitlySelected?: boolean;
+  theme?: ThemeMode;
   subscribedTopics: string[];
   selectedOutlets: string[]; // 전체 기본/호환 언론사 목록
   frontPageOutlets?: string[]; // 1면 핵심 기사 맞춤 언론사 목록

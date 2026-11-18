@@ -18,27 +18,27 @@ export const PushNotificationBanner: React.FC<PushNotificationBannerProps> = ({
 }) => {
   if (pushMessage) {
     return (
-      <div className="fixed bottom-5 right-5 z-50 max-w-sm w-full bg-white border border-purple-300 rounded-2xl p-4 shadow-xl animate-in slide-in-from-bottom-5 duration-300 text-slate-800">
+      <div className="fixed bottom-5 right-5 z-50 max-w-sm w-full bg-white dark:bg-slate-900 border border-purple-300 dark:border-purple-700 rounded-2xl p-4 shadow-xl animate-in slide-in-from-bottom-5 duration-300 text-slate-800 dark:text-slate-100">
         <div className="flex items-start gap-3">
           <div className="p-2 rounded-xl bg-purple-600 text-white shrink-0 shadow-xs">
             <Bell className="w-5 h-5 animate-bounce" />
           </div>
           <div className="flex-1">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-purple-700">
+              <span className="text-xs font-bold text-purple-700 dark:text-purple-300">
                 [모닝브리프 AI 모바일 푸시 알림]
               </span>
               <button
                 onClick={onClose}
-                className="text-slate-400 hover:text-slate-700 cursor-pointer"
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
-            <p className="text-xs font-semibold text-slate-900 mt-1 leading-snug">
+            <p className="text-xs font-semibold text-slate-900 dark:text-white mt-1 leading-snug">
               {pushMessage}
             </p>
-            <div className="text-[10px] text-slate-500 mt-1.5 flex items-center gap-1">
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1.5 flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
               <span>오전 09:00 정각 알림 시스템 연동됨</span>
             </div>
@@ -51,10 +51,10 @@ export const PushNotificationBanner: React.FC<PushNotificationBannerProps> = ({
   if (!isVisible || isPushEnabled) return null;
 
   return (
-    <div className="bg-purple-50 border-b border-purple-200 px-4 py-2 text-xs text-purple-900">
+    <div className="bg-purple-50 dark:bg-purple-950/60 border-b border-purple-200 dark:border-purple-800/80 px-4 py-2 text-xs text-purple-900 dark:text-purple-100 transition-colors">
       <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Bell className="w-4 h-4 text-purple-600 animate-pulse" />
+          <Bell className="w-4 h-4 text-purple-600 dark:text-purple-400 animate-pulse" />
           <span className="font-medium">
             모바일 기기에서 매일 오전 9시 뉴스 요약 푸시 알림을 바로 받아보시겠습니까?
           </span>
@@ -68,7 +68,7 @@ export const PushNotificationBanner: React.FC<PushNotificationBannerProps> = ({
           </button>
           <button
             onClick={onClose}
-            className="text-purple-500 hover:text-purple-800 p-1 cursor-pointer"
+            className="text-purple-500 dark:text-purple-300 hover:text-purple-800 dark:hover:text-white p-1 cursor-pointer"
           >
             <X className="w-3.5 h-3.5" />
           </button>

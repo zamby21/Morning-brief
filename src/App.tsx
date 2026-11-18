@@ -35,8 +35,17 @@ import {
   NewsStory,
   BriefingTone,
   SectorPreferences,
+  ThemeMode,
   DEFAULT_SECTOR_PREFERENCES,
 } from './types/news';
+import {
+  applyThemeToDocument,
+  getStoredThemeMode,
+  getThemeLabel,
+  isValidThemeMode,
+  persistThemeMode,
+  resolveTheme,
+} from './utils/theme';
 import {
   fetchSummary,
   rewriteTone,
@@ -98,11 +107,17 @@ const loadSavedPreferences = (): UserPreferences => {
             }
           : DEFAULT_SECTOR_PREFERENCES;
 
+        const storedDirectTheme = getStoredThemeMode();
+        const resolvedPrefTheme: ThemeMode = isValidThemeMode(parsed.theme)
+          ? parsed.theme
+          : storedDirectTheme;
+
         return {
           ...INITIAL_USER_PREFERENCES,
           ...parsed,
           preferredTone: parsed.toneExplicitlySelected && parsed.preferredTone ? parsed.preferredTone : 'insight',
           toneExplicitlySelected: Boolean(parsed.toneExplicitlySelected),
+          theme: resolvedPrefTheme,
           recipientEmail: targetEmail,
           savedRecipientEmails: savedEmails,
           selectedOutlets: combined,
@@ -117,7 +132,10 @@ const loadSavedPreferences = (): UserPreferences => {
   } catch (err) {
     console.warn('Failed to load preferences from localStorage', err);
   }
-  return INITIAL_USER_PREFERENCES;
+  return {
+    ...INITIAL_USER_PREFERENCES,
+    theme: getStoredThemeMode(),
+  };
 };
 
 export default function App() {
@@ -173,6 +191,10 @@ export default function App() {
   const [pushBannerVisible, setPushBannerVisible] = useState(true);
   const [pushToast, setPushToast] = useState<string | null>(null);
   const [statusNotification, setStatusNotification] = useState<string | null>(null);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => getStoredThemeMode());
+  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() =>
+    resolveTheme(getStoredThemeMode())
+  );
 
   // Scroll to top listener
   useEffect(() => {
@@ -182,6 +204,30 @@ export default function App() {
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  // Apply theme to <html>, persist in localStorage, and subscribe to OS color-scheme changes
+  useEffect(() => {
+    const applyCurrent = () => {
+      const resolved = applyThemeToDocument(themeMode);
+      setResolvedTheme(resolved);
+    };
+    applyCurrent();
+    persistThemeMode(themeMode);
+
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleMediaChange = () => {
+      if (themeMode === 'system') {
+        applyCurrent();
+      }
+    };
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', handleMediaChange);
+      return () => mediaQuery.removeEventListener('change', handleMediaChange);
+    }
+    mediaQuery.addListener(handleMediaChange);
+    return () => mediaQuery.removeListener(handleMediaChange);
+  }, [themeMode]);
 
   // Save preferences to localStorage automatically whenever updated
   useEffect(() => {
@@ -291,6 +337,15 @@ export default function App() {
     setTimeout(() => {
       setStatusNotification(null);
     }, 3200);
+  };
+
+  const handleChangeTheme = (mode: ThemeMode) => {
+    setThemeMode(mode);
+    persistThemeMode(mode);
+    const resolved = applyThemeToDocument(mode);
+    setResolvedTheme(resolved);
+    setPreferences((prev) => ({ ...prev, theme: mode }));
+    triggerNotification(`화면 테마가 '${getThemeLabel(mode)}'으로 변경되었습니다.`);
   };
 
   const handleOpenPressModal = (section: 'frontPage' | 'overlapping' = 'frontPage') => {
@@ -647,10 +702,10 @@ export default function App() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans antialiased selection:bg-blue-600 selection:text-white">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans antialiased selection:bg-blue-600 selection:text-white transition-colors duration-200">
       {/* Toast Alert */}
       {statusNotification && (
-        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-4 py-2 rounded-full text-xs font-bold shadow-2xl flex items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 bg-slate-900 dark:bg-slate-800 text-white border border-slate-700 px-4 py-2 rounded-full text-xs font-bold shadow-2xl flex items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-200">
           <Sparkles className="w-3.5 h-3.5 text-blue-400" />
           <span>{statusNotification}</span>
         </div>
@@ -686,6 +741,9 @@ export default function App() {
         frontPageCount={preferences.frontPageOutlets?.length || preferences.selectedOutlets?.length || 10}
         overlappingCount={preferences.overlappingOutlets?.length || preferences.selectedOutlets?.length || 10}
         onScrollToSection={scrollToSection}
+        themeMode={themeMode}
+        resolvedTheme={resolvedTheme}
+        onChangeTheme={handleChangeTheme}
       />
 
       {/* Main Content Layout with Sidebar offset on Desktop */}
@@ -725,19 +783,22 @@ export default function App() {
           selectedOutletsCount={preferences.selectedOutlets?.length || 0}
           frontPageCount={preferences.frontPageOutlets?.length || preferences.selectedOutlets?.length || 10}
           overlappingCount={preferences.overlappingOutlets?.length || preferences.selectedOutlets?.length || 10}
+          themeMode={themeMode}
+          resolvedTheme={resolvedTheme}
+          onChangeTheme={handleChangeTheme}
         />
 
         {/* Outer Container (with optional Mobile Frame simulator) */}
-        <div className={`mx-auto transition-all duration-300 ${isMobilePreview ? 'max-w-md my-6 p-4 bg-white border-4 border-slate-300 rounded-[40px] shadow-2xl' : 'max-w-7xl px-4 py-4 sm:py-6'}`}>
+        <div className={`mx-auto transition-all duration-300 ${isMobilePreview ? 'max-w-md my-6 p-4 bg-white dark:bg-slate-900 border-4 border-slate-300 dark:border-slate-700 rounded-[40px] shadow-2xl' : 'max-w-7xl px-4 py-4 sm:py-6'}`}>
           {isMobilePreview && (
-            <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200 text-xs text-slate-500">
-              <span className="font-bold text-slate-800 flex items-center gap-1.5">
-                <Smartphone className="w-4 h-4 text-blue-600" />
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
+              <span className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                <Smartphone className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                 모바일 앱 실시간 뷰 모드
               </span>
               <button
                 onClick={() => setIsMobilePreview(false)}
-                className="text-blue-600 hover:underline font-semibold cursor-pointer"
+                className="text-blue-600 dark:text-blue-400 hover:underline font-semibold cursor-pointer"
               >
                 PC 전체화면 보기
               </button>
@@ -745,11 +806,12 @@ export default function App() {
           )}
 
           <main className="space-y-4 sm:space-y-5">
-            {/* 1. Keyword Tags (태그 형태로 상단 표시 & 클릭 필터링) */}
+            {/* 1. Keyword Tags (태그 형태로 상단 표시 & 클릭 필터링 + 일간 변화율/24h 트렌드 팝오버) */}
             <KeywordTags
               keywords={briefing.topKeywords}
               selectedKeyword={selectedKeyword}
               onSelectKeyword={(kw) => setSelectedKeyword(kw)}
+              briefing={briefing}
             />
 
             {/* 2. Topic Subscription Filtering */}
@@ -762,7 +824,7 @@ export default function App() {
 
             {/* Active Filter State Notice */}
             {(selectedKeyword || selectedTopic !== '전체') && (
-              <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-2 flex items-center justify-between text-xs text-blue-900 shadow-xs">
+              <div className="bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-2 flex items-center justify-between text-xs text-blue-900 dark:text-blue-200 shadow-xs">
                 <div className="flex items-center gap-2">
                   <span className="font-medium">현재 필터 적용 중:</span>
                   {selectedKeyword && (
@@ -781,7 +843,7 @@ export default function App() {
                     setSelectedKeyword(null);
                     setSelectedTopic('전체');
                   }}
-                  className="text-xs text-blue-700 hover:text-blue-900 underline font-bold cursor-pointer"
+                  className="text-xs text-blue-700 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white underline font-bold cursor-pointer"
                 >
                   필터 초기화
                 </button>
@@ -789,16 +851,16 @@ export default function App() {
             )}
 
             {/* Quick Section Jump Navigation Bar & Global Collapse Controls (Single Line, No Awkward Wrap on Mobile) */}
-            <div className="bg-white/95 border border-slate-200/90 rounded-2xl p-1.5 sm:p-2.5 flex items-center justify-between gap-1.5 sm:gap-2 shadow-xs backdrop-blur-md sticky top-[48px] sm:top-[57px] z-20 overflow-x-auto scrollbar-none">
+            <div className="bg-white/95 dark:bg-slate-900/95 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-1.5 sm:p-2.5 flex items-center justify-between gap-1.5 sm:gap-2 shadow-xs backdrop-blur-md sticky top-[48px] sm:top-[57px] z-20 overflow-x-auto scrollbar-none">
               <div className="flex items-center gap-1 sm:gap-1.5 flex-nowrap shrink-0">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider hidden md:inline mr-1 shrink-0">
+                <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider hidden md:inline mr-1 shrink-0">
                   섹션 바로가기:
                 </span>
                 <button
                   onClick={() => scrollToSection('section-frontpage')}
-                  className="px-2 sm:px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold transition flex items-center gap-1 sm:gap-1.5 active:scale-95 cursor-pointer shrink-0"
+                  className="px-2 sm:px-2.5 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/70 hover:bg-blue-100 dark:hover:bg-blue-900/70 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold transition flex items-center gap-1 sm:gap-1.5 active:scale-95 cursor-pointer shrink-0"
                 >
-                  <Newspaper className="w-3.5 h-3.5 text-blue-600" />
+                  <Newspaper className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                   <span className="hidden sm:inline">1. 1면 핵심</span>
                   <span className="sm:hidden">1. 1면</span>
                   <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-600 text-white font-bold">
@@ -808,9 +870,9 @@ export default function App() {
 
                 <button
                   onClick={() => scrollToSection('section-overlapping')}
-                  className="px-2 sm:px-2.5 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-xs font-bold transition flex items-center gap-1 sm:gap-1.5 active:scale-95 cursor-pointer shrink-0"
+                  className="px-2 sm:px-2.5 py-1.5 rounded-xl bg-purple-50 dark:bg-purple-950/70 hover:bg-purple-100 dark:hover:bg-purple-900/70 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 text-xs font-bold transition flex items-center gap-1 sm:gap-1.5 active:scale-95 cursor-pointer shrink-0"
                 >
-                  <Layers className="w-3.5 h-3.5 text-purple-600" />
+                  <Layers className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
                   <span className="hidden sm:inline">2. 공통 이슈</span>
                   <span className="sm:hidden">2. 공통</span>
                   <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-purple-600 text-white font-bold">
@@ -820,9 +882,9 @@ export default function App() {
 
                 <button
                   onClick={() => scrollToSection('section-exclusive')}
-                  className="px-2 sm:px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition flex items-center gap-1 sm:gap-1.5 active:scale-95 cursor-pointer shrink-0"
+                  className="px-2 sm:px-2.5 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/70 hover:bg-rose-100 dark:hover:bg-rose-900/70 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-xs font-bold transition flex items-center gap-1 sm:gap-1.5 active:scale-95 cursor-pointer shrink-0"
                 >
-                  <Zap className="w-3.5 h-3.5 text-rose-600" />
+                  <Zap className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
                   <span className="hidden sm:inline">3. 단독·특별</span>
                   <span className="sm:hidden">3. 단독</span>
                   <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-rose-600 text-white font-bold">
@@ -832,9 +894,9 @@ export default function App() {
 
                 <button
                   onClick={() => scrollToSection('section-realestate-finance')}
-                  className="px-2 sm:px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-bold transition flex items-center gap-1 sm:gap-1.5 active:scale-95 cursor-pointer shrink-0"
+                  className="px-2 sm:px-2.5 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/70 hover:bg-amber-100 dark:hover:bg-amber-900/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-xs font-bold transition flex items-center gap-1 sm:gap-1.5 active:scale-95 cursor-pointer shrink-0"
                 >
-                  <Building className="w-3.5 h-3.5 text-amber-600" />
+                  <Building className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                   <span className="hidden sm:inline">4. 건설·부동산·금융</span>
                   <span className="sm:hidden">4. 건설·금융</span>
                   <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-600 text-white font-bold">
@@ -846,7 +908,7 @@ export default function App() {
               <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 pl-1">
                 <button
                   onClick={toggleAllSections}
-                  className="px-2 sm:px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-xs font-bold transition flex items-center gap-1 active:scale-95 cursor-pointer shrink-0"
+                  className="px-2 sm:px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold transition flex items-center gap-1 active:scale-95 cursor-pointer shrink-0"
                   title="모든 섹션 일괄 접기 / 펼치기"
                 >
                   {collapsedSections.frontPage &&
@@ -854,13 +916,13 @@ export default function App() {
                   collapsedSections.exclusive &&
                   collapsedSections.realEstateFinance ? (
                     <>
-                      <ChevronDown className="w-3.5 h-3.5 text-blue-600" />
+                      <ChevronDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                       <span className="hidden sm:inline">전체 펼치기</span>
                       <span className="sm:hidden">펼치기</span>
                     </>
                   ) : (
                     <>
-                      <ChevronUp className="w-3.5 h-3.5 text-blue-600" />
+                      <ChevronUp className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                       <span className="hidden sm:inline">전체 접기</span>
                       <span className="sm:hidden">접기</span>
                     </>
@@ -936,21 +998,21 @@ export default function App() {
               onSaveSectorPreferences={handleSaveSectorPreferences}
             />
 
-            {/* Weekly Report Promotion Banner (Light Theme) */}
-            <section className="bg-gradient-to-r from-purple-50 via-indigo-50/50 to-white border border-purple-200 rounded-3xl p-5 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+            {/* Weekly Report Promotion Banner */}
+            <section className="bg-gradient-to-r from-purple-50 via-indigo-50/50 to-white dark:from-purple-950/50 dark:via-indigo-950/40 dark:to-slate-900 border border-purple-200 dark:border-purple-800/70 rounded-3xl p-5 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800">
+                  <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/70 text-purple-800 dark:text-purple-200">
                     주간 종합 리포트
                   </span>
-                  <span className="text-xs text-slate-500 font-medium">
+                  <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
                     7일간 뉴스 데이터베이스 분석
                   </span>
                 </div>
-                <h3 className="text-base sm:text-lg font-black text-slate-900">
+                <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
                   일주일간 주요 이슈 분석 리포트 & 언론사 논조 비교
                 </h3>
-                <p className="text-xs text-slate-600">
+                <p className="text-xs text-slate-600 dark:text-slate-300">
                   1주일간 누적된 주요 언론사의 이슈 전개 타임라인과 시각 차이를 한눈에 확인하세요.
                 </p>
               </div>
@@ -965,11 +1027,11 @@ export default function App() {
           </main>
 
           {/* Footer */}
-          <footer className="mt-12 pt-8 border-t border-slate-200 text-center text-xs text-slate-500 space-y-2">
+          <footer className="mt-12 pt-8 border-t border-slate-200 dark:border-slate-800 text-center text-xs text-slate-500 dark:text-slate-400 space-y-2">
             <p>
-              <strong className="text-slate-800">모닝브리프 AI</strong> | 대한민국 주요 10대 언론사(종합 5개사, 경제 5개사) 당일 신문 1면 및 공통이슈 3줄 요약 플랫폼
+              <strong className="text-slate-800 dark:text-slate-200">모닝브리프 AI</strong> | 대한민국 주요 10대 언론사(종합 5개사, 경제 5개사) 당일 신문 1면 및 공통이슈 3줄 요약 플랫폼
             </p>
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[11px] text-slate-400 dark:text-slate-500">
               모든 보도의 지적재산권은 해당 언론사에 있으며, 원기사 링크를 통해 전문을 확인하실 수 있습니다. 실시간 홈페이지 1면 자동 갱신 · 예약 시각 이메일 발송.
             </p>
           </footer>
@@ -995,9 +1057,15 @@ export default function App() {
         preferences={preferences}
         onUpdatePreferences={(updated) => {
           setPreferences(updated);
+          if (updated.theme && updated.theme !== themeMode) {
+            setThemeMode(updated.theme);
+          }
           triggerNotification('수신 시간 및 알림 대시보드 설정이 저장되었습니다.');
         }}
         onTestPush={handleTestPush}
+        themeMode={themeMode}
+        resolvedTheme={resolvedTheme}
+        onChangeTheme={handleChangeTheme}
       />
 
       <EmailModal

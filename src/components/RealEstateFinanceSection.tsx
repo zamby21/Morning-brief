@@ -347,7 +347,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
   return (
     <section id="section-realestate-finance" className="space-y-4 pt-2">
       {/* Section Header Card */}
-      <div className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-6 shadow-xs relative overflow-hidden transition-all duration-300">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 sm:p-6 shadow-xs relative overflow-hidden transition-all duration-300">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-start sm:items-center gap-3">
             <div className="p-3 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-md shadow-orange-500/20 shrink-0">
@@ -355,26 +355,26 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2 mb-1">
-                <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
                   4번째 특화 브리핑
                 </span>
-                <span className="text-xs font-bold text-slate-400">
+                <span className="text-xs font-bold text-slate-400 dark:text-slate-400">
                   경제 5대지 및 주요 종합지 집중 취재
                 </span>
                 {isCustomized && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-300 flex items-center gap-1">
-                    <ShieldCheck className="w-3 h-3 text-amber-600" />
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 flex items-center gap-1">
+                    <ShieldCheck className="w-3 h-3 text-amber-600 dark:text-amber-400" />
                     <span>개인 관심설정 적용 중</span>
                   </span>
                 )}
               </div>
-              <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight flex flex-wrap items-center gap-2">
+              <h2 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight flex flex-wrap items-center gap-2">
                 <span>4. 건설 · 부동산 · 금융 실시간 헤드라인 모아보기</span>
                 <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-500 text-white shadow-xs">
                   총 {headlines.length}건 집계
                 </span>
               </h2>
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 건설 수주 및 SOC 국책사업, 수도권 청약/부동산 대책, 기준금리 및 부동산 PF 구조조정 헤드라인을 섹터별로 한눈에 정리합니다.
               </p>
             </div>
@@ -390,8 +390,8 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                 isSettingsOpen
                   ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
                   : isCustomized
-                  ? 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300'
-                  : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                  ? 'bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700'
+                  : 'bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
               }`}
               title="관심 섹터와 세부 키워드를 개인 맞춤으로 설정 및 저장합니다."
             >
@@ -407,17 +407,17 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
             {/* Collapse Toggle */}
             <button
               onClick={onToggleCollapse}
-              className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer active:scale-95"
+              className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer active:scale-95"
               title={isCollapsed ? '섹션 펼치기' : '섹션 접기'}
             >
               {isCollapsed ? (
                 <>
-                  <ChevronDown className="w-4 h-4 text-amber-600" />
+                  <ChevronDown className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                   <span>펼치기</span>
                 </>
               ) : (
                 <>
-                  <ChevronUp className="w-4 h-4 text-amber-600" />
+                  <ChevronUp className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                   <span>접기</span>
                 </>
               )}
@@ -426,7 +426,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
             {/* Scroll to Top */}
             <button
               onClick={onScrollToTop}
-              className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+              className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/70 hover:bg-blue-100 dark:hover:bg-blue-900/70 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold transition flex items-center gap-1 cursor-pointer"
               title="맨 위로 바로가기"
             >
               <ArrowUp className="w-3.5 h-3.5" />
@@ -437,18 +437,18 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
 
         {/* Collapsible Content */}
         {!isCollapsed && (
-          <div className="mt-5 space-y-4 pt-4 border-t border-slate-100">
+          <div className="mt-5 space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
             {/* Personalized Sector Settings Control Panel */}
             {isSettingsOpen && (
-              <div className="bg-gradient-to-br from-amber-50/70 via-orange-50/40 to-white border border-amber-200 rounded-3xl p-4 sm:p-5 shadow-xs space-y-4 animate-in fade-in duration-200">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-amber-200/80">
+              <div className="bg-gradient-to-br from-amber-50/70 via-orange-50/40 to-white dark:from-amber-950/30 dark:via-slate-900 dark:to-slate-900 border border-amber-200 dark:border-amber-800/70 rounded-3xl p-4 sm:p-5 shadow-xs space-y-4 animate-in fade-in duration-200">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-amber-200/80 dark:border-amber-800/60">
                   <div className="flex items-center gap-2">
-                    <SlidersHorizontal className="w-4 h-4 text-amber-700" />
+                    <SlidersHorizontal className="w-4 h-4 text-amber-700 dark:text-amber-400" />
                     <div>
-                      <h4 className="text-sm font-bold text-slate-900">
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">
                         건설 · 부동산 · 금융 관심분야 개인 맞춤 설정 (영구 저장)
                       </h4>
-                      <p className="text-xs text-slate-500 mt-0.5">
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                         원하시는 섹터와 키워드를 지정하면 브라우저에 자동 저장되어 다음 방문 시에도 동일하게 유지됩니다.
                       </p>
                     </div>
@@ -478,17 +478,17 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                     <button
                       type="button"
                       onClick={handleResetPreferences}
-                      className="px-2.5 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 font-semibold border border-slate-200 transition cursor-pointer flex items-center gap-1 active:scale-95"
+                      className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold border border-slate-200 dark:border-slate-700 transition cursor-pointer flex items-center gap-1 active:scale-95"
                       title="기본값 (모든 섹터 활성화)으로 복원"
                     >
-                      <RotateCcw className="w-3 h-3 text-slate-500" />
+                      <RotateCcw className="w-3 h-3 text-slate-500 dark:text-slate-400" />
                       <span>기본값 복원</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => setIsSettingsOpen(false)}
-                      className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+                      className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition"
                       title="설정 패널 닫기"
                     >
                       <X className="w-4 h-4" />
@@ -498,12 +498,12 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
 
                 {/* 1. Sector Checkboxes */}
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs font-bold text-slate-800">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-800 dark:text-slate-200">
                     <span className="flex items-center gap-1.5">
-                      <BookmarkCheck className="w-4 h-4 text-amber-600" />
+                      <BookmarkCheck className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                       <span>① 활성화할 관심 섹터 (원하는 섹터만 선택 가능)</span>
                     </span>
-                    <span className="text-[11px] text-slate-500 font-normal">
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-normal">
                       선택된 섹터: {prefs.enabledSectors.length}개 / 3개
                     </span>
                   </div>
@@ -514,8 +514,8 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                       onClick={() => handleToggleSector('construction')}
                       className={`p-3 rounded-2xl border transition cursor-pointer flex items-start gap-3 select-none ${
                         prefs.enabledSectors.includes('construction')
-                          ? 'bg-white border-amber-400 shadow-xs ring-1 ring-amber-300'
-                          : 'bg-slate-50 border-slate-200 opacity-60 hover:opacity-100'
+                          ? 'bg-white dark:bg-slate-800 border-amber-400 dark:border-amber-500 shadow-xs ring-1 ring-amber-300 dark:ring-amber-500/40'
+                          : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 opacity-60 hover:opacity-100'
                       }`}
                     >
                       <input
@@ -525,10 +525,10 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                         className="mt-0.5 w-4 h-4 text-amber-600 rounded cursor-pointer pointer-events-none"
                       />
                       <div className="text-left text-xs">
-                        <div className="font-bold text-amber-900 flex items-center gap-1">
+                        <div className="font-bold text-amber-900 dark:text-amber-300 flex items-center gap-1">
                           <span>🏗️ 건설·시공·SOC</span>
                         </div>
-                        <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
                           GTX 민자사업, 토목 수주, K-원전·플랜트 해외수주, 공사비 현실화 등
                         </p>
                       </div>
@@ -539,8 +539,8 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                       onClick={() => handleToggleSector('realestate')}
                       className={`p-3 rounded-2xl border transition cursor-pointer flex items-start gap-3 select-none ${
                         prefs.enabledSectors.includes('realestate')
-                          ? 'bg-white border-emerald-400 shadow-xs ring-1 ring-emerald-300'
-                          : 'bg-slate-50 border-slate-200 opacity-60 hover:opacity-100'
+                          ? 'bg-white dark:bg-slate-800 border-emerald-400 dark:border-emerald-500 shadow-xs ring-1 ring-emerald-300 dark:ring-emerald-500/40'
+                          : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 opacity-60 hover:opacity-100'
                       }`}
                     >
                       <input
@@ -550,10 +550,10 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                         className="mt-0.5 w-4 h-4 text-emerald-600 rounded cursor-pointer pointer-events-none"
                       />
                       <div className="text-left text-xs">
-                        <div className="font-bold text-emerald-900 flex items-center gap-1">
+                        <div className="font-bold text-emerald-900 dark:text-emerald-300 flex items-center gap-1">
                           <span>🏢 부동산·청약·정비</span>
                         </div>
-                        <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
                           강남 분상제 로또청약, 1기 신도시 선도지구, 3기 신도시, 재건축·재개발 등
                         </p>
                       </div>
@@ -564,8 +564,8 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                       onClick={() => handleToggleSector('finance')}
                       className={`p-3 rounded-2xl border transition cursor-pointer flex items-start gap-3 select-none ${
                         prefs.enabledSectors.includes('finance')
-                          ? 'bg-white border-indigo-400 shadow-xs ring-1 ring-indigo-300'
-                          : 'bg-slate-50 border-slate-200 opacity-60 hover:opacity-100'
+                          ? 'bg-white dark:bg-slate-800 border-indigo-400 dark:border-indigo-500 shadow-xs ring-1 ring-indigo-300 dark:ring-indigo-500/40'
+                          : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 opacity-60 hover:opacity-100'
                       }`}
                     >
                       <input
@@ -575,10 +575,10 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                         className="mt-0.5 w-4 h-4 text-indigo-600 rounded cursor-pointer pointer-events-none"
                       />
                       <div className="text-left text-xs">
-                        <div className="font-bold text-indigo-900 flex items-center gap-1">
+                        <div className="font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-1">
                           <span>📈 금융·금리·부동산PF</span>
                         </div>
-                        <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
                           한은 기준금리 피벗, 20조 PF 정상화펀드, 스트레스 DSR, 리츠 배당 등
                         </p>
                       </div>
@@ -587,13 +587,13 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                 </div>
 
                 {/* 2. Favorite Keywords & Custom Keyword Adding */}
-                <div className="space-y-2 pt-2 border-t border-amber-100">
+                <div className="space-y-2 pt-2 border-t border-amber-100 dark:border-amber-900/50">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs">
-                    <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <span className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                       <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
                       <span>② 세부 관심 키워드 (클릭하여 켜고 끄기 및 직접 추가)</span>
                     </span>
-                    <span className="text-[11px] text-slate-500">
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
                       등록된 관심 키워드: {prefs.favoriteKeywords.length}개
                     </span>
                   </div>
@@ -610,7 +610,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                           className={`px-2.5 py-1 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1 border active:scale-95 ${
                             isSelected
                               ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
-                              : 'bg-white hover:bg-amber-50 text-slate-700 border-slate-200'
+                              : 'bg-white dark:bg-slate-800 hover:bg-amber-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
                           }`}
                         >
                           {isSelected && <Check className="w-3 h-3 text-white" />}
@@ -630,7 +630,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                       value={customKeywordInput}
                       onChange={(e) => setCustomKeywordInput(e.target.value)}
                       placeholder="내 관심 키워드 직접 입력 (예: 한남3구역, 현대건설)"
-                      className="flex-1 bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 transition"
+                      className="flex-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-amber-500 transition"
                     />
                     <button
                       type="submit"
@@ -645,19 +645,19 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                   {/* Active Custom Registered Keywords */}
                   {prefs.favoriteKeywords.length > 0 && (
                     <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                      <span className="text-[11px] font-bold text-slate-500 mr-1">
+                      <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mr-1">
                         내 관심 키워드:
                       </span>
                       {prefs.favoriteKeywords.map((kw) => (
                         <span
                           key={kw}
-                          className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1"
+                          className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700 flex items-center gap-1"
                         >
                           <span>#{kw}</span>
                           <button
                             type="button"
                             onClick={() => handleToggleKeyword(kw)}
-                            className="text-amber-700 hover:text-amber-950 p-0.5 cursor-pointer"
+                            className="text-amber-700 dark:text-amber-300 hover:text-amber-950 dark:hover:text-white p-0.5 cursor-pointer"
                             title="삭제"
                           >
                             <X className="w-3 h-3" />
@@ -669,9 +669,9 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                 </div>
 
                 {/* 3. Additional Preferences (Default Tab & Impact Filter) */}
-                <div className="pt-2 border-t border-amber-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div className="pt-2 border-t border-amber-100 dark:border-amber-900/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-bold text-slate-700">기본 선택 탭:</span>
+                    <span className="font-bold text-slate-700 dark:text-slate-200">기본 선택 탭:</span>
                     {(
                       [
                         { id: 'all', label: '전체' },
@@ -688,8 +688,8 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                         }
                         className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
                           prefs.defaultSector === tab.id
-                            ? 'bg-slate-900 text-white font-bold'
-                            : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                            ? 'bg-slate-900 dark:bg-blue-600 text-white font-bold'
+                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
                         }`}
                       >
                         {tab.label}
@@ -697,7 +697,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                     ))}
                   </div>
 
-                  <label className="flex items-center gap-2 cursor-pointer select-none text-slate-700 font-semibold">
+                  <label className="flex items-center gap-2 cursor-pointer select-none text-slate-700 dark:text-slate-200 font-semibold">
                     <input
                       type="checkbox"
                       checked={!!prefs.onlyCrucialOrHigh}
@@ -714,18 +714,18 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                 </div>
 
                 {/* Panel Footer Notice */}
-                <div className="pt-2 border-t border-amber-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-500">
+                <div className="pt-2 border-t border-amber-200/60 dark:border-amber-800/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
                   <div className="flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span className="font-semibold text-slate-700">설정 보관 상태:</span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-200">설정 보관 상태:</span>
                     <span>
                       활성 섹터 {prefs.enabledSectors.length}개 · 관심 키워드{' '}
                       {prefs.favoriteKeywords.length}개 설정이 브라우저에 저장되어 재실행 시 유지됩니다.
                     </span>
                   </div>
                   {saveSuccessBadge && (
-                    <span className="text-emerald-700 font-bold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded animate-in fade-in flex items-center gap-1">
-                      <Check className="w-3 h-3 text-emerald-600" />
+                    <span className="text-emerald-700 dark:text-emerald-300 font-bold bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded animate-in fade-in flex items-center gap-1">
+                      <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
                       <span>설정이 브라우저에 저장되었습니다</span>
                     </span>
                   )}
@@ -743,16 +743,16 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
             >
               {/* Construction Card */}
               {prefs.enabledSectors.includes('construction') && (
-                <div className="bg-gradient-to-br from-amber-50/80 to-white border border-amber-200/80 rounded-2xl p-3.5 shadow-2xs">
+                <div className="bg-gradient-to-br from-amber-50/80 to-white dark:from-amber-950/35 dark:to-slate-900 border border-amber-200/80 dark:border-amber-800/60 rounded-2xl p-3.5 shadow-2xs">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-amber-900 dark:text-amber-300 flex items-center gap-1.5">
                       <span className="text-base">🏗️</span> 건설·SOC 인프라 동향
                     </span>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-200 text-amber-900">
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-200 dark:bg-amber-900/80 text-amber-900 dark:text-amber-200">
                       {sectorCounts.construction}건
                     </span>
                   </div>
-                  <p className="text-xs text-slate-700 leading-relaxed">
+                  <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
                     수도권 <strong>GTX 복선전철 민자 수주</strong>와{' '}
                     <strong>K-원전·플랜트 해외 200억 달러</strong> 파이프라인 가동으로 하반기 수주 반등 조짐이 나타나고 있습니다.
                   </p>
@@ -761,16 +761,16 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
 
               {/* Real Estate Card */}
               {prefs.enabledSectors.includes('realestate') && (
-                <div className="bg-gradient-to-br from-emerald-50/80 to-white border border-emerald-200/80 rounded-2xl p-3.5 shadow-2xs">
+                <div className="bg-gradient-to-br from-emerald-50/80 to-white dark:from-emerald-950/35 dark:to-slate-900 border border-emerald-200/80 dark:border-emerald-800/60 rounded-2xl p-3.5 shadow-2xs">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5">
                       <span className="text-base">🏢</span> 부동산·청약 동향
                     </span>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-200 text-emerald-900">
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-200 dark:bg-emerald-900/80 text-emerald-900 dark:text-emerald-200">
                       {sectorCounts.realestate}건
                     </span>
                   </div>
-                  <p className="text-xs text-slate-700 leading-relaxed">
+                  <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
                     서울 강남권 <strong>분상제 로또 청약 쏠림(최고 380:1)</strong>과{' '}
                     <strong>1기 신도시 선도지구 특별정비계획(용적률 450%)</strong> 심의가 핵심 쟁점입니다.
                   </p>
@@ -779,16 +779,16 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
 
               {/* Finance Card */}
               {prefs.enabledSectors.includes('finance') && (
-                <div className="bg-gradient-to-br from-indigo-50/80 to-white border border-indigo-200/80 rounded-2xl p-3.5 shadow-2xs">
+                <div className="bg-gradient-to-br from-indigo-50/80 to-white dark:from-indigo-950/35 dark:to-slate-900 border border-indigo-200/80 dark:border-indigo-800/60 rounded-2xl p-3.5 shadow-2xs">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5">
                       <span className="text-base">📈</span> 금융·금리·PF 동향
                     </span>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-200 text-indigo-900">
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-200 dark:bg-indigo-900/80 text-indigo-900 dark:text-indigo-200">
                       {sectorCounts.finance}건
                     </span>
                   </div>
-                  <p className="text-xs text-slate-700 leading-relaxed">
+                  <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
                     한국은행 <strong>추가 기준금리 인하 검토</strong>와{' '}
                     <strong>20조 원 부동산 PF 정상화 펀드</strong> 가동으로 부실 사업장 구조조정이 속도를 내고 있습니다.
                   </p>
@@ -797,23 +797,23 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
             </div>
 
             {/* Filter and Search Bar */}
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-2.5 sm:p-3 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 text-xs">
+            <div className="bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-2xl p-2.5 sm:p-3 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 text-xs">
               {/* Sector Tabs */}
               <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   onClick={() => setSelectedSector('all')}
                   className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer ${
                     selectedSector === 'all'
-                      ? 'bg-slate-900 text-white shadow-xs'
-                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                      ? 'bg-slate-900 dark:bg-blue-600 text-white shadow-xs'
+                      : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
                   }`}
                 >
                   <span>🌟 전체</span>
                   <span
                     className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
                       selectedSector === 'all'
-                        ? 'bg-slate-700 text-white'
-                        : 'bg-slate-200 text-slate-700'
+                        ? 'bg-slate-700 dark:bg-blue-800 text-white'
+                        : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200'
                     }`}
                   >
                     {sectorCounts.all}
@@ -826,7 +826,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                     className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer ${
                       selectedSector === 'construction'
                         ? 'bg-amber-600 text-white shadow-xs'
-                        : 'bg-white text-amber-800 border border-amber-200 hover:bg-amber-50'
+                        : 'bg-white dark:bg-slate-800 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/70 hover:bg-amber-50 dark:hover:bg-slate-700'
                     }`}
                   >
                     <span>🏗️ 건설·시공</span>
@@ -834,7 +834,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                       className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
                         selectedSector === 'construction'
                           ? 'bg-amber-800 text-white'
-                          : 'bg-amber-100 text-amber-800'
+                          : 'bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300'
                       }`}
                     >
                       {sectorCounts.construction}
@@ -848,7 +848,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                     className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer ${
                       selectedSector === 'realestate'
                         ? 'bg-emerald-600 text-white shadow-xs'
-                        : 'bg-white text-emerald-800 border border-emerald-200 hover:bg-emerald-50'
+                        : 'bg-white dark:bg-slate-800 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/70 hover:bg-emerald-50 dark:hover:bg-slate-700'
                     }`}
                   >
                     <span>🏢 부동산·청약</span>
@@ -856,7 +856,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                       className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
                         selectedSector === 'realestate'
                           ? 'bg-emerald-800 text-white'
-                          : 'bg-emerald-100 text-emerald-800'
+                          : 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300'
                       }`}
                     >
                       {sectorCounts.realestate}
@@ -870,7 +870,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                     className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer ${
                       selectedSector === 'finance'
                         ? 'bg-indigo-600 text-white shadow-xs'
-                        : 'bg-white text-indigo-800 border border-indigo-200 hover:bg-indigo-50'
+                        : 'bg-white dark:bg-slate-800 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/70 hover:bg-indigo-50 dark:hover:bg-slate-700'
                     }`}
                   >
                     <span>📈 금융·금리·PF</span>
@@ -878,7 +878,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                       className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
                         selectedSector === 'finance'
                           ? 'bg-indigo-800 text-white'
-                          : 'bg-indigo-100 text-indigo-800'
+                          : 'bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300'
                       }`}
                     >
                       {sectorCounts.finance}
@@ -893,7 +893,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                     className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer ml-1 ${
                       onlyMyKeywordsActive
                         ? 'bg-amber-600 text-white shadow-xs'
-                        : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300'
+                        : 'bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700'
                     }`}
                     title="등록하신 관심 키워드와 일치하는 기사만 모아봅니다."
                   >
@@ -907,7 +907,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                       className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
                         onlyMyKeywordsActive
                           ? 'bg-amber-800 text-white'
-                          : 'bg-amber-200 text-amber-900'
+                          : 'bg-amber-200 dark:bg-amber-900/80 text-amber-900 dark:text-amber-200'
                       }`}
                     >
                       {sectorCounts.myFavoritesCount}
@@ -919,18 +919,18 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
               {/* Search & Sort Controls */}
               <div className="flex items-center gap-2">
                 <div className="relative flex-1 md:w-56">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <Search className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="헤드라인 검색 (예: GTX, 청약, PF...)"
-                    className="w-full pl-8 pr-7 py-1.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-amber-500 transition"
+                    className="w-full pl-8 pr-7 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-amber-500 transition"
                   />
                   {searchQuery && (
                     <button
                       onClick={() => setSearchQuery('')}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
@@ -943,12 +943,12 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                   }
                   className={`px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer flex items-center gap-1 shrink-0 ${
                     sortBy === 'impact'
-                      ? 'bg-amber-100 border-amber-300 text-amber-900 font-bold'
-                      : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                      ? 'bg-amber-100 dark:bg-amber-950/70 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 font-bold'
+                      : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
                   }`}
                   title="정렬 기준 변경"
                 >
-                  <SlidersHorizontal className="w-3 h-3 text-amber-600" />
+                  <SlidersHorizontal className="w-3 h-3 text-amber-600 dark:text-amber-400" />
                   <span>{sortBy === 'latest' ? '최신순' : '파급도순'}</span>
                 </button>
               </div>
@@ -956,24 +956,24 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
 
             {/* Active Preferences Indicator Banner */}
             {isCustomized && !isSettingsOpen && (
-              <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl px-4 py-2 flex items-center justify-between gap-2 text-xs">
+              <div className="bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/60 rounded-2xl px-4 py-2 flex items-center justify-between gap-2 text-xs">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-bold text-amber-900 flex items-center gap-1">
-                    <Star className="w-3.5 h-3.5 text-amber-600 fill-amber-500" />
+                  <span className="font-bold text-amber-900 dark:text-amber-300 flex items-center gap-1">
+                    <Star className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 fill-amber-500" />
                     <span>개인 관심설정 적용:</span>
                   </span>
-                  <span className="text-slate-600">
+                  <span className="text-slate-600 dark:text-slate-300">
                     섹터 ({prefs.enabledSectors.map((s) => s === 'construction' ? '건설' : s === 'realestate' ? '부동산' : '금융').join(', ')})
                   </span>
                   {prefs.favoriteKeywords.length > 0 && (
-                    <span className="text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full font-medium text-[11px]">
+                    <span className="text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/70 px-2 py-0.5 rounded-full font-medium text-[11px]">
                       관심 키워드 {prefs.favoriteKeywords.length}개
                     </span>
                   )}
                 </div>
                 <button
                   onClick={() => setIsSettingsOpen(true)}
-                  className="text-amber-800 hover:text-amber-950 font-bold underline cursor-pointer text-[11px] shrink-0"
+                  className="text-amber-800 dark:text-amber-300 hover:text-amber-950 dark:hover:text-white font-bold underline cursor-pointer text-[11px] shrink-0"
                 >
                   설정 변경
                 </button>
@@ -982,12 +982,12 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
 
             {/* Headlines Grid / List */}
             {filteredHeadlines.length === 0 ? (
-              <div className="py-12 text-center text-slate-400 bg-slate-50/50 rounded-2xl border border-dashed border-slate-300 space-y-2">
-                <Building className="w-8 h-8 mx-auto text-slate-300" />
-                <p className="text-xs font-semibold text-slate-600">
+              <div className="py-12 text-center text-slate-400 dark:text-slate-500 bg-slate-50/50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 space-y-2">
+                <Building className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600" />
+                <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                   선택된 조건에 부합하는 기사가 없습니다.
                 </p>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[11px] text-slate-400 dark:text-slate-500">
                   {onlyMyKeywordsActive
                     ? '내 관심 키워드 필터를 해제하거나 [관심분야 개인설정]에서 키워드를 추가해보세요.'
                     : '다른 섹터 탭을 클릭하거나 검색어를 비워보세요.'}
@@ -1021,10 +1021,10 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                     : 'border-l-indigo-500';
 
                   const badgeBg = isConstruction
-                    ? 'bg-amber-100 text-amber-900 border-amber-200'
+                    ? 'bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 border-amber-200 dark:border-amber-800'
                     : isRealEstate
-                    ? 'bg-emerald-100 text-emerald-900 border-emerald-200'
-                    : 'bg-indigo-100 text-indigo-900 border-indigo-200';
+                    ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-900 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                    : 'bg-indigo-100 dark:bg-indigo-950/70 text-indigo-900 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800';
 
                   const isCopied = copiedId === item.id;
                   const isFavoriteMatch = doesItemMatchFavorites(
@@ -1036,8 +1036,8 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                     <article
                       key={item.id}
                       onClick={() => onOpenArticleModal(adaptToNewsStory(item))}
-                      className={`bg-white border border-slate-200/90 rounded-2xl p-4 sm:p-4.5 border-l-4 ${borderColor} shadow-xs hover:shadow-md transition-all duration-200 flex flex-col justify-between gap-3 cursor-pointer group hover:border-slate-300 ${
-                        isFavoriteMatch ? 'ring-1 ring-amber-300/80 bg-amber-50/20' : ''
+                      className={`bg-white dark:bg-slate-900/95 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 sm:p-4.5 border-l-4 ${borderColor} shadow-xs hover:shadow-md transition-all duration-200 flex flex-col justify-between gap-3 cursor-pointer group hover:border-slate-300 dark:hover:border-slate-600 ${
+                        isFavoriteMatch ? 'ring-1 ring-amber-300/80 dark:ring-amber-600/60 bg-amber-50/20 dark:bg-amber-950/20' : ''
                       }`}
                     >
                       {/* Card Top: Badges and metadata */}
@@ -1049,34 +1049,34 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                             >
                               {item.sectorLabel}
                             </span>
-                            <span className="text-[11px] font-extrabold text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                            <span className="text-[11px] font-extrabold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">
                               {item.outletName}
                             </span>
                             {item.highlightBadge && (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 flex items-center gap-1">
-                                <Sparkles className="w-2.5 h-2.5 text-rose-500" />
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-50 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 flex items-center gap-1">
+                                <Sparkles className="w-2.5 h-2.5 text-rose-500 dark:text-rose-400" />
                                 <span>{item.highlightBadge}</span>
                               </span>
                             )}
                             {isFavoriteMatch && (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1 shadow-2xs">
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700 flex items-center gap-1 shadow-2xs">
                                 <Star className="w-2.5 h-2.5 fill-amber-500 text-amber-500" />
                                 <span>관심 매칭</span>
                               </span>
                             )}
                           </div>
-                          <span className="text-[10px] font-medium text-slate-400 shrink-0">
+                          <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 shrink-0">
                             {item.publishedAt.split(' ').pop()}
                           </span>
                         </div>
 
                         {/* Title */}
-                        <h3 className="text-sm sm:text-base font-bold text-slate-900 group-hover:text-blue-600 transition-colors leading-snug tracking-tight line-clamp-2">
+                        <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors leading-snug tracking-tight line-clamp-2">
                           {item.title}
                         </h3>
 
                         {/* Summary */}
-                        <p className="text-xs text-slate-600 mt-2 line-clamp-2 leading-relaxed">
+                        <p className="text-xs text-slate-600 dark:text-slate-300 mt-2 line-clamp-2 leading-relaxed">
                           {item.summary}
                         </p>
 
@@ -1095,8 +1095,8 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                                 }}
                                 className={`text-[10px] px-1.5 py-0.5 rounded transition ${
                                   isKwMatched
-                                    ? 'bg-amber-100 text-amber-900 font-bold border border-amber-300'
-                                    : 'text-slate-500 hover:text-blue-600 bg-slate-100 hover:bg-blue-50'
+                                    ? 'bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-200 font-bold border border-amber-300 dark:border-amber-700'
+                                    : 'text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/60'
                                 }`}
                               >
                                 #{tag}
@@ -1107,15 +1107,15 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                       </div>
 
                       {/* Card Bottom: Action buttons */}
-                      <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
+                      <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 text-xs">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             onOpenArticleModal(adaptToNewsStory(item));
                           }}
-                          className="text-[11px] font-bold text-slate-700 hover:text-blue-600 flex items-center gap-1 cursor-pointer"
+                          className="text-[11px] font-bold text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1 cursor-pointer"
                         >
-                          <FileText className="w-3.5 h-3.5 text-slate-500 group-hover:text-blue-600" />
+                          <FileText className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
                           <span>상세 브리핑 전문 보기</span>
                         </button>
 
@@ -1124,19 +1124,19 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                             onClick={(e) => handleCopyLink(item, e)}
                             className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition flex items-center gap-1 cursor-pointer ${
                               isCopied
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-300'
-                                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+                                ? 'bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
+                                : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700'
                             }`}
                             title="기사 검색 링크 복사"
                           >
                             {isCopied ? (
                               <>
-                                <Check className="w-3 h-3 text-emerald-600" />
+                                <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
                                 <span>복사됨</span>
                               </>
                             ) : (
                               <>
-                                <Copy className="w-3 h-3 text-slate-500" />
+                                <Copy className="w-3 h-3 text-slate-500 dark:text-slate-400" />
                                 <span>링크 복사</span>
                               </>
                             )}
@@ -1147,7 +1147,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                               e.stopPropagation();
                               onOpenShareModal(adaptToNewsStory(item));
                             }}
-                            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                            className="p-1 rounded-lg text-slate-400 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
                             title="친구에게 공유하기"
                           >
                             <Share2 className="w-3.5 h-3.5" />

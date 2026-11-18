@@ -6,6 +6,7 @@ import { PRESS_OUTLETS, DEFAULT_10_OUTLETS } from '../data/mockNewsData.ts';
 import { getCurrentKoreanDateString } from '../utils/dateUtils.ts';
 import { extractSearchKeywords, getOfficialOutletHomepage } from '../utils/linkUtils.ts';
 import { transformBriefingTone } from '../utils/toneTransformer.ts';
+import { computeKeywordTrends } from '../utils/keywordTrend.ts';
 
 export interface RawRSSArticle {
   outletId: string;
@@ -1006,11 +1007,21 @@ export function buildRealBriefing(
     };
   });
 
+  const topKeywords = allKeywords.slice(0, 8);
+  const keywordTrends = computeKeywordTrends(
+    topKeywords,
+    [...frontPageStories, ...overlappingStories, ...exclusiveStories],
+    [],
+    allCollected,
+    Math.max(10, targetIds.length)
+  );
+
   const rawBriefing: DailyBriefing = {
     id: `briefing-real-${Date.now()}`,
     briefingDate: todayFormatted,
     briefingTime: `${nowKstTime} 실시간`,
-    topKeywords: allKeywords.slice(0, 8),
+    topKeywords,
+    keywordTrends,
     tone,
     selectedOutletIds: targetIds,
     frontPageOutletIds: targetIds,

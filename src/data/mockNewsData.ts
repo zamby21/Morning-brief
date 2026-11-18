@@ -1599,6 +1599,7 @@ export const INITIAL_USER_PREFERENCES: UserPreferences = {
   pushNotificationEnabled: false,
   preferredTone: 'insight',
   toneExplicitlySelected: false,
+  theme: 'system',
   subscribedTopics: ['반도체·AI', '금융·거시경제', '증시·투자', '정치·정책', '부동산·건설'],
   selectedOutlets: DEFAULT_10_OUTLETS,
   frontPageOutlets: DEFAULT_10_OUTLETS,

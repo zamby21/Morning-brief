@@ -51,23 +51,23 @@ export const ToneSelector: React.FC<ToneSelectorProps> = ({
   ];
 
   return (
-    <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm backdrop-blur-sm">
+    <div className="bg-white/90 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm backdrop-blur-sm">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+          <div className="p-1.5 rounded-lg bg-indigo-100 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/20">
             <Sparkles className="w-4 h-4" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
               요약본 어조(Tone) 개인화 설정
             </h3>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               취향이나 읽는 상황에 맞게 4가지 문체 중 선택하시면 AI가 요약본 문장을 즉시 재작성합니다.
             </p>
           </div>
         </div>
         {isLoading && (
-          <span className="text-xs text-indigo-400 animate-pulse font-medium">
+          <span className="text-xs text-indigo-600 dark:text-indigo-400 animate-pulse font-medium">
             AI 어조 변환 중...
           </span>
         )}
@@ -81,32 +81,32 @@ export const ToneSelector: React.FC<ToneSelectorProps> = ({
               key={t.id}
               onClick={() => onSelectTone(t.id)}
               disabled={isLoading}
-              className={`p-3 rounded-xl border text-left transition relative flex flex-col justify-between ${
+              className={`p-3 rounded-xl border text-left transition relative flex flex-col justify-between cursor-pointer ${
                 isSelected
-                  ? 'bg-gradient-to-b from-indigo-950/60 to-slate-900 border-indigo-500 shadow-md shadow-indigo-500/10 ring-1 ring-indigo-500'
-                  : 'bg-slate-800/60 border-slate-700/60 hover:bg-slate-800 hover:border-slate-600'
+                  ? 'bg-gradient-to-b from-indigo-50 to-white dark:from-indigo-950/60 dark:to-slate-900 border-indigo-500 shadow-md shadow-indigo-500/10 ring-1 ring-indigo-500'
+                  : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600'
               }`}
             >
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                     {t.name}
                   </span>
                   <span
                     className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
                       isSelected
-                        ? 'bg-indigo-500 text-white'
-                        : 'bg-slate-700 text-slate-300'
+                        ? 'bg-indigo-600 dark:bg-indigo-500 text-white'
+                        : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
                     }`}
                   >
                     {t.badge}
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-300 leading-tight mb-2">
+                <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-tight mb-2">
                   {t.description}
                 </p>
               </div>
-              <div className="text-[10px] text-indigo-300/80 bg-slate-950/50 px-2 py-1 rounded border border-slate-800">
+              <div className="text-[10px] text-indigo-700 dark:text-indigo-300/80 bg-white dark:bg-slate-950/50 px-2 py-1 rounded border border-slate-200 dark:border-slate-800">
                 예시: {t.example}
               </div>
               {isSelected && (

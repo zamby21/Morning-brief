@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import {
   INITIAL_DAILY_BRIEFING,
   MOCK_WEEKLY_REPORT,
@@ -14,6 +14,7 @@ import { getCurrentKoreanDateString } from './src/utils/dateUtils.ts';
 import { extractSearchKeywords, getOfficialOutletHomepage } from './src/utils/linkUtils.ts';
 import { transformBriefingTone } from './src/utils/toneTransformer.ts';
 import { fetchRealArticlesForOutlets, buildRealBriefing } from './src/services/realNewsCollector.ts';
+import { computeKeywordTrends } from './src/utils/keywordTrend.ts';
 
 dotenv.config();
 
@@ -47,6 +48,72 @@ const ai = new GoogleGenAI({
   },
 });
 
+const PRIMARY_GEMINI_MODEL = 'gemini-4-hydrogen';
+const FALLBACK_GEMINI_MODEL = 'gemini-3.1-flash-lite';
+const GEMINI_CACHE_TTL_MS = 10 * 60 * 1000;
+const modelCooldownUntil: Record<string, number> = {};
+const geminiSummaryCache = new Map<string, { expiresAt: number; data: DailyBriefing }>();
+
+function isQuotaError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err || '');
+  return msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.toLowerCase().includes('quota');
+}
+
+function getCooldownMs(err: unknown): number {
+  const msg = err instanceof Error ? err.message : String(err || '');
+  const match = msg.match(/"retryDelay"\s*:\s*"(\d+)s"/);
+  if (match) {
+    const sec = Number(match[1]);
+    if (Number.isFinite(sec) && sec > 0) {
+      return Math.min(sec * 1000, 30 * 60 * 1000);
+    }
+  }
+  return 10 * 60 * 1000;
+}
+
+async function generateWithResilientModel(
+  contents: string,
+  config: Record<string, unknown>,
+  timeoutMs = 7000
+): Promise<any | null> {
+  if (!apiKey) return null;
+
+  const now = Date.now();
+  const candidates = [PRIMARY_GEMINI_MODEL, FALLBACK_GEMINI_MODEL].filter(
+    (m) => !modelCooldownUntil[m] || now >= modelCooldownUntil[m]
+  );
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  for (const model of candidates) {
+    try {
+      const modelConfig: Record<string, unknown> = { ...config };
+      if (model === PRIMARY_GEMINI_MODEL && !modelConfig.thinkingConfig) {
+        modelConfig.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
+      }
+      const reqPromise = ai.models.generateContent({
+        model,
+        contents,
+        config: modelConfig,
+      });
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Gemini API timeout')), timeoutMs)
+      );
+      return await Promise.race([reqPromise, timeoutPromise]);
+    } catch (err: any) {
+      if (isQuotaError(err)) {
+        modelCooldownUntil[model] = Date.now() + getCooldownMs(err);
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  return null;
+}
+
 // Helper for tone prompt description
 function getToneDescription(tone: string): string {
   switch (tone) {
@@ -77,9 +144,18 @@ app.post(['/api/summarize', '/summarize'], async (req, res) => {
     // 2. Build default robust briefing with verified real articles
     const realBriefing = buildRealBriefing(realArticlesMap, tone as BriefingTone, targetOutletIds);
 
-    // 3. If Gemini is available, summarize and enhance the REAL articles without fabricating titles
+    // 3. If Gemini is available, enhance REAL articles (cached by headline signature to avoid redundant polling calls)
     if (apiKey) {
       try {
+        const titlesSignature = realBriefing.frontPageStories
+          .map((s) => `${s.outletId}:${s.title}`)
+          .join('|');
+        const cacheKey = `${tone}:${targetOutletIds.join(',')}:${titlesSignature}`;
+        const cached = geminiSummaryCache.get(cacheKey);
+        if (cached && Date.now() < cached.expiresAt) {
+          return res.json({ success: true, data: cached.data, source: 'gemini-verified-cache' });
+        }
+
         const realNewsPayload = Object.entries(realArticlesMap)
           .filter(([id]) => targetOutletIds.includes(id))
           .map(([id, articles]) => ({
@@ -105,10 +181,9 @@ app.post(['/api/summarize', '/summarize'], async (req, res) => {
 [제공된 실제 언론사 기사 목록]:
 ${JSON.stringify(realNewsPayload, null, 2)}`;
 
-        const geminiPromise = ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: prompt,
-          config: {
+        const response = await generateWithResilientModel(
+          prompt,
+          {
             responseMimeType: 'application/json',
             responseSchema: {
               type: Type.OBJECT,
@@ -139,14 +214,13 @@ ${JSON.stringify(realNewsPayload, null, 2)}`;
               required: ['topKeywords', 'frontPageStories'],
             },
           },
-        });
-
-        // Add a timeout of 7s for Gemini call
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Gemini API timeout')), 7000)
+          7000
         );
 
-        const response: any = await Promise.race([geminiPromise, timeoutPromise]);
+        if (!response) {
+          return res.json({ success: true, data: realBriefing, source: 'real-rss-verified' });
+        }
+
         const parsed = JSON.parse(response.text || '{}');
 
         if (parsed.frontPageStories && parsed.frontPageStories.length > 0) {
@@ -163,10 +237,29 @@ ${JSON.stringify(realNewsPayload, null, 2)}`;
                 .map((line: string) => line.replace(/^[0-9]+[.)]\s*/, '').trim());
             }
           });
+          if (parsed.topKeywords && parsed.topKeywords.length > 0) {
+            realBriefing.keywordTrends = computeKeywordTrends(
+              realBriefing.topKeywords,
+              [
+                ...realBriefing.frontPageStories,
+                ...realBriefing.overlappingStories,
+                ...realBriefing.exclusiveStories,
+              ],
+              realBriefing.sectorHeadlines || [],
+              Object.values(realArticlesMap).flat(),
+              Math.max(10, targetOutletIds.length)
+            );
+          }
+          geminiSummaryCache.set(cacheKey, {
+            expiresAt: Date.now() + GEMINI_CACHE_TTL_MS,
+            data: realBriefing,
+          });
         }
         return res.json({ success: true, data: realBriefing, source: 'gemini-verified-real' });
       } catch (geminiErr: any) {
-        console.warn('Gemini enhancement fallback to verified real RSS briefing:', geminiErr.message);
+        if (!isQuotaError(geminiErr)) {
+          console.info('Using verified real RSS briefing fallback:', geminiErr?.message || 'unavailable');
+        }
         return res.json({ success: true, data: realBriefing, source: 'real-rss-verified' });
       }
     }
@@ -207,13 +300,15 @@ ${JSON.stringify({
   exclusive: currentBriefing.exclusiveStories.map((s: any) => ({ id: s.id, title: s.title, summary: s.baseSummary || s.leadSummary })),
 })}`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-      },
-    });
+    const response = await generateWithResilientModel(
+      prompt,
+      { responseMimeType: 'application/json' },
+      7000
+    );
+
+    if (!response) {
+      return res.json({ success: true, data: transformBriefingTone(currentBriefing, targetTone as BriefingTone) });
+    }
 
     const parsed = JSON.parse(response.text || '{}');
     const updated = JSON.parse(JSON.stringify(currentBriefing));
@@ -246,7 +341,9 @@ ${JSON.stringify({
 
     return res.json({ success: true, data: updated });
   } catch (err: any) {
-    console.error('Rewrite tone error:', err);
+    if (!isQuotaError(err)) {
+      console.info('Rewrite tone fallback:', err?.message || 'unavailable');
+    }
     return res.json({ success: true, data: transformBriefingTone(currentBriefing, targetTone as BriefingTone) });
   }
 });
@@ -267,18 +364,22 @@ app.post(['/api/weekly-report', '/weekly-report'], async (req, res) => {
 4. 3개 핵심 분야별(반도체/AI, 금융/거시/부동산, 정치/사회) 심층 분석
 5. 차주 주목할 핵심 이벤트 4가지 (outlookNextWeek)`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-      },
-    });
+    const response = await generateWithResilientModel(
+      prompt,
+      { responseMimeType: 'application/json' },
+      7000
+    );
+
+    if (!response) {
+      return res.json({ success: true, data: MOCK_WEEKLY_REPORT, source: 'fallback' });
+    }
 
     const parsed: WeeklyReport = JSON.parse(response.text || '{}');
     return res.json({ success: true, data: parsed, source: 'gemini-live' });
   } catch (error: any) {
-    console.error('Weekly report error:', error);
+    if (!isQuotaError(error)) {
+      console.info('Weekly report fallback:', error?.message || 'unavailable');
+    }
     return res.json({ success: true, data: MOCK_WEEKLY_REPORT, source: 'fallback' });
   }
 });
