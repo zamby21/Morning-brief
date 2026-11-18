@@ -1,18 +1,12 @@
 import {
   Newspaper,
   Menu,
-  Clock,
   RefreshCw,
-  Mail,
-  SlidersHorizontal,
-  Sparkles,
   Smartphone,
-  ChevronRight,
   Calendar,
 } from 'lucide-react';
-import { BriefingTone, ThemeMode, UserPreferences } from '../types/news';
+import { UserPreferences } from '../types/news';
 import { getCurrentKoreanDateString } from '../utils/dateUtils';
-import { ThemeSelector } from './ThemeSelector';
 import {
   formatKoreanTimeLabel,
   formatScheduleDaysSummary,
@@ -26,22 +20,11 @@ interface HeaderProps {
   onResetHome?: () => void;
   onToggleSidebar: () => void;
   isSidebarOpen: boolean;
-  onOpenPressModal: () => void;
-  onOpenToneModal: () => void;
-  currentTone: BriefingTone;
   onOpenDashboard: () => void;
-  onOpenEmailModal: () => void;
-  onOpenWeeklyModal: () => void;
   onToggleMobilePreview: () => void;
   isMobilePreview: boolean;
   onRefreshLive: () => void;
   isLoading: boolean;
-  selectedOutletsCount: number;
-  frontPageCount?: number;
-  overlappingCount?: number;
-  themeMode: ThemeMode;
-  resolvedTheme: 'light' | 'dark';
-  onChangeTheme: (mode: ThemeMode) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -51,36 +34,12 @@ export const Header: React.FC<HeaderProps> = ({
   onResetHome,
   onToggleSidebar,
   isSidebarOpen,
-  onOpenPressModal,
-  onOpenToneModal,
-  currentTone,
   onOpenDashboard,
-  onOpenEmailModal,
-  onOpenWeeklyModal,
   onToggleMobilePreview,
   isMobilePreview,
   onRefreshLive,
   isLoading,
-  selectedOutletsCount,
-  frontPageCount,
-  overlappingCount,
-  themeMode,
-  resolvedTheme,
-  onChangeTheme,
 }) => {
-  const getToneShortLabel = (tone: BriefingTone) => {
-    switch (tone) {
-      case 'bullet':
-        return '개조식';
-      case 'friendly':
-        return '설명체';
-      case 'formal':
-        return '격식체';
-      case 'insight':
-      default:
-        return '인사이트';
-    }
-  };
 
   return (
     <header className="bg-white/95 dark:bg-slate-900/95 text-slate-800 dark:text-slate-100 border-b border-slate-200/90 dark:border-slate-800 sticky top-0 z-30 shadow-xs backdrop-blur-md transition-colors duration-200">
@@ -187,60 +146,15 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right: Streamlined Quick Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          {/* Desktop Outlet Quick Indicator Button (Mobile uses left sidebar menu) */}
-          <button
-            onClick={onOpenPressModal}
-            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200/80 dark:border-slate-700 transition cursor-pointer"
-            title="언론사 맞춤 개별 설정 (1면 핵심 & 공통이슈)"
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-            <span>수집 언론사</span>
-            <span className="px-1.5 py-0.2 rounded-md text-[10px] bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 font-bold">
-              1면 {frontPageCount ?? selectedOutletsCount}사
-            </span>
-            <span className="px-1.5 py-0.2 rounded-md text-[10px] bg-purple-50 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-bold">
-              공통 {overlappingCount ?? selectedOutletsCount}사
-            </span>
-          </button>
-
-          {/* Tone Quick Indicator Button (Desktop) */}
-          <button
-            onClick={onOpenToneModal}
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200/80 dark:border-slate-700 transition cursor-pointer"
-            title="요약본 어조 변경"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-            <span>{getToneShortLabel(currentTone)}</span>
-          </button>
-
-          {/* Theme Selector Dropdown (라이트 모드 / 다크 모드 / 시스템 설정) */}
-          <ThemeSelector
-            themeMode={themeMode}
-            resolvedTheme={resolvedTheme}
-            onChangeTheme={onChangeTheme}
-            variant="header"
-          />
-
           {/* Refresh Live Button */}
           <button
             onClick={onRefreshLive}
             disabled={isLoading}
-            className="p-1.5 sm:px-3 sm:py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200/80 dark:border-slate-700 transition active:scale-95 disabled:opacity-50 cursor-pointer shrink-0"
+            className="flex items-center p-1.5 sm:px-3 sm:py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200/80 dark:border-slate-700 transition active:scale-95 disabled:opacity-50 cursor-pointer shrink-0"
             title="실시간 AI 기사 재수집 및 분석"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 ${isLoading ? 'animate-spin' : ''}`} />
             <span className="hidden sm:inline ml-1.5">실시간 갱신</span>
-          </button>
-
-          {/* Email Send CTA */}
-          <button
-            onClick={onOpenEmailModal}
-            className="flex items-center gap-1 px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition active:scale-95 cursor-pointer shrink-0"
-            title="이메일 즉시 발송"
-          >
-            <Mail className="w-3.5 h-3.5" />
-            <span className="hidden xs:inline">이메일</span>
-            <span className="xs:hidden">발송</span>
           </button>
 
           {/* Mobile Preview Toggle (Desktop Only) */}

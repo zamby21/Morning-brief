@@ -865,22 +865,11 @@ export default function App() {
           }}
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           isSidebarOpen={isSidebarOpen}
-          onOpenPressModal={() => handleOpenPressModal('frontPage')}
-          onOpenToneModal={() => setIsToneModalOpen(true)}
-          currentTone={briefing.tone}
           onOpenDashboard={() => setIsEmailModalOpen(true)}
-          onOpenEmailModal={() => setIsEmailModalOpen(true)}
-          onOpenWeeklyModal={() => setIsWeeklyModalOpen(true)}
           onToggleMobilePreview={() => setIsMobilePreview(!isMobilePreview)}
           isMobilePreview={isMobilePreview}
           onRefreshLive={handleRefreshLive}
           isLoading={isLoading}
-          selectedOutletsCount={preferences.selectedOutlets?.length || 0}
-          frontPageCount={preferences.frontPageOutlets?.length || preferences.selectedOutlets?.length || 10}
-          overlappingCount={preferences.overlappingOutlets?.length || preferences.selectedOutlets?.length || 10}
-          themeMode={themeMode}
-          resolvedTheme={resolvedTheme}
-          onChangeTheme={handleChangeTheme}
         />
 
         {/* Outer Container (with optional Mobile Frame simulator) */}
