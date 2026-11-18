@@ -69,18 +69,25 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   const activeOriginalUrl = isCluster && currentClusterItem ? currentClusterItem.originalUrl : story.originalUrl;
 
   const cleanSearchQuery = getCleanNaverQuery(activeTitle, activeOutletName, story.keywords);
-  const naverUrl = getNaverNewsUrl(activeTitle, activeOutletName, story.keywords);
+  const naverUrl =
+    !isCluster && story.naverUrl
+      ? story.naverUrl
+      : getNaverNewsUrl(activeTitle, activeOutletName, story.keywords);
+  const candidateOriginUrl =
+    !isCluster && activeOriginalUrl && activeOriginalUrl.includes('n.news.naver.com')
+      ? undefined
+      : activeOriginalUrl || outletMeta?.homepageUrl;
   const officialArticleUrl = getArticleOrOutletUrl(
     activeOutletId,
     activeOutletName,
     activeTitle,
     story.keywords,
-    activeOriginalUrl || outletMeta?.homepageUrl
+    candidateOriginUrl
   );
   const officialHomepage = getOfficialOutletHomepage(
     activeOutletId,
     activeOutletName,
-    activeOriginalUrl || outletMeta?.homepageUrl
+    candidateOriginUrl
   );
 
   // Resolve full content text

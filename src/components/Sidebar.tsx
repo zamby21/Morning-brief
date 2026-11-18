@@ -2,23 +2,18 @@ import React from 'react';
 import {
   SlidersHorizontal,
   Sparkles,
-  Clock,
   Mail,
   CalendarDays,
   RefreshCw,
   Smartphone,
   ChevronLeft,
-  ChevronRight,
-  Building2,
   Filter,
   Newspaper,
-  Layers,
-  Zap,
-  CheckCircle2,
+  Palette,
 } from 'lucide-react';
 import { BriefingTone, ThemeMode, UserPreferences } from '../types/news';
 import { AVAILABLE_TOPICS } from '../data/mockNewsData';
-import { ThemeSelector } from './ThemeSelector';
+import { getThemeLabel } from '../utils/theme';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -27,9 +22,9 @@ interface SidebarProps {
   currentTone: BriefingTone;
   onOpenPressModal: () => void;
   onOpenToneModal: () => void;
-  onOpenDashboard: () => void;
   onOpenEmailModal: () => void;
   onOpenWeeklyModal: () => void;
+  onOpenThemeModal: () => void;
   onRefreshLive: () => void;
   isLoading: boolean;
   isMobilePreview: boolean;
@@ -42,7 +37,6 @@ interface SidebarProps {
   onScrollToSection?: (id: string) => void;
   themeMode: ThemeMode;
   resolvedTheme: 'light' | 'dark';
-  onChangeTheme: (mode: ThemeMode) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -52,9 +46,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentTone,
   onOpenPressModal,
   onOpenToneModal,
-  onOpenDashboard,
   onOpenEmailModal,
   onOpenWeeklyModal,
+  onOpenThemeModal,
   onRefreshLive,
   isLoading,
   isMobilePreview,
@@ -67,7 +61,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onScrollToSection,
   themeMode,
   resolvedTheme,
-  onChangeTheme,
 }) => {
   const getToneShortLabel = (tone: BriefingTone) => {
     switch (tone) {
@@ -104,44 +97,56 @@ export const Sidebar: React.FC<SidebarProps> = ({
         }`}
       >
         {/* Top Header of Sidebar */}
-        <div className="h-16 border-b border-slate-200/90 dark:border-slate-800 px-3.5 flex items-center justify-between shrink-0 bg-slate-50/70 dark:bg-slate-900/90">
+        <div
+          className={`h-16 border-b border-slate-200/90 dark:border-slate-800 flex items-center shrink-0 bg-slate-50/70 dark:bg-slate-900/90 ${
+            isOpen ? 'px-3.5 justify-between' : 'px-2 justify-center'
+          }`}
+        >
           {isOpen ? (
-            <div className="flex items-center gap-2.5 overflow-hidden">
-              <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-black shadow-xs shrink-0">
-                <Newspaper className="w-4 h-4" />
-              </div>
-              <div className="truncate">
-                <div className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <span>설정 & 옵션 메뉴</span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-bold">
-                    PRO
-                  </span>
+            <>
+              <div className="flex items-center gap-2.5 overflow-hidden">
+                <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-black shadow-xs shrink-0">
+                  <Newspaper className="w-4 h-4" />
                 </div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                  모닝브리프 개인화 설정
+                <div className="truncate">
+                  <div className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <span>설정 & 옵션 메뉴</span>
+                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-bold">
+                      PRO
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                    모닝브리프 개인화 설정
+                  </div>
                 </div>
               </div>
-            </div>
-          ) : (
-            <div className="w-full flex justify-center">
-              <div
-                className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-black shadow-xs cursor-pointer hover:bg-blue-700 transition"
-                onClick={onToggle}
-                title="메뉴 펼치기"
-              >
-                <Newspaper className="w-4 h-4" />
-              </div>
-            </div>
-          )}
 
-          {/* Toggle Button */}
-          <button
-            onClick={onToggle}
-            className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-200/70 dark:hover:bg-slate-800 transition shrink-0 cursor-pointer"
-            title={isOpen ? '메뉴 접기' : '메뉴 펼치기'}
-          >
-            {isOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4 hidden lg:block" />}
-          </button>
+              <button
+                type="button"
+                onClick={onToggle}
+                className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-200/70 dark:hover:bg-slate-800 transition shrink-0 cursor-pointer"
+                title="메뉴 접기"
+                aria-label="메뉴 접기"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={onToggle}
+              className="w-full flex flex-col items-center justify-center cursor-pointer group focus:outline-none rounded-xl py-1 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              title="설정 메뉴 펼치기"
+              aria-label="설정 메뉴 펼치기"
+            >
+              <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-black shadow-xs group-hover:bg-blue-700 transition">
+                <Newspaper className="w-4 h-4" />
+              </div>
+              <span className="text-[10px] font-bold text-slate-700 dark:text-slate-200 leading-none mt-1 whitespace-nowrap">
+                설정
+              </span>
+            </button>
+          )}
         </div>
 
         {/* Scrollable Menu Items */}
@@ -210,38 +215,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                 )}
               </button>
-
-              {/* Delivery Dashboard */}
-              <button
-                onClick={onOpenDashboard}
-                className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-left transition group cursor-pointer ${
-                  isOpen
-                    ? 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white'
-                    : 'justify-center hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
-                }`}
-                title={`수신 대시보드 (매일 ${preferences.deliveryTime})`}
-              >
-                <div className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-950/70 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 group-hover:bg-amber-600 group-hover:text-white transition-colors">
-                  <Clock className="w-4 h-4" />
-                </div>
-                {isOpen && (
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between text-xs font-bold text-slate-800 dark:text-slate-100">
-                      <span>수신 대시보드</span>
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300">
-                        {preferences.deliveryTime}
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-slate-400 truncate">
-                      발송 시각·웹푸시·테마 관리
-                    </div>
-                  </div>
-                )}
-              </button>
             </div>
           </div>
 
-          {/* Group 2: 발송 & 리포트 액션 */}
+          {/* Group 2: 이메일 발송 & 리포트 액션 */}
           <div>
             {isOpen && (
               <div className="px-2 pb-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">
@@ -250,7 +227,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
 
             <div className="space-y-1">
-              {/* Send Email */}
+              {/* Unified Email Dispatch, Scheduler & Notification Settings */}
               <button
                 onClick={onOpenEmailModal}
                 className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-left transition group cursor-pointer ${
@@ -258,18 +235,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     ? 'hover:bg-blue-50/70 dark:hover:bg-blue-950/50 text-slate-700 dark:text-slate-200 hover:text-blue-700 dark:hover:text-blue-300'
                     : 'justify-center hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
                 }`}
-                title="이메일 즉시 발송"
+                title={`이메일 발송 & 스케줄 (${preferences.autoEmailEnabled ? preferences.deliveryTime : '일시 중지'})`}
               >
                 <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
                   <Mail className="w-4 h-4" />
                 </div>
                 {isOpen && (
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs font-bold text-slate-800 dark:text-slate-100 group-hover:text-blue-700 dark:group-hover:text-blue-300">
-                      이메일 발송
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-800 dark:text-slate-100 group-hover:text-blue-700 dark:group-hover:text-blue-300">
+                      <span>이메일 발송 &amp; 스케줄</span>
+                      <span className="text-[10px] font-mono tabular-nums font-bold px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 shrink-0">
+                        {preferences.autoEmailEnabled ? preferences.deliveryTime : 'OFF'}
+                      </span>
                     </div>
                     <div className="text-[11px] text-slate-400 truncate">
-                      {preferences.recipientEmail}
+                      {preferences.recipientEmail
+                        ? `${preferences.recipientEmail} · 시간대·푸시`
+                        : '수신 메일 미설정 · 시간대·푸시'}
                     </div>
                   </div>
                 )}
@@ -332,19 +314,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div>
             {isOpen && (
               <div className="px-2 pb-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                보기 모드 & 화면 테마
+                보기 모드 &amp; 화면 테마
               </div>
             )}
 
-            <div className="space-y-1.5">
-              {/* Theme Selector (라이트 모드 / 다크 모드 / 시스템 설정) */}
-              <ThemeSelector
-                themeMode={themeMode}
-                resolvedTheme={resolvedTheme}
-                onChangeTheme={onChangeTheme}
-                variant="sidebar"
-                isSidebarOpen={isOpen}
-              />
+            <div className="space-y-1">
+              {/* Dedicated Theme Settings Menu Button */}
+              <button
+                type="button"
+                onClick={onOpenThemeModal}
+                className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-left transition group cursor-pointer ${
+                  isOpen
+                    ? 'hover:bg-amber-50/70 dark:hover:bg-amber-950/40 text-slate-700 dark:text-slate-200 hover:text-amber-700 dark:hover:text-amber-300'
+                    : 'justify-center hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
+                }`}
+                title={`화면 테마 설정 (현재: ${getThemeLabel(themeMode)})`}
+              >
+                <div className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-950/70 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 group-hover:bg-amber-500 group-hover:text-white transition-colors">
+                  <Palette className="w-4 h-4" />
+                </div>
+                {isOpen && (
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-800 dark:text-slate-100 group-hover:text-amber-700 dark:group-hover:text-amber-300">
+                      <span>화면 테마 설정</span>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 shrink-0">
+                        {themeMode === 'light' ? '라이트' : themeMode === 'dark' ? '다크' : `시스템 (${resolvedTheme === 'dark' ? '다크' : '라이트'})`}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-400 truncate">
+                      라이트 / 다크 / 시스템 설정
+                    </div>
+                  </div>
+                )}
+              </button>
 
               {/* Mobile Preview Toggle */}
               <button

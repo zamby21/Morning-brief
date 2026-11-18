@@ -307,7 +307,10 @@ export function getOfficialOutletSearchUrl(
   if (id === 'khan' || name.includes('경향')) {
     return `https://search.khan.co.kr/?q=${encodedQuery}`;
   }
-  if (id === 'chosun' || name.includes('조선')) {
+  if (id === 'chosunbiz' || name.includes('조선비즈')) {
+    return `https://biz.chosun.com/nsearch/?query=${encodedQuery}`;
+  }
+  if (id === 'chosun' || name.includes('조선일보') || name === '조선') {
     return `https://www.chosun.com/search/?query=${encodedQuery}`;
   }
   if (id === 'joongang' || name.includes('중앙')) {
@@ -326,17 +329,65 @@ export function getOfficialOutletSearchUrl(
     return `https://www.hankyung.com/search?query=${encodedQuery}`;
   }
   if (id === 'sedaily' || name.includes('서울경제')) {
-    return `https://www.sedaily.com/Search/?Query=${encodedQuery}`;
+    return `https://www.sedaily.com/search?query=${encodedQuery}`;
   }
   if (id === 'herald' || name.includes('헤럴드')) {
-    return `https://biz.heraldcorp.com/search.php?q=${encodedQuery}`;
+    return `https://biz.heraldcorp.com/search?q=${encodedQuery}`;
   }
   if (id === 'asiae' || name.includes('아시아경제')) {
     return `https://www.asiae.co.kr/search?query=${encodedQuery}`;
   }
+  if (id === 'edaily' || name.includes('이데일리')) {
+    return `https://www.edaily.co.kr/search/news/?keyword=${encodedQuery}`;
+  }
+  if (id === 'mt' || name.includes('머니투데이')) {
+    return `https://www.mt.co.kr/search?kwd=${encodedQuery}`;
+  }
+  if (id === 'fnnews' || name.includes('파이낸셜뉴스')) {
+    return `https://www.fnnews.com/search?search_txt=${encodedQuery}`;
+  }
+  if (id === 'ajunews' || name.includes('아주경제')) {
+    return `https://www.ajunews.com/search?q=${encodedQuery}`;
+  }
+  if (id === 'newspim' || name.includes('뉴스핌')) {
+    return `https://www.newspim.com/search?search=${encodedQuery}`;
+  }
+  if (id === 'yonhap' || name.includes('연합뉴스')) {
+    return `https://www.yna.co.kr/search/index?query=${encodedQuery}`;
+  }
+  if (id === 'newsis' || name.includes('뉴시스')) {
+    return `https://www.newsis.com/search/?val=${encodedQuery}`;
+  }
+  if (id === 'hankookilbo' || name.includes('한국일보')) {
+    return `https://www.hankookilbo.com/search?query=${encodedQuery}`;
+  }
+  if (id === 'segye' || name.includes('세계일보')) {
+    return `https://www.segye.com/search?query=${encodedQuery}`;
+  }
+  if (id === 'munhwa' || name.includes('문화일보')) {
+    return `https://www.munhwa.com/search?query=${encodedQuery}`;
+  }
+  if (id === 'sbs' || name === 'SBS') {
+    return `https://news.sbs.co.kr/news/search/result.do?query=${encodedQuery}`;
+  }
+  if (id === 'kbs' || name === 'KBS') {
+    return `https://news.kbs.co.kr/news/pc/search/search.do?query=${encodedQuery}`;
+  }
+  if (id === 'ytn' || name === 'YTN') {
+    return `https://www.ytn.co.kr/search/?q=${encodedQuery}`;
+  }
+  if (id === 'jtbc' || name === 'JTBC') {
+    return `https://news.jtbc.co.kr/search?keyword=${encodedQuery}`;
+  }
 
   return getOfficialOutletHomepage(outletId, outletName);
 }
+
+const BARE_HOMEPAGE_SET = new Set([
+  ...Object.values(OUTLET_CANONICAL_HOMEPAGES).map((u) => u.replace(/\/+$/, '')),
+  'https://www.heraldcorp.com',
+  'https://news.naver.com',
+]);
 
 /**
  * Returns the best direct article URL or official in-site search URL on the press outlet's own portal.
@@ -348,23 +399,14 @@ export function getArticleOrOutletUrl(
   keywords?: string[],
   providedUrl?: string
 ): string {
+  const normalizedProvided = (providedUrl || '').trim().replace(/\/+$/, '');
   if (
-    providedUrl &&
-    (providedUrl.startsWith('http://') || providedUrl.startsWith('https://')) &&
-    !providedUrl.includes('localhost') &&
-    providedUrl !== 'https://www.khan.co.kr' &&
-    providedUrl !== 'https://www.chosun.com' &&
-    providedUrl !== 'https://www.mk.co.kr' &&
-    providedUrl !== 'https://www.joongang.co.kr' &&
-    providedUrl !== 'https://www.donga.com' &&
-    providedUrl !== 'https://www.hani.co.kr' &&
-    providedUrl !== 'https://www.hankyung.com' &&
-    providedUrl !== 'https://www.sedaily.com' &&
-    providedUrl !== 'https://biz.heraldcorp.com' &&
-    providedUrl !== 'https://www.asiae.co.kr' &&
-    providedUrl !== 'https://news.naver.com'
+    normalizedProvided &&
+    (normalizedProvided.startsWith('http://') || normalizedProvided.startsWith('https://')) &&
+    !normalizedProvided.includes('localhost') &&
+    !BARE_HOMEPAGE_SET.has(normalizedProvided)
   ) {
-    return providedUrl;
+    return providedUrl!.trim();
   }
 
   return getOfficialOutletSearchUrl(outletId, outletName, title, keywords);

@@ -12,8 +12,8 @@ import {
 import type { DailyBriefing, EmailDispatchLog, WeeklyReport, BriefingTone } from './src/types/news.ts';
 import { getCurrentKoreanDateString } from './src/utils/dateUtils.ts';
 import { extractSearchKeywords, getOfficialOutletHomepage } from './src/utils/linkUtils.ts';
-import { transformBriefingTone } from './src/utils/toneTransformer.ts';
-import { fetchRealArticlesForOutlets, buildRealBriefing } from './src/services/realNewsCollector.ts';
+import { transformBriefingTone, formatLeadSummaryByTone } from './src/utils/toneTransformer.ts';
+import { fetchRealArticlesForOutlets, fetchSectorHeadlinesReal, buildRealBriefing } from './src/services/realNewsCollector.ts';
 import { computeKeywordTrends } from './src/utils/keywordTrend.ts';
 
 dotenv.config();
@@ -138,11 +138,19 @@ app.post(['/api/summarize', '/summarize'], async (req, res) => {
     );
     const targetOutletIds = selectedOutlets.map((o) => o.id);
 
-    // 1. Always harvest real-time center homepage lead articles from Korean media
-    const realArticlesMap = await fetchRealArticlesForOutlets(targetOutletIds, Boolean(forceRefresh));
+    // 1. Always harvest real-time center homepage lead articles and live sector headlines in parallel
+    const [realArticlesMap, liveSectorHeadlines] = await Promise.all([
+      fetchRealArticlesForOutlets(targetOutletIds, Boolean(forceRefresh)),
+      fetchSectorHeadlinesReal(Boolean(forceRefresh)),
+    ]);
 
     // 2. Build default robust briefing with verified real articles
-    const realBriefing = buildRealBriefing(realArticlesMap, tone as BriefingTone, targetOutletIds);
+    const realBriefing = buildRealBriefing(
+      realArticlesMap,
+      tone as BriefingTone,
+      targetOutletIds,
+      liveSectorHeadlines
+    );
 
     // 3. If Gemini is available, enhance REAL articles (cached by headline signature to avoid redundant polling calls)
     if (apiKey) {
@@ -338,6 +346,22 @@ ${JSON.stringify({
         }
       });
     }
+    if (Array.isArray(updated.sectorHeadlines)) {
+      updated.sectorHeadlines = updated.sectorHeadlines.map((h: any) => {
+        const candidateBase =
+          h.baseSummary && h.baseSummary.length >= 2
+            ? h.baseSummary
+            : [h.summary].filter(Boolean);
+        const { baseSummary, leadSummary } = formatLeadSummaryByTone(
+          h.title,
+          candidateBase,
+          targetTone as BriefingTone,
+          h.sectorLabel,
+          h.outletName
+        );
+        return { ...h, baseSummary, leadSummary };
+      });
+    }
 
     return res.json({ success: true, data: updated });
   } catch (err: any) {
@@ -387,7 +411,13 @@ app.post(['/api/weekly-report', '/weekly-report'], async (req, res) => {
 // 4. API: Send / Preview Briefing Email
 app.post(['/api/send-email', '/send-email'], (req, res) => {
   const { recipient, briefing, scheduledTime = '09:00' } = req.body;
-  const targetEmail = recipient || 'sr.JI78@gmail.com';
+  const targetEmail = typeof recipient === 'string' ? recipient.trim() : '';
+  if (!targetEmail || !targetEmail.includes('@')) {
+    return res.status(400).json({
+      success: false,
+      message: '수신 이메일 주소를 입력해주세요.',
+    });
+  }
 
   const newLog: EmailDispatchLog = {
     id: `log-${Date.now()}`,
@@ -506,6 +536,36 @@ app.post(['/api/send-email', '/send-email'], (req, res) => {
 // 5. API: Get Email Logs
 app.get(['/api/email-logs', '/email-logs'], (req, res) => {
   res.json({ logs: emailLogs });
+});
+
+// 6. API: Email Auto-Dispatch Schedule
+let savedEmailSchedule = {
+  recipientEmail: '',
+  deliveryTime: '09:00',
+  deliveryTimezone: 'Asia/Seoul',
+  deliveryDays: ['월', '화', '수', '목', '금'],
+  autoEmailEnabled: true,
+  updatedAt: new Date().toISOString(),
+};
+
+app.get(['/api/email-schedule', '/email-schedule'], (_req, res) => {
+  res.json({ success: true, schedule: savedEmailSchedule });
+});
+
+app.post(['/api/email-schedule', '/email-schedule'], (req, res) => {
+  const { recipientEmail, deliveryTime, deliveryTimezone, deliveryDays, autoEmailEnabled } = req.body || {};
+  savedEmailSchedule = {
+    recipientEmail:
+      typeof recipientEmail === 'string' && (recipientEmail === '' || recipientEmail.includes('@'))
+        ? recipientEmail.trim()
+        : savedEmailSchedule.recipientEmail,
+    deliveryTime: typeof deliveryTime === 'string' && /^\d{2}:\d{2}$/.test(deliveryTime) ? deliveryTime : savedEmailSchedule.deliveryTime,
+    deliveryTimezone: typeof deliveryTimezone === 'string' && deliveryTimezone ? deliveryTimezone : savedEmailSchedule.deliveryTimezone,
+    deliveryDays: Array.isArray(deliveryDays) ? deliveryDays : savedEmailSchedule.deliveryDays,
+    autoEmailEnabled: typeof autoEmailEnabled === 'boolean' ? autoEmailEnabled : savedEmailSchedule.autoEmailEnabled,
+    updatedAt: new Date().toISOString(),
+  };
+  res.json({ success: true, schedule: savedEmailSchedule });
 });
 
 // Vite middleware in dev or static files in prod

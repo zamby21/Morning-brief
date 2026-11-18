@@ -156,7 +156,7 @@ export async function sendEmailBriefing(
   briefing: DailyBriefing,
   scheduledTime: string
 ): Promise<{ success: boolean; message: string; log: EmailDispatchLog; htmlPreview: string; history: EmailDispatchLog[] }> {
-  const targetEmail = recipient || 'sr.JI78@gmail.com';
+  const targetEmail = (recipient || '').trim();
 
   try {
     const res = await fetch('/api/send-email', {
@@ -211,4 +211,23 @@ export async function fetchEmailLogs(): Promise<EmailDispatchLog[]> {
     console.warn('API /api/email-logs unreachable, returning local logs:', err);
   }
   return clientEmailLogs;
+}
+
+export async function saveEmailSchedule(schedule: {
+  recipientEmail: string;
+  deliveryTime: string;
+  deliveryTimezone: string;
+  deliveryDays: string[];
+  autoEmailEnabled: boolean;
+}): Promise<boolean> {
+  try {
+    const res = await fetch('/api/email-schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(schedule),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }

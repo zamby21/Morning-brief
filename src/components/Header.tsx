@@ -13,6 +13,11 @@ import {
 import { BriefingTone, ThemeMode, UserPreferences } from '../types/news';
 import { getCurrentKoreanDateString } from '../utils/dateUtils';
 import { ThemeSelector } from './ThemeSelector';
+import {
+  formatKoreanTimeLabel,
+  formatScheduleDaysSummary,
+  getTimezoneShortLabel,
+} from '../utils/emailScheduler';
 
 interface HeaderProps {
   preferences: UserPreferences;
@@ -94,36 +99,50 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           <div className="flex items-center gap-2 text-[10px] sm:text-xs shrink-0">
-            <span className="text-slate-500 dark:text-slate-400 hidden md:inline">
-              수신 예약: <strong className="text-slate-800 dark:text-slate-200">{preferences.deliveryTime}</strong> ({preferences.recipientEmail})
+            <span className="text-slate-500 dark:text-slate-400 hidden md:inline font-mono tabular-nums">
+              <span className="font-sans">수신 예약:</span>{' '}
+              <strong className="text-slate-800 dark:text-slate-200 font-sans">
+                {formatScheduleDaysSummary(preferences.deliveryDays)} {formatKoreanTimeLabel(preferences.deliveryTime)} ({getTimezoneShortLabel(preferences.deliveryTimezone)})
+              </strong>{' '}
+              {preferences.recipientEmail ? (
+                <span className="font-sans">({preferences.recipientEmail})</span>
+              ) : (
+                <span className="font-sans text-amber-700 dark:text-amber-300">(수신 메일 미설정)</span>
+              )}
             </span>
-            <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-300 font-semibold text-[10px] sm:text-[11px] bg-emerald-50 dark:bg-emerald-950/60 px-1.5 sm:px-2 py-0.5 rounded-full border border-emerald-200/60 dark:border-emerald-800/70 shrink-0">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-              <span>발송 대기</span>
-            </span>
+            <button
+              type="button"
+              onClick={onOpenDashboard}
+              title="이메일 자동 발송 스케줄 설정 열기"
+              className={`inline-flex items-center gap-1 font-semibold text-[10px] sm:text-[11px] px-1.5 sm:px-2 py-0.5 rounded-full border shrink-0 cursor-pointer transition ${
+                preferences.autoEmailEnabled
+                  ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200/60 dark:border-emerald-800/70 hover:bg-emerald-100 dark:hover:bg-emerald-900/70'
+                  : 'text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              <span>{preferences.autoEmailEnabled ? '자동 발송 ON' : '자동 발송 OFF'}</span>
+            </button>
           </div>
         </div>
       </div>
 
       {/* Main Header Bar: Sleek, Single-line, No Awkward Wraps */}
       <div className="max-w-7xl mx-auto px-2.5 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between gap-2">
-        {/* Left: Sidebar Toggle + Brand Logo + Inline Date (Single Line) */}
+        {/* Left: Mobile Drawer Toggle (< lg only) + Brand Logo + Inline Date (Single Line) */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
-          {/* Vertical Menu Button (Sidebar Toggle) */}
+          {/* Mobile-only Sidebar Drawer Button (Hidden on Desktop lg+ where left sidebar is shown) */}
           <button
+            type="button"
             onClick={onToggleSidebar}
-            className={`p-1.5 sm:p-2 rounded-xl transition flex items-center gap-1 font-bold text-xs cursor-pointer border shrink-0 ${
+            className={`lg:hidden p-1.5 sm:p-2 rounded-xl transition flex items-center justify-center cursor-pointer border shrink-0 ${
               isSidebarOpen
                 ? 'bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 shadow-xs'
                 : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
             }`}
             title="설정 & 메뉴 열기/닫기"
+            aria-label="설정 및 메뉴 열기"
           >
             <Menu className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-            <span className="hidden md:inline">설정</span>
-            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-blue-600 text-white font-bold">
-              {selectedOutletsCount}
-            </span>
           </button>
 
           {/* Logo & Headline (Click to reload to initial home screen) */}

@@ -9,12 +9,13 @@ import { OverlappingStoriesSection } from './components/OverlappingStoriesSectio
 import { ExclusiveStoriesSection } from './components/ExclusiveStoriesSection';
 import { RealEstateFinanceSection } from './components/RealEstateFinanceSection';
 import { PressSelectorModal } from './components/PressSelectorModal';
-import { DashboardModal } from './components/DashboardModal';
 import { EmailModal } from './components/EmailModal';
 import { WeeklyReportModal } from './components/WeeklyReportModal';
 import { SocialShareModal } from './components/SocialShareModal';
 import { ArticleModal } from './components/ArticleModal';
 import { PushNotificationBanner } from './components/PushNotificationBanner';
+import { ThemeModal } from './components/ThemeModal';
+import { EmailScheduleValues } from './components/EmailSchedulerPanel';
 
 import {
   INITIAL_DAILY_BRIEFING,
@@ -50,7 +51,9 @@ import {
   fetchSummary,
   rewriteTone,
   sendEmailBriefing,
+  saveEmailSchedule,
 } from './services/apiService';
+import { getNextScheduledDispatchInfo } from './utils/emailScheduler';
 import { transformBriefingTone } from './utils/toneTransformer';
 import {
   Clock,
@@ -68,11 +71,13 @@ import {
 } from 'lucide-react';
 
 const STORAGE_KEY_PREFERENCES = 'morning_brief_user_preferences_v2';
+const LEGACY_DEFAULT_EMAIL_CLEARED_KEY = 'morning_brief_default_email_cleared_v1';
 
 const loadSavedPreferences = (): UserPreferences => {
   if (typeof window === 'undefined') return INITIAL_USER_PREFERENCES;
   try {
     const raw = localStorage.getItem(STORAGE_KEY_PREFERENCES);
+    const alreadyClearedLegacy = localStorage.getItem(LEGACY_DEFAULT_EMAIL_CLEARED_KEY) === '1';
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === 'object') {
@@ -84,13 +89,29 @@ const loadSavedPreferences = (): UserPreferences => {
           : (Array.isArray(parsed.selectedOutlets) && parsed.selectedOutlets.length > 0 ? parsed.selectedOutlets : DEFAULT_10_OUTLETS);
         const combined = Array.from(new Set([...validFront, ...validOverlap]));
 
-        const targetEmail = typeof parsed.recipientEmail === 'string' && parsed.recipientEmail.includes('@')
-          ? parsed.recipientEmail
-          : INITIAL_USER_PREFERENCES.recipientEmail;
+        let targetEmail = typeof parsed.recipientEmail === 'string' && parsed.recipientEmail.includes('@')
+          ? parsed.recipientEmail.trim()
+          : '';
 
-        const savedEmails = Array.isArray(parsed.savedRecipientEmails) && parsed.savedRecipientEmails.length > 0
-          ? Array.from(new Set([targetEmail, ...parsed.savedRecipientEmails]))
-          : [targetEmail];
+        let rawSavedEmails: string[] = Array.isArray(parsed.savedRecipientEmails)
+          ? parsed.savedRecipientEmails.filter((e: unknown): e is string => typeof e === 'string' && e.includes('@'))
+          : [];
+
+        if (!alreadyClearedLegacy) {
+          if (targetEmail === 'sr.JI78@gmail.com') {
+            targetEmail = '';
+          }
+          rawSavedEmails = rawSavedEmails.filter((e) => e !== 'sr.JI78@gmail.com');
+          try {
+            localStorage.setItem(LEGACY_DEFAULT_EMAIL_CLEARED_KEY, '1');
+          } catch {
+            // Ignore storage restriction
+          }
+        }
+
+        const savedEmails = targetEmail
+          ? Array.from(new Set([targetEmail, ...rawSavedEmails]))
+          : Array.from(new Set(rawSavedEmails));
 
         const savedSectorPrefs = parsed.sectorPreferences && typeof parsed.sectorPreferences === 'object'
           ? {
@@ -120,6 +141,10 @@ const loadSavedPreferences = (): UserPreferences => {
           theme: resolvedPrefTheme,
           recipientEmail: targetEmail,
           savedRecipientEmails: savedEmails,
+          deliveryTimezone:
+            typeof parsed.deliveryTimezone === 'string' && parsed.deliveryTimezone
+              ? parsed.deliveryTimezone
+              : 'Asia/Seoul',
           selectedOutlets: combined,
           frontPageOutlets: validFront,
           overlappingOutlets: validOverlap,
@@ -179,9 +204,9 @@ export default function App() {
   const [isPressModalOpen, setIsPressModalOpen] = useState(false);
   const [pressModalInitialSection, setPressModalInitialSection] = useState<'frontPage' | 'overlapping'>('frontPage');
   const [isToneModalOpen, setIsToneModalOpen] = useState(false);
-  const [isDashboardOpen, setIsDashboardOpen] = useState(false);
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
   const [isWeeklyModalOpen, setIsWeeklyModalOpen] = useState(false);
+  const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [shareStory, setShareStory] = useState<NewsStory | null>(null);
   const [articleModalStory, setArticleModalStory] = useState<NewsStory | null>(null);
 
@@ -486,7 +511,7 @@ export default function App() {
     }
     const currentList = preferences.savedRecipientEmails && preferences.savedRecipientEmails.length > 0
       ? preferences.savedRecipientEmails
-      : [preferences.recipientEmail || 'sr.JI78@gmail.com'];
+      : (preferences.recipientEmail ? [preferences.recipientEmail] : []);
 
     const updatedList = alsoAddToList
       ? Array.from(new Set([clean, ...currentList]))
@@ -507,12 +532,14 @@ export default function App() {
   };
 
   const handleDeleteSavedEmail = (emailToDelete: string) => {
-    const currentList = preferences.savedRecipientEmails || [preferences.recipientEmail || 'sr.JI78@gmail.com'];
+    const currentList = preferences.savedRecipientEmails || (preferences.recipientEmail ? [preferences.recipientEmail] : []);
     const filtered = currentList.filter((e) => e !== emailToDelete);
-    const updatedList = filtered.length > 0 ? filtered : [preferences.recipientEmail || 'sr.JI78@gmail.com'];
+    const nextRecipient =
+      preferences.recipientEmail === emailToDelete ? (filtered[0] || '') : preferences.recipientEmail;
     const updated: UserPreferences = {
       ...preferences,
-      savedRecipientEmails: updatedList,
+      recipientEmail: nextRecipient,
+      savedRecipientEmails: filtered,
     };
     setPreferences(updated);
     try {
@@ -551,14 +578,80 @@ export default function App() {
   };
 
   // 5. Send Email Briefing
-  const handleSendEmail = async (email: string): Promise<string> => {
+  const handleSendEmail = React.useCallback(async (email: string): Promise<string> => {
     const res = await sendEmailBriefing(email, briefing, preferences.deliveryTime);
     if (res.log) {
       setEmailLogs((prev) => [res.log, ...prev]);
     }
     triggerNotification(`${email} 주소로 요약본이 정상 발송되었습니다.`);
     return res.message;
-  };
+  }, [briefing, preferences.deliveryTime]);
+
+  // 5-1. Update Email Scheduler Settings (time, timezone, per-day toggles, ON/OFF)
+  const handleUpdateSchedule = React.useCallback(
+    (updatedSchedule: EmailScheduleValues, notifyMessage?: string) => {
+      setPreferences((prev) => {
+        const next: UserPreferences = {
+          ...prev,
+          autoEmailEnabled: updatedSchedule.autoEmailEnabled,
+          deliveryTime: updatedSchedule.deliveryTime,
+          deliveryTimezone: updatedSchedule.deliveryTimezone,
+          deliveryDays: updatedSchedule.deliveryDays,
+        };
+        try {
+          localStorage.setItem(STORAGE_KEY_PREFERENCES, JSON.stringify(next));
+        } catch (err) {
+          console.warn('Failed to save email schedule to localStorage', err);
+        }
+        saveEmailSchedule({
+          recipientEmail: next.recipientEmail,
+          deliveryTime: next.deliveryTime,
+          deliveryTimezone: next.deliveryTimezone || 'Asia/Seoul',
+          deliveryDays: next.deliveryDays,
+          autoEmailEnabled: next.autoEmailEnabled,
+        });
+        return next;
+      });
+      if (notifyMessage) {
+        triggerNotification(notifyMessage);
+      }
+    },
+    []
+  );
+
+  // 5-2. Minute-level automatic email dispatch check while dashboard is open
+  useEffect(() => {
+    const LAST_AUTO_SENT_KEY = 'morning_brief_last_auto_sent_slot';
+    const checkSchedule = () => {
+      const info = getNextScheduledDispatchInfo({
+        autoEmailEnabled: preferences.autoEmailEnabled,
+        deliveryTime: preferences.deliveryTime,
+        deliveryTimezone: preferences.deliveryTimezone || 'Asia/Seoul',
+        deliveryDays: preferences.deliveryDays,
+      });
+      if (!info.matchesCurrentMinute) return;
+      try {
+        const lastSlot = localStorage.getItem(LAST_AUTO_SENT_KEY);
+        if (lastSlot === info.currentSlotKey) return;
+        localStorage.setItem(LAST_AUTO_SENT_KEY, info.currentSlotKey);
+      } catch {
+        // Ignore storage restriction
+      }
+      if (!preferences.recipientEmail || !preferences.recipientEmail.includes('@')) return;
+      handleSendEmail(preferences.recipientEmail);
+    };
+
+    checkSchedule();
+    const timer = window.setInterval(checkSchedule, 30 * 1000);
+    return () => window.clearInterval(timer);
+  }, [
+    preferences.autoEmailEnabled,
+    preferences.deliveryTime,
+    preferences.deliveryTimezone,
+    preferences.deliveryDays,
+    preferences.recipientEmail,
+    handleSendEmail,
+  ]);
 
   // 6. Test Web Push Notification
   const handleTestPush = () => {
@@ -728,9 +821,12 @@ export default function App() {
         currentTone={briefing.tone}
         onOpenPressModal={() => handleOpenPressModal('frontPage')}
         onOpenToneModal={() => setIsToneModalOpen(true)}
-        onOpenDashboard={() => setIsDashboardOpen(true)}
         onOpenEmailModal={() => setIsEmailModalOpen(true)}
         onOpenWeeklyModal={() => setIsWeeklyModalOpen(true)}
+        onOpenThemeModal={() => {
+          setIsThemeModalOpen(true);
+          setIsSidebarOpen(false);
+        }}
         onRefreshLive={handleRefreshLive}
         isLoading={isLoading}
         isMobilePreview={isMobilePreview}
@@ -743,7 +839,6 @@ export default function App() {
         onScrollToSection={scrollToSection}
         themeMode={themeMode}
         resolvedTheme={resolvedTheme}
-        onChangeTheme={handleChangeTheme}
       />
 
       {/* Main Content Layout with Sidebar offset on Desktop */}
@@ -773,7 +868,7 @@ export default function App() {
           onOpenPressModal={() => handleOpenPressModal('frontPage')}
           onOpenToneModal={() => setIsToneModalOpen(true)}
           currentTone={briefing.tone}
-          onOpenDashboard={() => setIsDashboardOpen(true)}
+          onOpenDashboard={() => setIsEmailModalOpen(true)}
           onOpenEmailModal={() => setIsEmailModalOpen(true)}
           onOpenWeeklyModal={() => setIsWeeklyModalOpen(true)}
           onToggleMobilePreview={() => setIsMobilePreview(!isMobilePreview)}
@@ -988,6 +1083,7 @@ export default function App() {
             {/* 6. Section 4: 건설, 부동산, 금융 관련 주제 기사들 제목 모아보기 및 핵심 정리 */}
             <RealEstateFinanceSection
               headlines={filteredSectorHeadlines}
+              tone={briefing.tone}
               isCollapsed={collapsedSections.realEstateFinance}
               onToggleCollapse={() => toggleSection('realEstateFinance')}
               onScrollToTop={scrollToTop}
@@ -1051,34 +1147,37 @@ export default function App() {
         />
       )}
 
-      <DashboardModal
-        isOpen={isDashboardOpen}
-        onClose={() => setIsDashboardOpen(false)}
-        preferences={preferences}
-        onUpdatePreferences={(updated) => {
-          setPreferences(updated);
-          if (updated.theme && updated.theme !== themeMode) {
-            setThemeMode(updated.theme);
-          }
-          triggerNotification('수신 시간 및 알림 대시보드 설정이 저장되었습니다.');
-        }}
-        onTestPush={handleTestPush}
-        themeMode={themeMode}
-        resolvedTheme={resolvedTheme}
-        onChangeTheme={handleChangeTheme}
-      />
-
       <EmailModal
         isOpen={isEmailModalOpen}
         onClose={() => setIsEmailModalOpen(false)}
         briefing={briefing}
         recipientEmail={preferences.recipientEmail}
-        savedRecipientEmails={preferences.savedRecipientEmails || [preferences.recipientEmail || 'sr.JI78@gmail.com']}
+        savedRecipientEmails={preferences.savedRecipientEmails || []}
         deliveryTime={preferences.deliveryTime}
+        deliveryTimezone={preferences.deliveryTimezone || 'Asia/Seoul'}
+        deliveryDays={preferences.deliveryDays}
+        autoEmailEnabled={preferences.autoEmailEnabled}
+        pushNotificationEnabled={preferences.pushNotificationEnabled}
+        onTogglePush={(enabled) => {
+          setPreferences((prev) => ({ ...prev, pushNotificationEnabled: enabled }));
+          triggerNotification(
+            enabled ? '웹 & 모바일 푸시 알림이 활성화되었습니다.' : '푸시 알림이 비활성화되었습니다.'
+          );
+        }}
+        onTestPush={handleTestPush}
         emailLogs={emailLogs}
         onSendEmail={handleSendEmail}
         onSaveRecipientEmail={handleSaveRecipientEmail}
         onDeleteSavedEmail={handleDeleteSavedEmail}
+        onUpdateSchedule={handleUpdateSchedule}
+      />
+
+      <ThemeModal
+        isOpen={isThemeModalOpen}
+        onClose={() => setIsThemeModalOpen(false)}
+        themeMode={themeMode}
+        resolvedTheme={resolvedTheme}
+        onChangeTheme={handleChangeTheme}
       />
 
       <WeeklyReportModal

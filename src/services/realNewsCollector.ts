@@ -1,10 +1,11 @@
 import http from 'node:http';
 import https from 'node:https';
 import zlib from 'node:zlib';
-import type { DailyBriefing, NewsStory, BriefingTone } from '../types/news.ts';
+import type { DailyBriefing, NewsStory, BriefingTone, SectorHeadlineItem } from '../types/news.ts';
 import { PRESS_OUTLETS, DEFAULT_10_OUTLETS } from '../data/mockNewsData.ts';
+import { MOCK_SECTOR_HEADLINES } from '../data/mockSectorHeadlines.ts';
 import { getCurrentKoreanDateString } from '../utils/dateUtils.ts';
-import { extractSearchKeywords, getOfficialOutletHomepage } from '../utils/linkUtils.ts';
+import { extractSearchKeywords, getOfficialOutletHomepage, getNaverNewsUrl } from '../utils/linkUtils.ts';
 import { transformBriefingTone } from '../utils/toneTransformer.ts';
 import { computeKeywordTrends } from '../utils/keywordTrend.ts';
 
@@ -25,6 +26,8 @@ export interface RawRSSArticle {
 // Short 30-second cache to prevent duplicate bursts while keeping real-time freshness
 let cachedArticles: Record<string, RawRSSArticle[]> = {};
 let lastFetchedTime = 0;
+let cachedSectorHeadlines: SectorHeadlineItem[] = [];
+let lastSectorFetchedTime = 0;
 const CACHE_TTL_MS = 30 * 1000;
 
 export const OUTLET_PRESS_DESK_MAP: Record<
@@ -133,7 +136,14 @@ export function decodeHtmlEntities(str: string): string {
     .replace(/&ldquo;/g, '“')
     .replace(/&rdquo;/g, '”')
     .replace(/&nbsp;/g, ' ')
-    .replace(/&#[0-9]+;/g, ' ')
+    .replace(/&#x([0-9a-fA-F]+);/gi, (_, hex) => {
+      const code = parseInt(hex, 16);
+      return Number.isFinite(code) && code >= 32 && code !== 127 ? String.fromCharCode(code) : ' ';
+    })
+    .replace(/&#([0-9]+);/g, (_, dec) => {
+      const code = parseInt(dec, 10);
+      return Number.isFinite(code) && code >= 32 && code !== 127 ? String.fromCharCode(code) : ' ';
+    })
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -569,7 +579,7 @@ async function fetchHomepageCenterLeadArticle(
       const origM =
         artHtml.match(/<a[^>]*href="([^"]+)"[^>]*class="[^"]*media_end_head_origin_link/i) ||
         artHtml.match(/<a[^>]*class="[^"]*media_end_head_origin_link[^"]*"[^>]*href="([^"]+)"/i);
-      if (origM) link = origM[1].replace(/&amp;/g, '&').trim();
+      if (origM) link = decodeHtmlEntities(origM[1]).trim();
     }
     const extracted = extractArticleTextAndSummary(artHtml, homepageBullets, prologue, targetUrl);
     if (extracted.sentences.length > 0 || extracted.fullBody.length > 50) {
@@ -735,6 +745,249 @@ export async function fetchRealArticlesForOutlets(
   return cachedArticles;
 }
 
+const SECTOR_CONFIGS: {
+  sector: 'construction' | 'realestate' | 'finance';
+  sectorLabel: string;
+  pressSection: string;
+  queries: string[];
+  relevanceRegex: RegExp;
+}[] = [
+  {
+    sector: 'construction',
+    sectorLabel: '건설·SOC',
+    pressSection: '건설·산업 면',
+    queries: ['건설 수주', '인프라 착공'],
+    relevanceRegex: /건설|수주|시공|착공|토목|플랜트|원전|GTX|철도|인프라|공사비|정비사업|재건축|현대건설|대우건설|삼성물산|GS건설|DL이앤씨|HDC/,
+  },
+  {
+    sector: 'realestate',
+    sectorLabel: '부동산·주택',
+    pressSection: '부동산·정책 면',
+    queries: ['부동산 아파트', '재건축 청약'],
+    relevanceRegex: /부동산|아파트|청약|분양|집값|주택|전세|월세|재건축|재개발|신도시|임대|매매|빌딩|오피스텔|토지|공급/,
+  },
+  {
+    sector: 'finance',
+    sectorLabel: '금융·금리',
+    pressSection: '금융·증권 면',
+    queries: ['기준금리 대출', '부동산PF 금융'],
+    relevanceRegex: /금융|금리|은행|한국은행|기준금리|대출|주담대|PF|가계부채|금융위|금감원|증권|보험|밸류업|코스피|환율|펀드/,
+  },
+];
+
+function resolveOutletMetaFromPressName(pressNameRaw: string): { outletId: string; outletName: string } {
+  const cleanName = (pressNameRaw || '').split('|')[0].trim();
+  if (!cleanName) {
+    return { outletId: 'hankyung', outletName: '한국경제' };
+  }
+  const exact = PRESS_OUTLETS.find(
+    (p) => p.name === cleanName || p.logoText === cleanName || cleanName.includes(p.name) || p.name.includes(cleanName)
+  );
+  if (exact) {
+    return { outletId: exact.id, outletName: exact.name };
+  }
+  return { outletId: cleanName.toLowerCase().replace(/[^a-z0-9가-힣]/g, ''), outletName: cleanName };
+}
+
+function extractSectorHighlight(title: string, summaryText: string): {
+  highlightBadge?: string;
+  keyFigure?: string;
+  impactRating: 'Crucial' | 'High' | 'Medium';
+} {
+  const combined = `${title} ${summaryText}`;
+  const trillionMatch = combined.match(/([0-9,.]+조(?:\s*[0-9,.]+억)?\s*원?)/);
+  const hundredMillionMatch = combined.match(/([0-9,.]+억\s*(?:달러|불|원)?)/);
+  const ratioMatch = combined.match(/([0-9,.]+대\s*1)/);
+  const pctMatch = combined.match(/([0-9]+(?:\.[0-9]+)?%p?)/);
+
+  const keyFigure = trillionMatch?.[1] || ratioMatch?.[1] || hundredMillionMatch?.[1] || pctMatch?.[1];
+  const highlightBadge = keyFigure ? keyFigure.trim() : undefined;
+
+  const impactRating: 'Crucial' | 'High' | 'Medium' =
+    /긴급|최대|사상|전격|기준금리|부동산\s*PF|GTX|로또|유예|파장|쇼크/.test(combined)
+      ? 'Crucial'
+      : keyFigure
+      ? 'High'
+      : 'Medium';
+
+  return { highlightBadge, keyFigure, impactRating };
+}
+
+/**
+ * Harvests live real-time Construction, Real Estate, and Finance articles from Naver News & origin press sites
+ */
+export async function fetchSectorHeadlinesReal(forceRefresh = false): Promise<SectorHeadlineItem[]> {
+  const now = Date.now();
+  if (!forceRefresh && cachedSectorHeadlines.length >= 6 && now - lastSectorFetchedTime < CACHE_TTL_MS) {
+    return cachedSectorHeadlines;
+  }
+
+  const todayFormatted = getCurrentKoreanDateString();
+  const nowKstShort = new Date()
+    .toLocaleTimeString('ko-KR', {
+      timeZone: 'Asia/Seoul',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+    .slice(0, 5);
+
+  const collected: SectorHeadlineItem[] = [];
+  const seenNaverUrls = new Set<string>();
+  const seenTitles = new Set<string>();
+
+  await Promise.allSettled(
+    SECTOR_CONFIGS.map(async (cfg) => {
+      const candidateLinks: string[] = [];
+
+      // Run 2 topic search queries in parallel for this sector
+      const searchPages = await Promise.allSettled(
+        cfg.queries.map((q) =>
+          fetchHtmlFast(
+            `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(q)}`,
+            3500
+          )
+        )
+      );
+
+      for (const sp of searchPages) {
+        if (sp.status === 'fulfilled' && sp.value.ok) {
+          const matches = [
+            ...sp.value.text.matchAll(/https:\/\/n\.news\.naver\.com\/mnews\/article\/\d+\/\d+/g),
+          ].map((m) => m[0]);
+          for (const link of matches) {
+            if (!seenNaverUrls.has(link) && !candidateLinks.includes(link)) {
+              candidateLinks.push(link);
+            }
+          }
+        }
+      }
+
+      // Fetch up to 8 distinct Naver article pages in parallel
+      const targetLinks = candidateLinks.slice(0, 8);
+      const articleResponses = await Promise.allSettled(
+        targetLinks.map(async (naverUrl) => {
+          const res = await fetchHtmlFast(naverUrl, 3500);
+          return { naverUrl, res };
+        })
+      );
+
+      let sectorAdded = 0;
+      for (const itemRes of articleResponses) {
+        if (sectorAdded >= 5) break;
+        if (itemRes.status !== 'fulfilled' || !itemRes.value.res.ok) continue;
+
+        const { naverUrl, res } = itemRes.value;
+        const html = res.text;
+
+        const rawTitle =
+          html.match(/<h2[^>]*id="title_area"[^>]*>([\s\S]*?)<\/h2>/i)?.[1] ||
+          html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([\s\S]*?)["']/i)?.[1] ||
+          '';
+        const title = decodeHtmlEntities(rawTitle.replace(/<[^>]+>/g, '')).trim();
+        if (!title || title.length < 8 || seenTitles.has(title)) continue;
+
+        const rawAuthor =
+          html.match(/<meta[^>]+property=["']og:article:author["'][^>]+content=["']([^"']+)["']/i)?.[1] || '';
+        const { outletId, outletName } = resolveOutletMetaFromPressName(rawAuthor);
+
+        const origMatch =
+          html.match(/<a[^>]*href="([^"]+)"[^>]*class="[^"]*media_end_head_origin_link/i) ||
+          html.match(/<a[^>]*class="[^"]*media_end_head_origin_link[^"]*"[^>]*href="([^"]+)"/i);
+        const directOriginUrl = origMatch ? decodeHtmlEntities(origMatch[1]).trim() : '';
+
+        const reporterRaw =
+          html.match(/<em[^>]*class="media_end_head_journalist_name"[^>]*>([\s\S]*?)<\/em>/i)?.[1] || '';
+        const reporterClean = decodeHtmlEntities(reporterRaw.replace(/<[^>]+>/g, '')).trim();
+
+        const datestampRaw =
+          html.match(/data-date-time="(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})/i)?.[1] || '';
+        const timePart = datestampRaw ? datestampRaw.split(/\s+/)[1] : nowKstShort;
+
+        const extracted = extractArticleTextAndSummary(html, [], '', naverUrl);
+        if (!cfg.relevanceRegex.test(`${title} ${extracted.sentences.join(' ')}`)) {
+          continue;
+        }
+
+        const baseSummary = generate3LineSummaryFromSnippet(
+          title,
+          extracted.fullBody,
+          outletName,
+          extracted.sentences
+        );
+        const bodyText = (extracted.fullBody || baseSummary.join('\n\n'))
+          .replace(/^\[[^\]]+\]\s*/g, '')
+          .trim();
+        const fullContent = `[${outletName}] ${bodyText}`;
+        const rawTags = extractSearchKeywords(title).split(' ').filter((w) => w.length >= 2);
+        const tags = Array.from(
+          new Set([
+            ...rawTags,
+            cfg.sector === 'construction' ? '건설수주' : cfg.sector === 'realestate' ? '부동산시장' : '금융정책',
+          ])
+        ).slice(0, 4);
+
+        const { highlightBadge, keyFigure, impactRating } = extractSectorHighlight(
+          title,
+          baseSummary.join(' ')
+        );
+
+        seenNaverUrls.add(naverUrl);
+        seenTitles.add(title);
+        sectorAdded += 1;
+
+        collected.push({
+          id: `sec-live-${cfg.sector}-${Date.now().toString(36)}-${sectorAdded}`,
+          sector: cfg.sector,
+          sectorLabel: cfg.sectorLabel,
+          outletId,
+          outletName,
+          title,
+          summary: baseSummary[0] || title,
+          baseSummary,
+          leadSummary: baseSummary,
+          publishedAt: `${todayFormatted} ${timePart} 실시간`,
+          originalUrl: directOriginUrl || naverUrl,
+          naverUrl,
+          tags,
+          impactRating,
+          highlightBadge,
+          keyFigure,
+          fullContent,
+          reporter: reporterClean || `${outletName} 취재기자`,
+          pressSection: cfg.pressSection,
+        });
+      }
+    })
+  );
+
+  // Backfill any sector with fewer than 3 live items using curated fallback items so all 3 sectors stay complete
+  const finalSectorItems: SectorHeadlineItem[] = [...collected];
+  for (const cfg of SECTOR_CONFIGS) {
+    const count = finalSectorItems.filter((item) => item.sector === cfg.sector).length;
+    if (count < 3) {
+      const needed = 3 - count;
+      const fallbackPool = MOCK_SECTOR_HEADLINES.filter(
+        (m) => m.sector === cfg.sector && !seenTitles.has(m.title)
+      ).slice(0, needed);
+      for (const fb of fallbackPool) {
+        seenTitles.add(fb.title);
+        finalSectorItems.push({
+          ...fb,
+          naverUrl: fb.naverUrl || getNaverNewsUrl(fb.title, fb.outletName, fb.tags),
+        });
+      }
+    }
+  }
+
+  if (finalSectorItems.length > 0) {
+    cachedSectorHeadlines = finalSectorItems;
+    lastSectorFetchedTime = now;
+  }
+
+  return cachedSectorHeadlines;
+}
+
 /**
  * Creates accurate, high-fidelity 3-line summaries without 1. 2. 3. numbers.
  */
@@ -840,7 +1093,8 @@ function inferTopicFromText(title: string): string {
 export function buildRealBriefing(
   articlesByOutlet: Record<string, RawRSSArticle[]>,
   tone: BriefingTone = 'insight',
-  selectedOutletIds: string[] = DEFAULT_10_OUTLETS
+  selectedOutletIds: string[] = DEFAULT_10_OUTLETS,
+  sectorHeadlinesInput?: SectorHeadlineItem[]
 ): DailyBriefing {
   const todayFormatted = getCurrentKoreanDateString();
   const nowKstTime = new Date().toLocaleTimeString('ko-KR', {
@@ -883,6 +1137,7 @@ export function buildRealBriefing(
       leadSummary: baseSummary,
       baseSummary,
       originalUrl: art.link || getOfficialOutletHomepage(outletId, art.outletName),
+      naverUrl: art.naverUrl || undefined,
       publishedAt: `${todayFormatted} ${shortTime} 실시간`,
       keywords: keywords.length > 0 ? keywords : ['첫화면톱', '실시간'],
       topic: inferTopicFromText(art.title),
@@ -998,20 +1253,27 @@ export function buildRealBriefing(
       leadSummary: baseSummary,
       baseSummary,
       originalUrl: art.link || getOfficialOutletHomepage(art.outletId, art.outletName),
+      naverUrl: art.naverUrl || undefined,
       publishedAt: `${todayFormatted} ${shortTime} 실시간`,
       keywords: extractSearchKeywords(art.title).split(' ').slice(0, 3),
       topic: inferTopicFromText(art.title),
       exclusiveBadge: art.title.includes('단독') ? `${art.outletName} 단독` : `${art.outletName} 심층`,
       importanceRating: 'Crucial',
       reactions: { insightful: 48, important: 96, surprising: 22 },
+      fullContent: `[${art.outletName}] ${art.title}\n\n${art.fullBody || art.snippet || baseSummary.join('\n\n')}`,
     };
   });
+
+  const resolvedSectorHeadlines: SectorHeadlineItem[] =
+    sectorHeadlinesInput && sectorHeadlinesInput.length > 0
+      ? sectorHeadlinesInput
+      : MOCK_SECTOR_HEADLINES;
 
   const topKeywords = allKeywords.slice(0, 8);
   const keywordTrends = computeKeywordTrends(
     topKeywords,
     [...frontPageStories, ...overlappingStories, ...exclusiveStories],
-    [],
+    resolvedSectorHeadlines,
     allCollected,
     Math.max(10, targetIds.length)
   );
@@ -1031,6 +1293,7 @@ export function buildRealBriefing(
     frontPageStories,
     overlappingStories,
     exclusiveStories,
+    sectorHeadlines: resolvedSectorHeadlines,
   };
 
   return transformBriefingTone(rawBriefing, tone);

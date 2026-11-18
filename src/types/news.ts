@@ -36,6 +36,7 @@ export interface NewsStory {
   leadSummary: string[]; // Strictly up to 3 lines
   baseSummary?: string[]; // Raw factual 3-line summary preserved for lossless tone switching
   originalUrl: string;
+  naverUrl?: string;
   publishedAt: string;
   keywords: string[];
   topic: string; // e.g., '반도체·AI', '금융·거시', '정치·정책', '부동산', '글로벌'
@@ -140,13 +141,18 @@ export interface SectorHeadlineItem {
   outletName: string;
   title: string;
   summary: string; // 1~2줄 핵심 요약 및 시장 파급 효과
+  leadSummary?: string[]; // Section 1과 동일한 3줄 핵심 요약 (어조 반영)
+  baseSummary?: string[]; // 어조 전환용 원 팩트 3줄 요약
   publishedAt: string;
   originalUrl: string;
+  naverUrl?: string;
   tags: string[];
   impactRating?: 'High' | 'Crucial' | 'Medium';
   highlightBadge?: string; // e.g. "수주 3.2조", "청약 350:1", "금리 0.25%p↓"
   keyFigure?: string;
   fullContent?: string;
+  reporter?: string;
+  pressSection?: string;
 }
 
 export interface SectorPreferences {
@@ -169,6 +175,7 @@ export interface UserPreferences {
   recipientEmail: string;
   savedRecipientEmails?: string[]; // 자주 쓰는 / 등록된 수신 이메일 목록
   deliveryTime: string; // "09:00"
+  deliveryTimezone?: string; // IANA timezone, e.g. "Asia/Seoul"
   deliveryDays: string[]; // ["월", "화", "수", "목", "금"]
   autoEmailEnabled: boolean;
   pushNotificationEnabled: boolean;

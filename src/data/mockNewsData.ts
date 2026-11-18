@@ -1591,9 +1591,10 @@ export const AVAILABLE_TOPICS = [
 ];
 
 export const INITIAL_USER_PREFERENCES: UserPreferences = {
-  recipientEmail: 'sr.JI78@gmail.com',
-  savedRecipientEmails: ['sr.JI78@gmail.com'],
+  recipientEmail: '',
+  savedRecipientEmails: [],
   deliveryTime: '09:00',
+  deliveryTimezone: 'Asia/Seoul',
   deliveryDays: ['월', '화', '수', '목', '금'],
   autoEmailEnabled: true,
   pushNotificationEnabled: false,
@@ -1748,29 +1749,4 @@ export const MOCK_WEEKLY_REPORT: WeeklyReport = {
 };
 
 // Initial email delivery logs
-export const INITIAL_EMAIL_LOGS: EmailDispatchLog[] = [
-  {
-    id: 'log-001',
-    sentAt: '2026-10-19 09:00:02',
-    recipient: 'sr.JI78@gmail.com',
-    status: 'success',
-    headline: '[모닝브리프] 10월 19일 대한민국 10대 언론사 1면 및 공통이슈 3줄 요약',
-    storiesCount: 18,
-  },
-  {
-    id: 'log-002',
-    sentAt: '2026-10-18 09:00:01',
-    recipient: 'sr.JI78@gmail.com',
-    status: 'success',
-    headline: '[모닝브리프] 10월 18일 대한민국 10대 언론사 1면 및 공통이슈 3줄 요약',
-    storiesCount: 16,
-  },
-  {
-    id: 'log-003',
-    sentAt: '2026-10-17 09:00:04',
-    recipient: 'sr.JI78@gmail.com',
-    status: 'success',
-    headline: '[모닝브리프] 10월 17일 대한민국 10대 언론사 1면 및 공통이슈 3줄 요약',
-    storiesCount: 17,
-  },
-];
+export const INITIAL_EMAIL_LOGS: EmailDispatchLog[] = [];

@@ -15,8 +15,16 @@ import {
   Trash2,
   Plus,
   ShieldCheck,
+  Bell,
+  Smartphone,
 } from 'lucide-react';
 import { DailyBriefing, EmailDispatchLog } from '../types/news';
+import { EmailSchedulerPanel, EmailScheduleValues } from './EmailSchedulerPanel';
+import {
+  formatKoreanTimeLabel,
+  formatScheduleDaysSummary,
+  getTimezoneShortLabel,
+} from '../utils/emailScheduler';
 
 interface EmailModalProps {
   isOpen: boolean;
@@ -25,10 +33,17 @@ interface EmailModalProps {
   recipientEmail: string;
   savedRecipientEmails?: string[];
   deliveryTime: string;
+  deliveryTimezone?: string;
+  deliveryDays?: string[];
+  autoEmailEnabled?: boolean;
+  pushNotificationEnabled?: boolean;
+  onTogglePush?: (enabled: boolean) => void;
+  onTestPush?: () => void;
   emailLogs: EmailDispatchLog[];
   onSendEmail: (email: string) => Promise<string>;
   onSaveRecipientEmail?: (email: string, alsoAddToList?: boolean) => void;
   onDeleteSavedEmail?: (email: string) => void;
+  onUpdateSchedule?: (updated: EmailScheduleValues, notifyMessage?: string) => void;
 }
 
 export const EmailModal: React.FC<EmailModalProps> = ({
@@ -38,12 +53,19 @@ export const EmailModal: React.FC<EmailModalProps> = ({
   recipientEmail,
   savedRecipientEmails = [],
   deliveryTime,
+  deliveryTimezone = 'Asia/Seoul',
+  deliveryDays = ['월', '화', '수', '목', '금'],
+  autoEmailEnabled = true,
+  pushNotificationEnabled = false,
+  onTogglePush,
+  onTestPush,
   emailLogs,
   onSendEmail,
   onSaveRecipientEmail,
   onDeleteSavedEmail,
+  onUpdateSchedule,
 }) => {
-  const [emailInput, setEmailInput] = useState(recipientEmail);
+  const [emailInput, setEmailInput] = useState(recipientEmail || '');
   const [activeTab, setActiveTab] = useState<'send' | 'preview' | 'logs'>('send');
   const [isSending, setIsSending] = useState(false);
   const [sendResultMsg, setSendResultMsg] = useState<string | null>(null);
@@ -52,21 +74,22 @@ export const EmailModal: React.FC<EmailModalProps> = ({
 
   // Sync with recipientEmail prop when modal opens or prop changes
   useEffect(() => {
-    if (recipientEmail) {
-      setEmailInput(recipientEmail);
-    }
+    setEmailInput(recipientEmail || '');
   }, [recipientEmail, isOpen]);
 
   if (!isOpen) return null;
 
   const emailList = Array.from(
-    new Set([
-      recipientEmail,
-      ...savedRecipientEmails,
-    ].filter((e) => e && e.includes('@')))
+    new Set(
+      [recipientEmail, ...savedRecipientEmails].filter(
+        (e): e is string => Boolean(e && e.includes('@'))
+      )
+    )
   );
 
-  const isCurrentInputSavedDefault = emailInput.trim().toLowerCase() === recipientEmail.trim().toLowerCase();
+  const isCurrentInputSavedDefault =
+    Boolean(recipientEmail.trim()) &&
+    emailInput.trim().toLowerCase() === recipientEmail.trim().toLowerCase();
 
   const handleSaveDefaultEmail = (targetEmail?: string) => {
     const toSave = (targetEmail || emailInput).trim();
@@ -132,7 +155,7 @@ export const EmailModal: React.FC<EmailModalProps> = ({
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <h3 className="text-sm sm:text-lg font-bold text-slate-900 dark:text-white truncate">
-                  이메일 발송 & 수신 주소 관리
+                  이메일 발송 & 수신 스케줄 관리
                 </h3>
                 <span className="text-[10px] sm:text-[11px] font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/70 px-1.5 sm:px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
                   <ShieldCheck className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
@@ -140,7 +163,7 @@ export const EmailModal: React.FC<EmailModalProps> = ({
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
-                매일 오전 {deliveryTime} 정각 자동 발송 관리 및 수신 이메일 영구 저장
+                {formatScheduleDaysSummary(deliveryDays)} {formatKoreanTimeLabel(deliveryTime)} ({getTimezoneShortLabel(deliveryTimezone)}) 자동 발송 및 수신 이메일 관리
               </p>
             </div>
           </div>
@@ -163,7 +186,7 @@ export const EmailModal: React.FC<EmailModalProps> = ({
             }`}
           >
             <Send className="w-3.5 h-3.5" />
-            <span>수신 메일 설정 & 즉시 발송</span>
+            <span>이메일 발송 & 스케줄 설정</span>
           </button>
           <button
             onClick={() => setActiveTab('preview')}
@@ -207,9 +230,15 @@ export const EmailModal: React.FC<EmailModalProps> = ({
                   </div>
                   <div className="flex items-center gap-1.5 self-start sm:self-auto">
                     <span className="text-[11px] text-slate-500 dark:text-slate-400">현재 기본값:</span>
-                    <span className="text-xs font-bold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/70 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
-                      {recipientEmail}
-                    </span>
+                    {recipientEmail ? (
+                      <span className="text-xs font-bold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/70 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
+                        {recipientEmail}
+                      </span>
+                    ) : (
+                      <span className="text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">
+                        미설정
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -303,31 +332,35 @@ export const EmailModal: React.FC<EmailModalProps> = ({
                     <span className="text-[11px] text-slate-400 dark:text-slate-500">총 {emailList.length}개 주소 등록됨</span>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {emailList.map((addr) => {
-                      const isDefault = addr.toLowerCase() === recipientEmail.toLowerCase();
-                      const isSelected = addr.toLowerCase() === emailInput.trim().toLowerCase();
-                      return (
-                        <div
-                          key={addr}
-                          onClick={() => handleSelectSavedEmail(addr)}
-                          className={`group px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer border ${
-                            isSelected
-                              ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                              : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
-                          }`}
-                        >
-                          <span>{addr}</span>
-                          {isDefault && (
-                            <span
-                              className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold ${
-                                isSelected ? 'bg-white text-blue-700' : 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300'
-                              }`}
-                            >
-                              기본
-                            </span>
-                          )}
-                          {emailList.length > 1 && !isDefault && (
+                  {emailList.length === 0 ? (
+                    <div className="text-[11px] text-slate-400 dark:text-slate-500 py-1">
+                      저장된 수신 이메일이 없습니다. 위 입력창에 이메일 주소를 입력하고 &apos;수신 메일 저장&apos;을 눌러주세요.
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {emailList.map((addr) => {
+                        const isDefault = addr.toLowerCase() === recipientEmail.toLowerCase();
+                        const isSelected = addr.toLowerCase() === emailInput.trim().toLowerCase();
+                        return (
+                          <div
+                            key={addr}
+                            onClick={() => handleSelectSavedEmail(addr)}
+                            className={`group px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer border ${
+                              isSelected
+                                ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                                : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+                            }`}
+                          >
+                            <span>{addr}</span>
+                            {isDefault && (
+                              <span
+                                className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold ${
+                                  isSelected ? 'bg-white text-blue-700' : 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300'
+                                }`}
+                              >
+                                기본
+                              </span>
+                            )}
                             <button
                               type="button"
                               onClick={(e) => handleDeleteEmail(e, addr)}
@@ -338,26 +371,81 @@ export const EmailModal: React.FC<EmailModalProps> = ({
                             >
                               <X className="w-3 h-3" />
                             </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Automatic Dispatch Schedule info */}
-              <div className="bg-gradient-to-r from-blue-50 via-indigo-50/60 to-slate-50 dark:from-blue-950/40 dark:via-indigo-950/30 dark:to-slate-900 border border-blue-200 dark:border-blue-800/70 rounded-2xl p-4 flex items-start gap-3">
-                <Clock className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-                <div className="text-xs space-y-1">
-                  <div className="font-bold text-slate-900 dark:text-white">
-                    매일 오전 {deliveryTime} 정각 자동 발송 안내
-                  </div>
-                  <p className="text-slate-600 dark:text-slate-300">
-                    저장된 수신 이메일로 매일 아침 조간 신문 1면 보도가 집계되는 즉시 뉴스레터가 자동 발송됩니다. 설정하신 이메일은 브라우저(localStorage)에 영구 저장되어 다음에 웹을 열었을 때도 그대로 유지됩니다.
-                  </p>
+              {/* Automatic Dispatch Schedule Controls */}
+              {onUpdateSchedule ? (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
+                  <EmailSchedulerPanel
+                    variant="modal"
+                    autoEmailEnabled={autoEmailEnabled}
+                    deliveryTime={deliveryTime}
+                    deliveryTimezone={deliveryTimezone}
+                    deliveryDays={deliveryDays}
+                    recipientEmail={recipientEmail}
+                    onChangeSchedule={onUpdateSchedule}
+                  />
                 </div>
-              </div>
+              ) : (
+                <div className="bg-gradient-to-r from-blue-50 via-indigo-50/60 to-slate-50 dark:from-blue-950/40 dark:via-indigo-950/30 dark:to-slate-900 border border-blue-200 dark:border-blue-800/70 rounded-2xl p-4 flex items-start gap-3">
+                  <Clock className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                  <div className="text-xs space-y-1">
+                    <div className="font-bold text-slate-900 dark:text-white">
+                      {formatScheduleDaysSummary(deliveryDays)} {formatKoreanTimeLabel(deliveryTime)} ({getTimezoneShortLabel(deliveryTimezone)}) 자동 발송 안내
+                    </div>
+                    <p className="text-slate-600 dark:text-slate-300">
+                      저장된 수신 이메일로 지정된 요일 및 시각에 뉴스레터가 자동 발송됩니다. 설정하신 이메일과 스케줄은 브라우저(localStorage)에 영구 저장됩니다.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Push Notification Settings */}
+              {onTogglePush && (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-2.5 shadow-xs">
+                  <label className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Bell className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                    <span>웹 &amp; 모바일 푸시 알림</span>
+                  </label>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700">
+                    <div className="flex items-center gap-3">
+                      <Smartphone className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                      <div>
+                        <div className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                          실시간 헤드라인 푸시 팝업
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                          브라우저 및 모바일 잠금화면으로 핵심 요약 알림 수신
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                      {onTestPush && (
+                        <button
+                          type="button"
+                          onClick={onTestPush}
+                          className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900 transition cursor-pointer"
+                        >
+                          푸시 테스트
+                        </button>
+                      )}
+                      <input
+                        type="checkbox"
+                        checked={pushNotificationEnabled}
+                        onChange={(e) => onTogglePush(e.target.checked)}
+                        aria-label="웹 및 모바일 푸시 알림 활성화"
+                        className="w-4 h-4 text-amber-600 rounded cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

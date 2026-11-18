@@ -166,6 +166,7 @@ export function toBulletKorean(line: string): string {
     [/([가-힣]+)됩니다\.?$/g, '$1됨'],
     [/([가-힣]+)이다\.?$/g, '$1임'],
     [/([가-힣]+)입니다\.?$/g, '$1임'],
+    [/([가-힣]*(?:었|았|였))(?:다|습니다)\.?$/g, '$1음'],
     [/([가-힣]+)다\.?$/g, '$1임'],
     [/([가-힣]+)습니다\.?$/g, '$1음'],
   ];
@@ -325,6 +326,48 @@ export function buildArticleSpecificInsight(
 }
 
 /**
+ * Formats 3 factual summary lines into the requested BriefingTone consistently across all sections.
+ */
+export function formatLeadSummaryByTone(
+  title: string,
+  candidateLines: string[],
+  targetTone: BriefingTone,
+  topic: string = '',
+  outletName: string = ''
+): { baseSummary: string[]; leadSummary: string[] } {
+  const cleanBase = (candidateLines || []).map(stripSummaryDecorations).filter(Boolean);
+  while (cleanBase.length < 3) {
+    const fallbackLine =
+      cleanBase.length === 0
+        ? `${outletName ? `${outletName}이 ` : ''}"${title}" 사안을 주요 보도로 다뤘습니다.`
+        : cleanBase.length === 1
+        ? `관련 현장과 이해관계자들의 입장 및 세부 쟁점이 집중 보도되고 있습니다.`
+        : `후속 조치와 시장·사회적 파급 결과에 관심이 모아지고 있습니다.`;
+    cleanBase.push(fallbackLine);
+  }
+  const preservedBase = cleanBase.slice(0, 3);
+
+  let nextSummary: string[];
+  if (targetTone === 'insight') {
+    const line1 = toFormalKorean(preservedBase[0]);
+    const line2 = toFormalKorean(preservedBase[1]);
+    const insightLine = buildArticleSpecificInsight(title, preservedBase, topic, outletName);
+    nextSummary = [line1, line2, insightLine];
+  } else if (targetTone === 'bullet') {
+    nextSummary = preservedBase.map((line) => toBulletKorean(line));
+  } else if (targetTone === 'friendly') {
+    nextSummary = preservedBase.map((line, idx) => toFriendlyKorean(line, idx));
+  } else {
+    nextSummary = preservedBase.map((line) => toFormalKorean(line));
+  }
+
+  return {
+    baseSummary: preservedBase,
+    leadSummary: nextSummary,
+  };
+}
+
+/**
  * Transforms a DailyBriefing cleanly into the requested tone while preserving factual baseSummary.
  * - insight (default): 2 lines of factual summary + 1 line of [시사점] (total 3 lines, no numbering)
  * - formal: 3 lines in dignified formal briefing Korean (~했습니다 / ~입니다)
@@ -338,51 +381,64 @@ export function transformBriefingTone(briefing: DailyBriefing, targetTone: Brief
 
   const processStories = (stories: NewsStory[]) =>
     (stories || []).map((s) => {
-      // Recover or preserve raw factual 3-line baseSummary
       const candidateBase =
         s.baseSummary && s.baseSummary.length >= 2
           ? s.baseSummary
           : (s.leadSummary || []).filter((l) => !l.trim().startsWith('[시사점]'));
 
-      const cleanBase = candidateBase.map(stripSummaryDecorations).filter(Boolean);
-      while (cleanBase.length < 3) {
-        const fallbackLine =
-          cleanBase.length === 0
-            ? `${s.outletName}이 "${s.title}" 사안을 주요 보도로 다뤘습니다.`
-            : cleanBase.length === 1
-            ? `관련 현장과 이해관계자들의 입장 및 세부 쟁점이 집중 보도되고 있습니다.`
-            : `후속 조치와 시장·사회적 파급 결과에 관심이 모아지고 있습니다.`;
-        cleanBase.push(fallbackLine);
-      }
-      const preservedBase = cleanBase.slice(0, 3);
-
-      let nextSummary: string[];
-
-      if (targetTone === 'insight') {
-        // Exactly 2 summary lines + 1 [시사점] implication line
-        const line1 = toFormalKorean(preservedBase[0]);
-        const line2 = toFormalKorean(preservedBase[1]);
-        const insightLine = buildArticleSpecificInsight(s.title, preservedBase, s.topic, s.outletName);
-        nextSummary = [line1, line2, insightLine];
-      } else if (targetTone === 'bullet') {
-        nextSummary = preservedBase.map((line) => toBulletKorean(line));
-      } else if (targetTone === 'friendly') {
-        nextSummary = preservedBase.map((line, idx) => toFriendlyKorean(line, idx));
-      } else {
-        // 'formal'
-        nextSummary = preservedBase.map((line) => toFormalKorean(line));
-      }
+      const { baseSummary, leadSummary } = formatLeadSummaryByTone(
+        s.title,
+        candidateBase,
+        targetTone,
+        s.topic,
+        s.outletName
+      );
 
       return {
         ...s,
-        baseSummary: preservedBase,
-        leadSummary: nextSummary,
+        baseSummary,
+        leadSummary,
       };
     });
 
   deepCopy.frontPageStories = processStories(deepCopy.frontPageStories);
   deepCopy.overlappingStories = processStories(deepCopy.overlappingStories);
   deepCopy.exclusiveStories = processStories(deepCopy.exclusiveStories);
+
+  if (Array.isArray(deepCopy.sectorHeadlines) && deepCopy.sectorHeadlines.length > 0) {
+    deepCopy.sectorHeadlines = deepCopy.sectorHeadlines.map((h) => {
+      const bodyParas = (h.fullContent || '')
+        .split(/\n\n+/)
+        .map((p) => p.replace(/^\[[^\]]+\]\s*/g, '').trim())
+        .filter((p) => p.length >= 20);
+      const fallbackCandidates = [
+        h.summary,
+        ...bodyParas.slice(1, 3),
+        ...(h.keyFigure ? [`핵심 지표 및 규모는 ${h.keyFigure}로 집계되었습니다.`] : []),
+      ].filter(Boolean);
+
+      const candidateBase =
+        h.baseSummary && h.baseSummary.length >= 2
+          ? h.baseSummary
+          : h.leadSummary && h.leadSummary.filter((l) => !l.trim().startsWith('[시사점]')).length >= 2
+          ? h.leadSummary.filter((l) => !l.trim().startsWith('[시사점]'))
+          : fallbackCandidates;
+
+      const { baseSummary, leadSummary } = formatLeadSummaryByTone(
+        h.title,
+        candidateBase,
+        targetTone,
+        h.sectorLabel,
+        h.outletName
+      );
+
+      return {
+        ...h,
+        baseSummary,
+        leadSummary,
+      };
+    });
+  }
 
   return deepCopy;
 }
