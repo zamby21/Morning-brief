@@ -1,7 +1,11 @@
+import http from 'node:http';
+import https from 'node:https';
+import zlib from 'node:zlib';
 import type { DailyBriefing, NewsStory, BriefingTone } from '../types/news.ts';
 import { PRESS_OUTLETS, DEFAULT_10_OUTLETS } from '../data/mockNewsData.ts';
 import { getCurrentKoreanDateString } from '../utils/dateUtils.ts';
 import { extractSearchKeywords, getOfficialOutletHomepage } from '../utils/linkUtils.ts';
+import { transformBriefingTone } from '../utils/toneTransformer.ts';
 
 export interface RawRSSArticle {
   outletId: string;
@@ -38,12 +42,74 @@ export const OUTLET_PRESS_DESK_MAP: Record<
   asiae: { name: '아시아경제', naverCode: '277', homepageUrl: 'https://www.asiae.co.kr' },
 };
 
-const BROWSER_HEADERS = {
+const BROWSER_HEADERS: Record<string, string> = {
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
   'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+  'Accept-Encoding': 'gzip, deflate, br',
 };
+
+/**
+ * IPv4-guaranteed fast HTML fetcher (avoids container IPv6 DNS hangs on Naver/Korean news domains)
+ */
+async function fetchHtmlFast(url: string, timeoutMs = 4500, redirectsLeft = 4): Promise<{ ok: boolean; status: number; text: string; finalUrl: string }> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (resObj: { ok: boolean; status: number; text: string; finalUrl: string }) => {
+      if (!settled) {
+        settled = true;
+        resolve(resObj);
+      }
+    };
+
+    try {
+      const parsed = new URL(url);
+      const lib = parsed.protocol === 'https:' ? https : http;
+      const req = lib.get(
+        url,
+        {
+          family: 4,
+          timeout: timeoutMs,
+          headers: BROWSER_HEADERS,
+        },
+        (res) => {
+          const status = res.statusCode || 0;
+          if (status >= 300 && status < 400 && res.headers.location && redirectsLeft > 0) {
+            res.resume();
+            const nextUrl = new URL(res.headers.location, url).toString();
+            fetchHtmlFast(nextUrl, timeoutMs, redirectsLeft - 1).then(done);
+            return;
+          }
+
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+          res.on('end', () => {
+            try {
+              const raw = Buffer.concat(chunks);
+              const enc = (res.headers['content-encoding'] || '').toLowerCase();
+              let buf: Buffer = raw;
+              if (enc.includes('gzip')) buf = zlib.gunzipSync(raw);
+              else if (enc.includes('br')) buf = zlib.brotliDecompressSync(raw);
+              else if (enc.includes('deflate')) buf = zlib.inflateSync(raw);
+              done({ ok: status >= 200 && status < 300, status, text: buf.toString('utf8'), finalUrl: url });
+            } catch {
+              done({ ok: false, status, text: '', finalUrl: url });
+            }
+          });
+          res.on('error', () => done({ ok: false, status, text: '', finalUrl: url }));
+        }
+      );
+      req.on('timeout', () => {
+        req.destroy();
+        done({ ok: false, status: 0, text: '', finalUrl: url });
+      });
+      req.on('error', () => done({ ok: false, status: 0, text: '', finalUrl: url }));
+    } catch {
+      done({ ok: false, status: 0, text: '', finalUrl: url });
+    }
+  });
+}
 
 export function decodeHtmlEntities(str: string): string {
   if (!str) return '';
@@ -81,7 +147,9 @@ function normalizeArticleUrl(href: string, baseUrl: string): string {
 
 const BOILERPLATE_SUBSTRINGS = [
   '무단전재',
+  '무단 전재',
   '재배포',
+  'AI 학습 및 활용 금지',
   'Copyright',
   'copyright',
   '저작권',
@@ -91,6 +159,17 @@ const BOILERPLATE_SUBSTRINGS = [
   '데이터 통화료',
   '섹션 정보',
   '중복 분류',
+  '언론사의 주요 뉴스',
+  '메인에서 바로 만나보세요',
+  '메인에서 만나보세요',
+  '함께 많이 본 기사',
+  '유사한 기사, 관심 기사',
+  '자동 추천합니다',
+  '글자크기 설정',
+  '다른 기사의 본문',
+  '회원이 되어주세요',
+  '편의 기능이 궁금',
+  '중앙일보 회원',
   '기사제보',
   '개인정보',
   '구독',
@@ -101,106 +180,191 @@ const BOILERPLATE_SUBSTRINGS = [
   '관련기사',
   '뉴스레터',
   '많이 본 뉴스',
+  '크게보기',
   '기자 =',
-  '@',
 ];
+
+function stripInlineTagsCleanly(html: string): string {
+  const withNewlines = html
+    .replace(/<(?:script|style|figure|figcaption|aside|nav)[\s\S]*?<\/(?:script|style|figure|figcaption|aside|nav)>/gi, ' ')
+    .replace(/<\/?(?:a|span|strong|em|b|i|u|mark|font|small)[^>]*>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<(?:p|div|li|h[1-6])(?:\s+[^>]*)?>/gi, '\n')
+    .replace(/<\/(?:p|div|li|h[1-6])>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ');
+
+  return withNewlines
+    .split(/\n+/)
+    .map((line) => decodeHtmlEntities(line))
+    .filter(Boolean)
+    .join('\n');
+}
+
+function stripReporterEmailSuffix(text: string): string {
+  return (text || '')
+    .replace(/\s*[가-힣]{2,4}\s*기자\s*[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\.?$/g, '')
+    .replace(/\s+[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\.?$/g, '')
+    .trim();
+}
 
 function isCleanBodySentence(s: string): boolean {
   if (!s || s.length < 22 || s.length > 260) return false;
   if (!/[.?!다요음임]$/.test(s)) return false;
-  if (s.includes('http://') || s.includes('https://') || s.includes('&lt;')) return false;
+  if (s.includes('http://') || s.includes('https://') || s.includes('&lt;') || s.includes('@')) return false;
   return !BOILERPLATE_SUBSTRINGS.some((bad) => s.includes(bad));
+}
+
+function isCleanParagraph(p: string): boolean {
+  if (!p || p.length < 30 || p.length > 900) return false;
+  if (!/[.?!다요음임]$/.test(p)) return false;
+  if (p.includes('http://') || p.includes('https://') || p.includes('@')) return false;
+  return !BOILERPLATE_SUBSTRINGS.some((bad) => p.includes(bad));
 }
 
 function extractArticleTextAndSummary(
   articleHtml: string,
   homepageBullets: string[] = [],
-  homepagePrologue = ''
+  homepagePrologue = '',
+  articleUrl = ''
 ): { sentences: string[]; fullBody: string } {
   const paragraphPool: string[] = [];
+  const fullBodyParas: string[] = [];
 
-  // 1. If Naver News article page, strictly scope to <article id="dic_area">
+  // 1. Naver News article page: strictly scope to <article id="dic_area"> and NEVER scan global <p>
   const dicArea = articleHtml.match(/<article[^>]*id="dic_area"[^>]*>([\s\S]*?)<\/article>/i)?.[1];
-  if (dicArea) {
-    const cleanDic = decodeHtmlEntities(
-      dicArea
-        .replace(/<strong[^>]*class="media_end_summary"[^>]*>([\s\S]*?)<\/strong>/gi, '$1. ')
-        .replace(/<br\s*\/?>/gi, '\n')
-        .replace(/<[^>]+>/g, ' ')
-    );
-    const dicSentences = cleanDic
-      .split(/(?<=[.?!])\s+|\n+/)
-      .map((s) => s.replace(/^[0-9]+[.)]\s*/, '').trim())
-      .filter(isCleanBodySentence);
-    if (dicSentences.length > 0) {
-      paragraphPool.push(...dicSentences);
+  if (dicArea || articleUrl.includes('news.naver.com')) {
+    if (dicArea) {
+      const cleanedDic = dicArea
+        .replace(/<strong[^>]*class="media_end_summary"[^>]*>[\s\S]*?<\/strong>/gi, '\n')
+        .replace(/<div[^>]*class="[^"]*(?:subtitle|summary|nbd_im_w)[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '\n')
+        .replace(/<span[^>]*class="end_photo_org"[^>]*>[\s\S]*?<\/span>/gi, '\n')
+        .replace(/<em[^>]*class="img_desc"[^>]*>[\s\S]*?<\/em>/gi, '\n');
+
+      const rawLines = stripInlineTagsCleanly(cleanedDic)
+        .split(/\n+/)
+        .map((s) => stripReporterEmailSuffix(s.replace(/\s+/g, ' ').trim()))
+        .filter(Boolean);
+
+      const lines = rawLines.filter(isCleanParagraph);
+      fullBodyParas.push(...lines);
+
+      for (const line of rawLines) {
+        const sents = line
+          .split(/(?<=[.?!])\s+/)
+          .map((s) => stripReporterEmailSuffix(s.trim()))
+          .filter(isCleanBodySentence);
+        paragraphPool.push(...sents);
+      }
+
+      // If inline subheadings prevented full-line period checks, group extracted clean sentences into clean paragraphs
+      if (fullBodyParas.length < 2 && paragraphPool.length >= 2) {
+        for (let i = 0; i < paragraphPool.length; i += 2) {
+          const chunk = paragraphPool.slice(i, i + 2).join(' ');
+          if (chunk.length >= 30) fullBodyParas.push(chunk);
+        }
+      }
     }
-  }
+  } else {
+    // 2. Donga Ilbo <section class="news_view"> (text with <br /> inside news_view)
+    const dongaView =
+      articleHtml.match(/class="news_view"[^>]*>([\s\S]*?)<div class="news_like_wrap/i)?.[1] ||
+      articleHtml.match(/class="news_view"[^>]*>([\s\S]*?)<\/section>/i)?.[1];
 
-  // 2. If Chosun Fusion JSON content elements exist
-  const fusionBlocks = [...articleHtml.matchAll(/"content":"([^"]{35,450})","type":"text"/g)].map((m) =>
-    decodeHtmlEntities(m[1].replace(/\\"/g, '"').replace(/\\n/g, ' ').replace(/<[^>]+>/g, ' '))
-  );
-  if (fusionBlocks.length > 0) {
-    paragraphPool.push(...fusionBlocks.filter(isCleanBodySentence));
-  }
-
-  // 3. Extract <p> body paragraphs from standard press sites
-  const pMatches = [...articleHtml.matchAll(/<p(?:\s+[^>]*)?>([\s\S]*?)<\/p>/gi)];
-  const cleanParas: string[] = [];
-  for (const pm of pMatches) {
-    const clean = decodeHtmlEntities(pm[1].replace(/<[^>]+>/g, ' '));
-    if (
-      clean.length >= 35 &&
-      clean.length <= 500 &&
-      /[.?!다요음임]$/.test(clean) &&
-      !BOILERPLATE_SUBSTRINGS.some((bad) => clean.includes(bad))
-    ) {
-      cleanParas.push(clean);
-    }
-  }
-
-  // 4. Also check JSON-LD articleBody & meta og:description
-  const ldMatches = [...articleHtml.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)];
-  for (const m of ldMatches) {
-    try {
-      const json = JSON.parse(m[1]);
-      const body =
-        json?.articleBody || (Array.isArray(json) ? json.find((x: any) => x?.articleBody)?.articleBody : '');
-      if (body && typeof body === 'string' && body.length > 80) {
-        const cleanBody = decodeHtmlEntities(body);
-        const sents = cleanBody
+    if (dongaView && articleUrl.includes('donga.com')) {
+      const cleanedDonga = dongaView
+        .replace(/<div[^>]*view_[^>]*>[\s\S]*?<\/div>/gi, '\n')
+        .replace(/<h2[^>]*sub_tit[^>]*>[\s\S]*?<\/h2>/gi, '\n');
+      const dongaLines = stripInlineTagsCleanly(cleanedDonga)
+        .split(/\n+/)
+        .map((s) => s.replace(/\s+/g, ' ').trim())
+        .filter(isCleanParagraph);
+      fullBodyParas.push(...dongaLines);
+      for (const line of dongaLines) {
+        const sents = line
           .split(/(?<=[.?!])\s+/)
           .map((s) => s.trim())
           .filter(isCleanBodySentence);
         paragraphPool.push(...sents);
       }
-    } catch {
-      // Ignore malformed JSON-LD
     }
-  }
 
-  const ogDesc =
-    articleHtml.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([\s\S]*?)["']/i)?.[1] ||
-    articleHtml.match(/<meta[^>]+content=["']([\s\S]*?)["'][^>]+property=["']og:description["']/i)?.[1] ||
-    '';
+    // 3. Chosun Fusion JSON content elements
+    const fusionBlocks = [...articleHtml.matchAll(/"content":"([^"]{35,550})","type":"text"/g)]
+      .map((m) =>
+        decodeHtmlEntities(
+          m[1]
+            .replace(/\\"/g, '"')
+            .replace(/\\n/g, ' ')
+            .replace(/<\/?(?:a|span|strong|em|b|i|u)[^>]*>/gi, '')
+            .replace(/<[^>]+>/g, ' ')
+        )
+      )
+      .filter(isCleanParagraph);
 
-  if (cleanParas.length > 0) {
-    for (const p of cleanParas) {
-      const sents = p
+    if (fusionBlocks.length > 0) {
+      fullBodyParas.push(...fusionBlocks);
+      for (const blk of fusionBlocks) {
+        const sents = blk
+          .split(/(?<=[.?!])\s+/)
+          .map((s) => s.trim())
+          .filter(isCleanBodySentence);
+        paragraphPool.push(...sents);
+      }
+    }
+
+    // 4. Standard <p> body paragraphs from newspaper article pages
+    if (fullBodyParas.length < 2) {
+      const pMatches = [...articleHtml.matchAll(/<p(?:\s+[^>]*)?>([\s\S]*?)<\/p>/gi)];
+      for (const pm of pMatches) {
+        const clean = stripInlineTagsCleanly(pm[1]).replace(/\s+/g, ' ').trim();
+        if (isCleanParagraph(clean)) {
+          fullBodyParas.push(clean);
+          const sents = clean
+            .split(/(?<=[.?!])\s+/)
+            .map((s) => s.trim())
+            .filter(isCleanBodySentence);
+          paragraphPool.push(...sents);
+        }
+      }
+    }
+
+    // 5. JSON-LD articleBody fallback
+    if (paragraphPool.length < 3) {
+      const ldMatches = [
+        ...articleHtml.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi),
+      ];
+      for (const m of ldMatches) {
+        try {
+          const json = JSON.parse(m[1]);
+          const body =
+            json?.articleBody ||
+            (Array.isArray(json) ? json.find((x: any) => x?.articleBody)?.articleBody : '');
+          if (body && typeof body === 'string' && body.length > 80) {
+            const cleanBody = decodeHtmlEntities(body);
+            const sents = cleanBody
+              .split(/(?<=[.?!])\s+/)
+              .map((s) => s.trim())
+              .filter(isCleanBodySentence);
+            paragraphPool.push(...sents);
+          }
+        } catch {
+          // Ignore malformed JSON-LD
+        }
+      }
+    }
+
+    // 6. Meta og:description fallback
+    const ogDesc =
+      articleHtml.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([\s\S]*?)["']/i)?.[1] ||
+      articleHtml.match(/<meta[^>]+content=["']([\s\S]*?)["'][^>]+property=["']og:description["']/i)?.[1] ||
+      '';
+    if (ogDesc) {
+      const ogSents = decodeHtmlEntities(ogDesc)
         .split(/(?<=[.?!])\s+/)
         .map((s) => s.trim())
         .filter(isCleanBodySentence);
-      paragraphPool.push(...sents);
+      paragraphPool.push(...ogSents);
     }
-  }
-
-  if (ogDesc) {
-    const ogSents = decodeHtmlEntities(ogDesc)
-      .split(/(?<=[.?!])\s+/)
-      .map((s) => s.trim())
-      .filter(isCleanBodySentence);
-    paragraphPool.push(...ogSents);
   }
 
   if (homepagePrologue) {
@@ -231,12 +395,17 @@ function extractArticleTextAndSummary(
     }
   }
 
-  const fullBody =
-    cleanParas.length >= 2
-      ? cleanParas.slice(0, 6).join('\n\n')
-      : fusionBlocks.length >= 2
-      ? fusionBlocks.slice(0, 6).join('\n\n')
-      : uniqueSentences.join('\n\n');
+  // Deduplicate fullBody paragraphs cleanly
+  const uniqueParas: string[] = [];
+  for (const p of fullBodyParas) {
+    const key = p.slice(0, 20);
+    if (!uniqueParas.some((u) => u.includes(key) || p.includes(u.slice(0, 20)))) {
+      uniqueParas.push(p);
+    }
+    if (uniqueParas.length >= 6) break;
+  }
+
+  const fullBody = uniqueParas.length > 0 ? uniqueParas.join('\n\n') : uniqueSentences.join('\n\n');
 
   return { sentences: uniqueSentences, fullBody };
 }
@@ -258,13 +427,10 @@ async function fetchHomepageCenterLeadArticle(
 
   // 1. Direct Homepage HTML Extraction for Center Top Lead Article
   try {
-    const res = await fetch(desk.homepageUrl, {
-      headers: BROWSER_HEADERS,
-      signal: AbortSignal.timeout(4500),
-    });
+    const res = await fetchHtmlFast(desk.homepageUrl, 4500);
 
     if (res.ok) {
-      const html = await res.text();
+      const html = res.text;
 
       if (outletId === 'khan') {
         const sec = html.match(/<section class="head">([\s\S]*?)<\/section>/i)?.[1] || html;
@@ -363,16 +529,13 @@ async function fetchHomepageCenterLeadArticle(
     console.warn(`Direct homepage scrape failed for ${outletName}:`, err);
   }
 
-  // 2. Official Naver Press Desk Fallback (for WAF-protected homepages like Hankyung 403 or timeout)
+  // 2. Official Naver Press Desk Fallback (for WAF-protected homepages like Hankyung 403 or timeout like Donga)
   let naverArticleUrl = '';
   if (!title && desk.naverCode) {
     try {
-      const res = await fetch(`https://media.naver.com/press/${desk.naverCode}`, {
-        headers: BROWSER_HEADERS,
-        signal: AbortSignal.timeout(4000),
-      });
+      const res = await fetchHtmlFast(`https://media.naver.com/press/${desk.naverCode}`, 4500);
       if (res.ok) {
-        const html = await res.text();
+        const html = res.text;
         const m = html.match(
           /<li class="press_edit_news_item[^"]*"[\s\S]*?<a href="([^"]+)"[^>]*>[\s\S]*?<span class="press_edit_news_title">([\s\S]*?)<\/span>/i
         );
@@ -395,35 +558,70 @@ async function fetchHomepageCenterLeadArticle(
   let leadSentences: string[] = [];
   let fullBody = '';
 
+  const tryExtractFromUrl = async (targetUrl: string) => {
+    const artRes = await fetchHtmlFast(targetUrl, 4500);
+    if (!artRes.ok || !artRes.text) return false;
+
+    const artHtml = artRes.text;
+    // Extract true press origin link if article came from Naver Press fallback
+    if (targetUrl.includes('news.naver.com')) {
+      const origM =
+        artHtml.match(/<a[^>]*href="([^"]+)"[^>]*class="[^"]*media_end_head_origin_link/i) ||
+        artHtml.match(/<a[^>]*class="[^"]*media_end_head_origin_link[^"]*"[^>]*href="([^"]+)"/i);
+      if (origM) link = origM[1].replace(/&amp;/g, '&').trim();
+    }
+    const extracted = extractArticleTextAndSummary(artHtml, homepageBullets, prologue, targetUrl);
+    if (extracted.sentences.length > 0 || extracted.fullBody.length > 50) {
+      leadSentences = extracted.sentences;
+      fullBody = extracted.fullBody;
+      return true;
+    }
+    return false;
+  };
+
   if (link) {
+    await tryExtractFromUrl(link);
+  }
+
+  // 3-b. If direct article fetch failed or timed out (e.g., Donga article tarpit), look up matching article on Naver Press Desk
+  if (leadSentences.length === 0 && !fullBody && desk.naverCode) {
     try {
-      const artRes = await fetch(link, {
-        headers: BROWSER_HEADERS,
-        signal: AbortSignal.timeout(3500),
-      });
-      if (artRes.ok) {
-        const artHtml = await artRes.text();
-        // Extract true press origin link if article came from Naver Press fallback
-        if (link.includes('news.naver.com')) {
-          const origM =
-            artHtml.match(/media_end_head_origin_link"[^>]*href="([^"]+)"/i) ||
-            artHtml.match(/class="media_end_head_origin_link"[^>]*href="([^"]+)"/i);
-          if (origM) link = origM[1].replace(/&amp;/g, '&').trim();
+      const deskRes = await fetchHtmlFast(`https://media.naver.com/press/${desk.naverCode}`, 4000);
+      if (deskRes.ok) {
+        const deskItems = [
+          ...deskRes.text.matchAll(
+            /<li class="press_edit_news_item[^"]*"[\s\S]*?<a href="([^"]+)"[^>]*>[\s\S]*?<span class="press_edit_news_title">([\s\S]*?)<\/span>/gi
+          ),
+        ];
+        const titleWords = extractSearchKeywords(title)
+          .split(' ')
+          .filter((w) => w.length >= 2);
+        const bestMatch =
+          deskItems.find((item) => {
+            const itemTitle = decodeHtmlEntities(item[2].replace(/<[^>]+>/g, ''));
+            return titleWords.slice(0, 2).some((w) => itemTitle.includes(w));
+          }) || deskItems[0];
+
+        if (bestMatch) {
+          naverArticleUrl = bestMatch[1].trim();
+          const savedDirectLink = link && !link.includes('news.naver.com') ? link : '';
+          await tryExtractFromUrl(naverArticleUrl);
+          if (savedDirectLink) link = savedDirectLink;
         }
-        const extracted = extractArticleTextAndSummary(artHtml, homepageBullets, prologue);
-        leadSentences = extracted.sentences;
-        fullBody = extracted.fullBody;
       }
     } catch {
-      // Fallback to homepage bullets/prologue if article fetch times out
-      if (homepageBullets.length > 0) {
-        leadSentences = homepageBullets.slice(0, 3);
-      } else if (prologue) {
-        leadSentences = prologue
-          .split(/(?<=[.?!])\s+/)
-          .filter(isCleanBodySentence)
-          .slice(0, 3);
-      }
+      // Ignore fallback error
+    }
+  }
+
+  if (leadSentences.length === 0) {
+    if (homepageBullets.length > 0) {
+      leadSentences = homepageBullets.slice(0, 3);
+    } else if (prologue) {
+      leadSentences = prologue
+        .split(/(?<=[.?!])\s+/)
+        .filter(isCleanBodySentence)
+        .slice(0, 3);
     }
   }
 
@@ -640,7 +838,7 @@ function inferTopicFromText(title: string): string {
  */
 export function buildRealBriefing(
   articlesByOutlet: Record<string, RawRSSArticle[]>,
-  tone: BriefingTone = 'formal',
+  tone: BriefingTone = 'insight',
   selectedOutletIds: string[] = DEFAULT_10_OUTLETS
 ): DailyBriefing {
   const todayFormatted = getCurrentKoreanDateString();
@@ -668,7 +866,7 @@ export function buildRealBriefing(
       if (k && !allKeywords.includes(`#${k}`)) allKeywords.push(`#${k}`);
     });
 
-    const leadSummary = generate3LineSummaryFromSnippet(
+    const baseSummary = generate3LineSummaryFromSnippet(
       art.title,
       art.snippet,
       art.outletName,
@@ -681,7 +879,8 @@ export function buildRealBriefing(
       outletName: art.outletName,
       category: 'frontpage',
       title: art.title,
-      leadSummary,
+      leadSummary: baseSummary,
+      baseSummary,
       originalUrl: art.link || getOfficialOutletHomepage(outletId, art.outletName),
       publishedAt: `${todayFormatted} ${shortTime} 실시간`,
       keywords: keywords.length > 0 ? keywords : ['첫화면톱', '실시간'],
@@ -691,7 +890,7 @@ export function buildRealBriefing(
       newspaperPage: '홈페이지 첫화면 중앙',
       reactions: { insightful: 45, important: 110, surprising: 18 },
       fullContent: `[${art.outletName} 첫화면 중앙 톱보도]\n${art.title}\n\n${
-        art.fullBody || art.snippet || leadSummary.join('\n\n')
+        art.fullBody || art.snippet || baseSummary.join('\n\n')
       }\n\n본 기사는 ${art.outletName} 공식 홈페이지 첫화면 중앙에 가장 크게 보도되고 있는 실시간 톱기사입니다.`,
     });
   }
@@ -787,23 +986,27 @@ export function buildRealBriefing(
     .filter((art, idx, arr) => arr.findIndex((x) => x.outletId === art.outletId) === idx)
     .slice(0, 3);
 
-  const exclusiveStories: NewsStory[] = pickedExclusives.map((art) => ({
-    id: `ex-${art.outletId}-${Date.now().toString(36)}`,
-    outletId: art.outletId,
-    outletName: art.outletName,
-    category: 'exclusive',
-    title: art.title,
-    leadSummary: generate3LineSummaryFromSnippet(art.title, art.snippet, art.outletName, art.leadSentences),
-    originalUrl: art.link || getOfficialOutletHomepage(art.outletId, art.outletName),
-    publishedAt: `${todayFormatted} ${shortTime} 실시간`,
-    keywords: extractSearchKeywords(art.title).split(' ').slice(0, 3),
-    topic: inferTopicFromText(art.title),
-    exclusiveBadge: art.title.includes('단독') ? `${art.outletName} 단독` : `${art.outletName} 심층`,
-    importanceRating: 'Crucial',
-    reactions: { insightful: 48, important: 96, surprising: 22 },
-  }));
+  const exclusiveStories: NewsStory[] = pickedExclusives.map((art) => {
+    const baseSummary = generate3LineSummaryFromSnippet(art.title, art.snippet, art.outletName, art.leadSentences);
+    return {
+      id: `ex-${art.outletId}-${Date.now().toString(36)}`,
+      outletId: art.outletId,
+      outletName: art.outletName,
+      category: 'exclusive',
+      title: art.title,
+      leadSummary: baseSummary,
+      baseSummary,
+      originalUrl: art.link || getOfficialOutletHomepage(art.outletId, art.outletName),
+      publishedAt: `${todayFormatted} ${shortTime} 실시간`,
+      keywords: extractSearchKeywords(art.title).split(' ').slice(0, 3),
+      topic: inferTopicFromText(art.title),
+      exclusiveBadge: art.title.includes('단독') ? `${art.outletName} 단독` : `${art.outletName} 심층`,
+      importanceRating: 'Crucial',
+      reactions: { insightful: 48, important: 96, surprising: 22 },
+    };
+  });
 
-  return {
+  const rawBriefing: DailyBriefing = {
     id: `briefing-real-${Date.now()}`,
     briefingDate: todayFormatted,
     briefingTime: `${nowKstTime} 실시간`,
@@ -813,9 +1016,11 @@ export function buildRealBriefing(
     frontPageOutletIds: targetIds,
     overlappingOutletIds: targetIds,
     summaryNote:
-      '대한민국 10대 주요 언론사 공식 홈페이지 첫화면 중앙에 현재 가장 크게 보도 중인 실시간 톱기사를 자동 수집하여 3줄로 정밀 요약한 라이브 브리핑입니다.',
+      '대한민국 10대 주요 언론사 공식 홈페이지 첫화면 중앙에 현재 가장 크게 보도 중인 실시간 톱기사를 자동 수집하여 요약 2줄·시사점 1줄 인사이트 브리핑으로 정리했습니다.',
     frontPageStories,
     overlappingStories,
     exclusiveStories,
   };
+
+  return transformBriefingTone(rawBriefing, tone);
 }

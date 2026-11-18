@@ -16,7 +16,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
     '#아세안APEC순방',
     '#이주노동자공정평가',
   ],
-  tone: 'formal',
+  tone: 'insight',
   selectedOutletIds: DEFAULT_10_OUTLETS,
   frontPageOutletIds: DEFAULT_10_OUTLETS,
   overlappingOutletIds: DEFAULT_10_OUTLETS,

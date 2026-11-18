@@ -474,14 +474,30 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
 
                 {/* 3-line Summary Box */}
                 <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 sm:p-3.5 space-y-1.5 mb-2.5">
-                  {story.leadSummary.slice(0, 3).map((line, idx) => (
-                    <p
-                      key={idx}
-                      className="text-xs sm:text-[13px] text-slate-700 leading-relaxed font-normal"
-                    >
-                      {line.replace(/^[0-9]+[.)]\s*/, '').trim()}
-                    </p>
-                  ))}
+                  {story.leadSummary.slice(0, 3).map((line, idx) => {
+                    const cleanLine = line.replace(/^[0-9]+[.)]\s*/, '').trim();
+                    if (cleanLine.startsWith('[시사점]')) {
+                      return (
+                        <p
+                          key={idx}
+                          className="text-xs sm:text-[13px] text-indigo-950 leading-relaxed font-medium pt-1 border-t border-slate-200/70"
+                        >
+                          <span className="inline-block text-[10px] font-extrabold text-indigo-700 bg-indigo-100/80 border border-indigo-200 px-1.5 py-0.5 rounded mr-1.5 align-middle">
+                            시사점
+                          </span>
+                          <span className="align-middle">{cleanLine.replace(/^\[시사점\]\s*/, '')}</span>
+                        </p>
+                      );
+                    }
+                    return (
+                      <p
+                        key={idx}
+                        className="text-xs sm:text-[13px] text-slate-700 leading-relaxed font-normal"
+                      >
+                        {cleanLine}
+                      </p>
+                    );
+                  })}
                 </div>
 
                 {/* Keywords */}

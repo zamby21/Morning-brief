@@ -34,6 +34,7 @@ export interface NewsStory {
   category: 'frontpage' | 'overlapping' | 'exclusive';
   title: string;
   leadSummary: string[]; // Strictly up to 3 lines
+  baseSummary?: string[]; // Raw factual 3-line summary preserved for lossless tone switching
   originalUrl: string;
   publishedAt: string;
   keywords: string[];
@@ -151,6 +152,7 @@ export interface UserPreferences {
   autoEmailEnabled: boolean;
   pushNotificationEnabled: boolean;
   preferredTone: BriefingTone;
+  toneExplicitlySelected?: boolean;
   subscribedTopics: string[];
   selectedOutlets: string[]; // 전체 기본/호환 언론사 목록
   frontPageOutlets?: string[]; // 1면 핵심 기사 맞춤 언론사 목록

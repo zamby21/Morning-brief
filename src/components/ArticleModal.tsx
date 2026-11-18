@@ -227,17 +227,38 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
             <div className="text-xs font-bold text-blue-600 flex items-center justify-between border-b border-slate-100 pb-2 mb-2">
               <span className="flex items-center gap-1.5">
                 <Bookmark className="w-3.5 h-3.5 text-blue-600" />
-                <span>{isCluster ? '공통 이슈 핵심 요약 (3줄)' : '핵심 3줄 요약'}</span>
+                <span>
+                  {story.leadSummary.some((l) => l.trim().startsWith('[시사점]'))
+                    ? '인사이트 핵심 요약 (요약 2줄 + 시사점 1줄)'
+                    : isCluster
+                    ? '공통 이슈 핵심 요약 (3줄)'
+                    : '핵심 3줄 요약'}
+                </span>
               </span>
               <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-mono text-[11px] font-bold">
-                Strict 3-Line Briefing
+                {story.leadSummary.some((l) => l.trim().startsWith('[시사점]'))
+                  ? '2+1 Insight Briefing'
+                  : 'Strict 3-Line Briefing'}
               </span>
             </div>
-            {story.leadSummary.map((line, idx) => (
-              <p key={idx} className="text-xs sm:text-sm text-slate-700 leading-relaxed pl-1 font-normal">
-                {line.replace(/^[0-9]+[.)]\s*/, '').trim()}
-              </p>
-            ))}
+            {story.leadSummary.map((line, idx) => {
+              const cleanLine = line.replace(/^[0-9]+[.)]\s*/, '').trim();
+              if (cleanLine.startsWith('[시사점]')) {
+                return (
+                  <p key={idx} className="text-xs sm:text-sm text-indigo-950 leading-relaxed pl-1 font-medium pt-1.5 border-t border-slate-100">
+                    <span className="inline-block text-[11px] font-extrabold text-indigo-700 bg-indigo-100/80 border border-indigo-200 px-1.5 py-0.5 rounded mr-1.5 align-middle">
+                      시사점
+                    </span>
+                    <span className="align-middle">{cleanLine.replace(/^\[시사점\]\s*/, '')}</span>
+                  </p>
+                );
+              }
+              return (
+                <p key={idx} className="text-xs sm:text-sm text-slate-700 leading-relaxed pl-1 font-normal">
+                  {cleanLine}
+                </p>
+              );
+            })}
           </div>
 
           {/* Interactive Cluster Section (For Overlapping Stories) */}

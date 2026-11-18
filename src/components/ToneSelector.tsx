@@ -21,32 +21,32 @@ export const ToneSelector: React.FC<ToneSelectorProps> = ({
     example: string;
   }[] = [
     {
+      id: 'insight',
+      name: '인사이트 (요약2+시사점1)',
+      badge: '기본 설정',
+      description: '핵심 사실 2줄 요약 후 마지막 1줄 [시사점] 제시',
+      example: '요약 2줄 + [시사점] 전략·시장 파급 점검',
+    },
+    {
       id: 'formal',
       name: '격식 브리핑체',
       badge: '공식 보고',
-      description: '정중하고 신뢰감 있는 표준 언론 어조',
-      example: '‘~했습니다’, ‘~인 것으로 분석되었습니다’',
+      description: '정중하고 신뢰감 있는 공식 합쇼체 보고 문체',
+      example: '‘~했습니다.’, ‘~인 것으로 분석됩니다.’',
     },
     {
       id: 'bullet',
       name: '개조식 드라이톤',
-      badge: '시간 절약',
-      description: '군더더기를 뺀 핵심 팩트 위주의 신속 전달',
-      example: '‘~함’, ‘~실정임’, ‘~대응책 발표’',
+      badge: '초압축 메모',
+      description: '서술어를 뺀 기호(▪) + 명사형 핵심 팩트 전달',
+      example: '‘▪ 핵심 사안 발표 / ~추진 함 / ~전망’',
     },
     {
       id: 'friendly',
       name: '친근한 설명체',
       badge: '쉬운 해설',
-      description: '누구나 이해하기 쉬운 친절한 뉴스레터 어조',
-      example: '‘~했어요!’, ‘~되었답니다’, ‘알아볼까요?’',
-    },
-    {
-      id: 'insight',
-      name: '투자·비즈니스 인사이트',
-      badge: '시장 영향',
-      description: '기업 실적, 거시 경제, 기회와 리스크 분석 중심',
-      example: '‘[시사점] 시장 변동성 확대 및 수혜 전망’',
+      description: '쉽게 풀어서 전하는 대화형 뉴스레터 어조',
+      example: '‘쉽게 정리하면, ~했어요. ~전망이에요.’',
     },
   ];
 

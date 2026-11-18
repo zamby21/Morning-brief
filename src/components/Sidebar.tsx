@@ -65,14 +65,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const getToneShortLabel = (tone: BriefingTone) => {
     switch (tone) {
       case 'bullet':
-        return '개조식 드라이톤';
+        return '개조식';
       case 'friendly':
-        return '친근한 설명체';
-      case 'insight':
-        return '투자·비즈니스 인사이트';
+        return '설명체';
       case 'formal':
+        return '격식체';
+      case 'insight':
       default:
-        return '격식 브리핑체';
+        return '인사이트';
     }
   };
 
@@ -198,7 +198,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       </span>
                     </div>
                     <div className="text-[11px] text-slate-400 truncate">
-                      격식체 / 개조식 / 인사이트
+                      인사이트(2+1) / 격식 / 개조식 / 설명식
                     </div>
                   </div>
                 )}

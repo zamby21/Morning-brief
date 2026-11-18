@@ -17,6 +17,7 @@ interface HeaderProps {
   preferences: UserPreferences;
   briefingDate?: string;
   briefingTime?: string;
+  onResetHome?: () => void;
   onToggleSidebar: () => void;
   isSidebarOpen: boolean;
   onOpenPressModal: () => void;
@@ -38,6 +39,7 @@ export const Header: React.FC<HeaderProps> = ({
   preferences,
   briefingDate,
   briefingTime,
+  onResetHome,
   onToggleSidebar,
   isSidebarOpen,
   onOpenPressModal,
@@ -59,12 +61,12 @@ export const Header: React.FC<HeaderProps> = ({
       case 'bullet':
         return '개조식';
       case 'friendly':
-        return '친근체';
-      case 'insight':
-        return '인사이트';
+        return '설명체';
       case 'formal':
-      default:
         return '격식체';
+      case 'insight':
+      default:
+        return '인사이트';
     }
   };
 
@@ -117,8 +119,19 @@ export const Header: React.FC<HeaderProps> = ({
             </span>
           </button>
 
-          {/* Logo & Headline */}
-          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+          {/* Logo & Headline (Click to reload to initial home screen) */}
+          <button
+            type="button"
+            onClick={() => {
+              if (onResetHome) {
+                onResetHome();
+              } else {
+                window.location.reload();
+              }
+            }}
+            className="flex items-center gap-1.5 sm:gap-2 min-w-0 cursor-pointer hover:opacity-85 active:scale-[0.98] transition text-left focus:outline-none rounded-xl py-0.5 pr-1"
+            title="첫화면으로 새로고침 (홈 리로드)"
+          >
             <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-md shadow-blue-500/20 text-white shrink-0">
               <Newspaper className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
@@ -143,7 +156,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </span>
               </div>
             </div>
-          </div>
+          </button>
         </div>
 
         {/* Right: Streamlined Quick Controls */}

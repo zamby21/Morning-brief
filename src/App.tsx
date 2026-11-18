@@ -42,6 +42,7 @@ import {
   rewriteTone,
   sendEmailBriefing,
 } from './services/apiService';
+import { transformBriefingTone } from './utils/toneTransformer';
 import {
   Clock,
   Mail,
@@ -100,6 +101,8 @@ const loadSavedPreferences = (): UserPreferences => {
         return {
           ...INITIAL_USER_PREFERENCES,
           ...parsed,
+          preferredTone: parsed.toneExplicitlySelected && parsed.preferredTone ? parsed.preferredTone : 'insight',
+          toneExplicitlySelected: Boolean(parsed.toneExplicitlySelected),
           recipientEmail: targetEmail,
           savedRecipientEmails: savedEmails,
           selectedOutlets: combined,
@@ -124,14 +127,14 @@ export default function App() {
     const frontOutlets = saved.frontPageOutlets || DEFAULT_10_OUTLETS;
     const overlapOutlets = saved.overlappingOutlets || DEFAULT_10_OUTLETS;
     const combined = saved.selectedOutlets || DEFAULT_10_OUTLETS;
-
-    return {
+    const initialWithStories = {
       ...INITIAL_DAILY_BRIEFING,
       selectedOutletIds: combined,
       frontPageOutletIds: frontOutlets,
       overlappingOutletIds: overlapOutlets,
       frontPageStories: ensureFrontPageStories(INITIAL_DAILY_BRIEFING.frontPageStories, frontOutlets),
     };
+    return transformBriefingTone(initialWithStories, saved.preferredTone || 'insight');
   });
   const [weeklyReport, setWeeklyReport] = useState<WeeklyReport>(MOCK_WEEKLY_REPORT);
   const [emailLogs, setEmailLogs] = useState<EmailDispatchLog[]>(INITIAL_EMAIL_LOGS);
@@ -339,7 +342,7 @@ export default function App() {
   const handleSelectTone = async (newTone: BriefingTone) => {
     if (newTone === briefing.tone) return;
     setIsLoading(true);
-    setPreferences((prev) => ({ ...prev, preferredTone: newTone }));
+    setPreferences((prev) => ({ ...prev, preferredTone: newTone, toneExplicitlySelected: true }));
     try {
       const updated = await rewriteTone(briefing, newTone);
       setBriefing(updated);
@@ -357,11 +360,11 @@ export default function App() {
         return '개조식 드라이톤';
       case 'friendly':
         return '친근한 설명체';
-      case 'insight':
-        return '투자·비즈니스 인사이트';
       case 'formal':
-      default:
         return '격식 브리핑체';
+      case 'insight':
+      default:
+        return '인사이트 (요약2+시사점1)';
     }
   };
 
@@ -692,6 +695,21 @@ export default function App() {
           preferences={preferences}
           briefingDate={briefing.briefingDate}
           briefingTime={briefing.briefingTime}
+          onResetHome={() => {
+            setSelectedKeyword(null);
+            setSelectedTopic('전체');
+            setIsSidebarOpen(false);
+            setCollapsedSections({
+              frontPage: false,
+              overlapping: false,
+              exclusive: false,
+              realEstateFinance: false,
+            });
+            setArticleModalStory(null);
+            setShareStory(null);
+            window.scrollTo({ top: 0, behavior: 'auto' });
+            window.location.reload();
+          }}
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           isSidebarOpen={isSidebarOpen}
           onOpenPressModal={() => handleOpenPressModal('frontPage')}

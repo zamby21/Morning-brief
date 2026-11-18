@@ -27,32 +27,32 @@ export const ToneModal: React.FC<ToneModalProps> = ({
     example: string;
   }[] = [
     {
+      id: 'insight',
+      name: '인사이트 버전 (요약 2줄 + 시사점 1줄)',
+      badge: '기본 설정 · 2+1',
+      description: '핵심 사실 2줄을 먼저 요약하고, 마지막 3번째 줄에 [시사점] 1줄을 제시합니다.',
+      example: '요약 2줄 + [시사점] 산업·시장·정책 파급 및 대응 포인트',
+    },
+    {
       id: 'formal',
       name: '격식 브리핑체',
-      badge: '공식 보고',
-      description: '정중하고 신뢰감 있는 표준 언론 어조',
-      example: '‘~했습니다’, ‘~인 것으로 분석되었습니다’',
+      badge: '공식 보고 · 합쇼체',
+      description: '임원·기관 공식 보고용으로 정제된 정중한 격식 문어체 3줄 요약입니다.',
+      example: '‘~했습니다.’, ‘~되었습니다.’, ‘~전망입니다.’',
     },
     {
       id: 'bullet',
       name: '개조식 드라이톤',
-      badge: '시간 절약',
-      description: '군더더기를 뺀 핵심 팩트 위주의 신속 전달',
-      example: '‘~함’, ‘~실정임’, ‘~대응책 발표’',
+      badge: '초압축 · 명사형',
+      description: '접속어·서술어를 덜어내고 기호(▪)와 명사형 종결로 핵심만 빠르게 전달합니다.',
+      example: '‘▪ 핵심 사안 발표 · ~추진 함 / ~확대 전망’',
     },
     {
       id: 'friendly',
       name: '친근한 설명체',
-      badge: '쉬운 해설',
-      description: '누구나 이해하기 쉬운 친절한 뉴스레터 어조',
-      example: '‘~했어요!’, ‘~되었답니다’, ‘알아볼까요?’',
-    },
-    {
-      id: 'insight',
-      name: '투자·비즈니스 인사이트',
-      badge: '시장 영향',
-      description: '기업 실적, 거시 경제, 기회와 리스크 분석 중심',
-      example: '‘[시사점] 시장 변동성 확대 및 수혜 전망’',
+      badge: '쉬운 해설 · 해요체',
+      description: '배경을 풀어서 설명하는 대화형 뉴스레터 어조로 부담 없이 읽힙니다.',
+      example: '‘쉽게 정리하면, ~했어요. 여기에 더해 ~전망이에요.’',
     },
   ];
 

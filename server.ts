@@ -51,21 +51,21 @@ const ai = new GoogleGenAI({
 function getToneDescription(tone: string): string {
   switch (tone) {
     case 'bullet':
-      return '개조식 드라이한 톤(~함, ~임, 명사형 종결, 군더더기 없는 핵심 팩트 중심)';
+      return '개조식 드라이톤: 서술어·접속사를 극단적으로 줄이고 명사형·단답형(~함, ~임, ~됨, ~전망, ~강조)으로 팩트만 압축한 임원 보고용 메모 스타일';
     case 'friendly':
-      return '친근하고 알기 쉬운 뉴스레터 설명 톤(~해요, ~알려드려요, 비전문가도 이해하기 쉽게)';
+      return '친근한 설명체: "쉽게 정리하면", "여기에 더해", "앞으로는" 같은 부드러운 연결과 ~했어요/~이에요/~전망이에요 어미로 비전문가에게 풀어서 설명하는 뉴스레터 스타일';
     case 'insight':
-      return '비즈니스 및 투자자 인사이트 톤(시장 파급 효과, 기업 실적 영향, 리스크와 기회 관점 부각)';
+      return '인사이트 버전(기본): 반드시 총 3줄 중 앞 2줄은 기사 핵심 사실 요약(~했습니다/~입니다)으로 작성하고, 마지막 3번째 줄은 반드시 "[시사점] "으로 시작하는 시장·산업·정책 파급 시사점 1줄로 작성';
     case 'formal':
     default:
-      return '정중하고 격식 있는 공식 언론 브리핑 톤(~했습니다, ~로 파악되었습니다)';
+      return '격식 브리핑체: 정중하고 품격 있는 공식 언론 브리핑·보고서 문어체(~했습니다, ~되었습니다, ~것으로 분석됩니다)';
   }
 }
 
 // 1. API: Generate / Refresh daily briefing
 app.post(['/api/summarize', '/summarize'], async (req, res) => {
   try {
-    const { outletIds, tone = 'formal', topics = [], forceRefresh = false } = req.body;
+    const { outletIds, tone = 'insight', topics = [], forceRefresh = false } = req.body;
     const selectedOutlets = PRESS_OUTLETS.filter((o) =>
       outletIds && outletIds.length > 0 ? outletIds.includes(o.id) : o.isDefaultMajor
     );
@@ -98,8 +98,9 @@ app.post(['/api/summarize', '/summarize'], async (req, res) => {
 [중요 제약조건]:
 1. 절대로 가짜 뉴스나 존재하지 않는 기사 제목을 지어내지 마세요.
 2. 각 기사의 제목(title)은 언론사 보도자료/기사 원문 제목을 100% 그대로 유지하고 절대 축약하거나 단어를 수정하지 마세요.
-3. 3줄 요약(leadSummary)은 '1. 2. 3.' 숫자 번호 매김 없이, 기사 내용의 핵심 팩트, 원인/배경, 향후 전망을 정확하게 반영한 3개의 완성된 문장으로 작성해주세요.
-4. 희망 어조: ${getToneDescription(tone)}
+3. 3줄 요약(leadSummary)은 '1. 2. 3.' 숫자 번호 매김을 절대 붙이지 말고 정확히 3문장으로 작성하세요.
+4. 희망 어조 지침을 철저히 반영하세요: ${getToneDescription(tone)}
+   (※ 특히 'insight' 인사이트 버전인 경우: 1~2번째 줄은 핵심 사실 요약 2줄, 3번째 줄은 반드시 '[시사점] '으로 시작하는 전략·시장·정책 시사점 1줄로 구성하세요.)
 
 [제공된 실제 언론사 기사 목록]:
 ${JSON.stringify(realNewsPayload, null, 2)}`;
@@ -173,7 +174,7 @@ ${JSON.stringify(realNewsPayload, null, 2)}`;
     return res.json({ success: true, data: realBriefing, source: 'real-rss-verified' });
   } catch (error: any) {
     console.error('Error generating summary:', error);
-    const fallback = transformBriefingTone(INITIAL_DAILY_BRIEFING, (req.body.tone || 'formal') as BriefingTone);
+    const fallback = transformBriefingTone(INITIAL_DAILY_BRIEFING, (req.body.tone || 'insight') as BriefingTone);
     return res.json({ success: true, data: fallback, source: 'fallback', error: error.message });
   }
 });
@@ -191,14 +192,19 @@ app.post(['/api/rewrite-tone', '/rewrite-tone'], async (req, res) => {
   }
 
   try {
-    const prompt = `다음 뉴스 요약 기사들의 3줄 요약 문장들을 '${getToneDescription(targetTone)}'으로 어조만 자연스럽게 재작성해주세요.
-원래 사실과 3줄 분량 제약은 절대 훼손하지 말고 오직 문체와 전달 방식만 변경하세요.
+    const prompt = `다음 뉴스 요약 기사들의 3줄 요약 문장들을 아래 지침에 맞춰 어조와 문체를 뚜렷하게 차별화하여 재작성해주세요.
+[어조 지침]: ${getToneDescription(targetTone)}
+[필수 규칙]:
+- 원래 사실 관계는 훼손하지 말고 반드시 3줄(배열 길이 3)을 유지하세요.
+- '1. 2. 3.' 같은 숫자 번호는 절대 붙이지 마세요.
+- baseSummary가 있는 경우 원 팩트를 바탕으로 targetTone의 특징이 극명하게 드러나도록 문장을 다시 쓰세요.
+- 'insight'인 경우 반드시 앞 2줄은 사실 요약, 3번째 줄은 "[시사점] "으로 시작하는 1줄 시사점으로 작성하세요.
 
 내용:
 ${JSON.stringify({
-  frontPage: currentBriefing.frontPageStories.map((s: any) => ({ id: s.id, summary: s.leadSummary })),
-  overlapping: currentBriefing.overlappingStories.map((s: any) => ({ id: s.id, summary: s.leadSummary })),
-  exclusive: currentBriefing.exclusiveStories.map((s: any) => ({ id: s.id, summary: s.leadSummary })),
+  frontPage: currentBriefing.frontPageStories.map((s: any) => ({ id: s.id, title: s.title, summary: s.baseSummary || s.leadSummary })),
+  overlapping: currentBriefing.overlappingStories.map((s: any) => ({ id: s.id, title: s.title, summary: s.baseSummary || s.leadSummary })),
+  exclusive: currentBriefing.exclusiveStories.map((s: any) => ({ id: s.id, title: s.title, summary: s.baseSummary || s.leadSummary })),
 })}`;
 
     const response = await ai.models.generateContent({
@@ -216,19 +222,25 @@ ${JSON.stringify({
     if (parsed.frontPage) {
       updated.frontPageStories.forEach((s: any) => {
         const match = parsed.frontPage.find((item: any) => item.id === s.id);
-        if (match && match.summary) s.leadSummary = match.summary.slice(0, 3);
+        if (match && match.summary) {
+          s.leadSummary = match.summary.slice(0, 3).map((l: string) => l.replace(/^[0-9]+[.)]\s*/, '').trim());
+        }
       });
     }
     if (parsed.overlapping) {
       updated.overlappingStories.forEach((s: any) => {
         const match = parsed.overlapping.find((item: any) => item.id === s.id);
-        if (match && match.summary) s.leadSummary = match.summary.slice(0, 3);
+        if (match && match.summary) {
+          s.leadSummary = match.summary.slice(0, 3).map((l: string) => l.replace(/^[0-9]+[.)]\s*/, '').trim());
+        }
       });
     }
     if (parsed.exclusive) {
       updated.exclusiveStories.forEach((s: any) => {
         const match = parsed.exclusive.find((item: any) => item.id === s.id);
-        if (match && match.summary) s.leadSummary = match.summary.slice(0, 3);
+        if (match && match.summary) {
+          s.leadSummary = match.summary.slice(0, 3).map((l: string) => l.replace(/^[0-9]+[.)]\s*/, '').trim());
+        }
       });
     }
 
