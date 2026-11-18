@@ -194,9 +194,9 @@ export function generateFrontPageStoryForOutlet(outlet: PressOutlet): NewsStory 
   const leadSummary = verified
     ? verified.leadSummary
     : [
-        `1. ${outlet.name} 취재진이 당일 경제·정책 주요 이슈와 업계 동향을 심층 취재하여 보도했습니다.`,
-        `2. 관련 당국과 시장 참여자들은 이번 사안의 파급 효과와 향후 대책을 집중 점검하고 있습니다.`,
-        `3. ${outlet.name} 공식 홈페이지 및 포털을 통해 상세 전문과 후속 취재 기사를 확인하실 수 있습니다.`,
+        `${outlet.name} 취재진이 당일 경제·정책 주요 이슈와 업계 동향을 심층 취재하여 보도했습니다.`,
+        `관련 당국과 시장 참여자들은 이번 사안의 파급 효과와 향후 대책을 집중 점검하고 있습니다.`,
+        `${outlet.name} 공식 홈페이지 및 포털을 통해 상세 전문과 후속 취재 기사를 확인하실 수 있습니다.`,
       ];
   const topic = verified ? verified.topic : '종합·경제';
   const keywords = verified ? verified.keywords : ['핵심보도', outlet.name];

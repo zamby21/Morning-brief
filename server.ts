@@ -65,14 +65,14 @@ function getToneDescription(tone: string): string {
 // 1. API: Generate / Refresh daily briefing
 app.post(['/api/summarize', '/summarize'], async (req, res) => {
   try {
-    const { outletIds, tone = 'formal', topics = [] } = req.body;
+    const { outletIds, tone = 'formal', topics = [], forceRefresh = false } = req.body;
     const selectedOutlets = PRESS_OUTLETS.filter((o) =>
       outletIds && outletIds.length > 0 ? outletIds.includes(o.id) : o.isDefaultMajor
     );
     const targetOutletIds = selectedOutlets.map((o) => o.id);
 
-    // 1. Always harvest real-time verified articles from Korean media RSS
-    const realArticlesMap = await fetchRealArticlesForOutlets(targetOutletIds);
+    // 1. Always harvest real-time center homepage lead articles from Korean media
+    const realArticlesMap = await fetchRealArticlesForOutlets(targetOutletIds, Boolean(forceRefresh));
 
     // 2. Build default robust briefing with verified real articles
     const realBriefing = buildRealBriefing(realArticlesMap, tone as BriefingTone, targetOutletIds);

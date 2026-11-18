@@ -16,6 +16,7 @@ import { getCurrentKoreanDateString } from '../utils/dateUtils';
 interface HeaderProps {
   preferences: UserPreferences;
   briefingDate?: string;
+  briefingTime?: string;
   onToggleSidebar: () => void;
   isSidebarOpen: boolean;
   onOpenPressModal: () => void;
@@ -36,6 +37,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   preferences,
   briefingDate,
+  briefingTime,
   onToggleSidebar,
   isSidebarOpen,
   onOpenPressModal,
@@ -72,13 +74,13 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="bg-gradient-to-r from-blue-50 via-indigo-50/60 to-slate-50 border-b border-blue-100/80 px-3 sm:px-4 py-0.5 sm:py-1 text-[11px] sm:text-xs text-slate-600">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden">
           <div className="flex items-center gap-1.5 min-w-0">
-            <span className="inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-blue-100 text-blue-700 shrink-0">
+            <span className="inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-100 text-emerald-800 shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse mr-1.5"></span>
-              09:00 AM 정각 브리핑
+              실시간 자동 갱신 {briefingTime ? `(${briefingTime})` : 'LIVE'}
             </span>
             <span className="hidden sm:inline text-slate-300">|</span>
             <span className="hidden sm:inline text-slate-600 font-medium truncate">
-              국내 주요 언론사 1면 톱기사 · 공통 이슈 · 단독 보도 3줄 요약
+              각 언론사 홈페이지 첫화면 중앙 1면 톱기사 실시간 연동 요약
             </span>
           </div>
 
@@ -135,8 +137,9 @@ export const Header: React.FC<HeaderProps> = ({
                   <Calendar className="w-2.5 h-2.5 text-blue-600" />
                   <span>{(briefingDate || getCurrentKoreanDateString()).replace(/^\d{4}[년\.\-]\s*/, '')}</span>
                 </span>
-                <span className="hidden sm:inline-block text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-blue-600 text-white shadow-2xs">
-                  9:00 AM
+                <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-600 text-white shadow-2xs">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                  LIVE
                 </span>
               </div>
             </div>

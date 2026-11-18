@@ -410,7 +410,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </span>
             </div>
             <div className="text-[10px] text-slate-400">
-              매일 09:00 자동 AI 집계 시스템
+              실시간 홈페이지 1면 자동 갱신 시스템
             </div>
           </div>
         )}

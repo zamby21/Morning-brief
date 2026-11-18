@@ -77,13 +77,14 @@ function generateClientHtmlNewsletter(
 export async function fetchSummary(
   outletIds: string[],
   tone: BriefingTone,
-  topics: string[]
+  topics: string[],
+  forceRefresh = false
 ): Promise<{ data: DailyBriefing; source: string }> {
   try {
     const res = await fetch('/api/summarize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ outletIds, tone, topics }),
+      body: JSON.stringify({ outletIds, tone, topics, forceRefresh }),
     });
     if (res.ok) {
       const result = await res.json();

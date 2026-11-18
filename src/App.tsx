@@ -189,7 +189,64 @@ export default function App() {
     }
   }, [preferences]);
 
-  // Dynamic date synchronization: guarantees today's date (KST) on mount and prevents stale dates
+  // Track last live sync time for smart visibility refresh
+  const lastLiveSyncRef = React.useRef<number>(0);
+
+  // Core live sync helper (fetches actual center homepage stories in real time)
+  const syncLiveNews = React.useCallback(
+    async (
+      forceRefresh = false,
+      outletIdsOverride?: string[],
+      toneOverride?: BriefingTone,
+      silent = false
+    ) => {
+      if (!silent) setIsLoading(true);
+      try {
+        const activeOutlets =
+          outletIdsOverride && outletIdsOverride.length > 0
+            ? outletIdsOverride
+            : preferences.selectedOutlets && preferences.selectedOutlets.length > 0
+            ? preferences.selectedOutlets
+            : DEFAULT_10_OUTLETS;
+
+        const targetTone = toneOverride || preferences.preferredTone;
+        const result = await fetchSummary(
+          activeOutlets,
+          targetTone,
+          preferences.subscribedTopics,
+          forceRefresh
+        );
+
+        if (result && result.data) {
+          const todayFormatted = getCurrentKoreanDateString();
+          const liveFront = result.data.frontPageStories || [];
+          const updatedBriefing: DailyBriefing = {
+            ...result.data,
+            briefingDate: result.data.briefingDate || todayFormatted,
+            frontPageStories:
+              liveFront.length > 0
+                ? liveFront
+                : ensureFrontPageStories([], activeOutlets),
+          };
+          setBriefing(updatedBriefing);
+          lastLiveSyncRef.current = Date.now();
+          if (!silent && result.source !== 'client_cache') {
+            triggerNotification('각 언론사 홈페이지 첫화면 중앙 1면 기사가 실시간 갱신되었습니다.');
+          }
+        }
+      } catch (err) {
+        console.warn('Live sync failed:', err);
+        if (!silent) {
+          triggerNotification('실시간 갱신 중 일시적인 오류가 발생했습니다.');
+        }
+      } finally {
+        if (!silent) setIsLoading(false);
+      }
+    },
+    [preferences.selectedOutlets, preferences.preferredTone, preferences.subscribedTopics]
+  );
+
+  // Dynamic date sync + Immediate real-time homepage fetch on mount + Continuous 60s live auto-refresh
   useEffect(() => {
     const todayFormatted = getCurrentKoreanDateString();
     const todayYMD = getCurrentYMD();
@@ -198,18 +255,33 @@ export default function App() {
       briefingDate: todayFormatted,
       frontPageStories: (prev.frontPageStories || []).map((s) => ({
         ...s,
-        publishedAt: s.publishedAt ? s.publishedAt.replace(/^\d{4}-\d{2}-\d{2}/, todayYMD) : `${todayYMD} 06:00`,
-      })),
-      overlappingStories: (prev.overlappingStories || []).map((s) => ({
-        ...s,
-        publishedAt: s.publishedAt ? s.publishedAt.replace(/^\d{4}-\d{2}-\d{2}/, todayYMD) : `${todayYMD} 06:30`,
-      })),
-      exclusiveStories: (prev.exclusiveStories || []).map((s) => ({
-        ...s,
-        publishedAt: s.publishedAt ? s.publishedAt.replace(/^\d{4}-\d{2}-\d{2}/, todayYMD) : `${todayYMD} 07:00`,
+        publishedAt: s.publishedAt ? s.publishedAt.replace(/^\d{4}-\d{2}-\d{2}/, todayYMD) : `${todayYMD} 실시간`,
       })),
     }));
-  }, []);
+
+    // Immediately pull real-time center homepage stories on load
+    syncLiveNews(true, undefined, undefined, true);
+
+    // Continuously poll every 60 seconds so dashboard stays synchronized in real time (not pinned to notification time)
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        syncLiveNews(true, undefined, undefined, true);
+      }
+    }, 60 * 1000);
+
+    // Also refresh when user returns to browser tab after > 30 seconds
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastLiveSyncRef.current > 30 * 1000) {
+        syncLiveNews(true, undefined, undefined, true);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [syncLiveNews]);
 
   const triggerNotification = (msg: string) => {
     setStatusNotification(msg);
@@ -257,37 +329,10 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // 1. Fetch & Refresh
+  // 1. Fetch & Refresh (manual force refresh)
   const handleRefreshLive = async () => {
-    setIsLoading(true);
-    triggerNotification('대한민국 주요 언론사 실시간 기사 수집 및 요약 중...');
-    try {
-      const activeOutlets =
-        preferences.selectedOutlets && preferences.selectedOutlets.length > 0
-          ? preferences.selectedOutlets
-          : DEFAULT_10_OUTLETS;
-
-      const result = await fetchSummary(
-        activeOutlets,
-        preferences.preferredTone,
-        preferences.subscribedTopics
-      );
-
-      const todayFormatted = getCurrentKoreanDateString();
-      const updatedBriefing: DailyBriefing = {
-        ...result.data,
-        briefingDate: result.data.briefingDate || todayFormatted,
-        frontPageStories: ensureFrontPageStories(result.data.frontPageStories || [], activeOutlets),
-      };
-
-      setBriefing(updatedBriefing);
-      triggerNotification('최신 기사 요약 분석이 완료되었습니다.');
-    } catch (e) {
-      console.error(e);
-      triggerNotification('실시간 갱신 중 오류가 발생하여 캐시된 데이터를 표시합니다.');
-    } finally {
-      setIsLoading(false);
-    }
+    triggerNotification('각 언론사 공식 홈페이지 첫화면 중앙 1면 기사를 실시간 수집 중...');
+    await syncLiveNews(true, undefined, undefined, false);
   };
 
   // 2. Change Tone
@@ -349,8 +394,9 @@ export default function App() {
     }));
 
     triggerNotification(
-      `수집 언론사(1면: ${validFront.length}개사, 공통: ${validOverlap.length}개사) 설정이 정상 저장 및 적용되었습니다.`
+      `수집 언론사(1면: ${validFront.length}개사, 공통: ${validOverlap.length}개사) 설정이 저장되었습니다. 실시간 기사를 동기화합니다.`
     );
+    syncLiveNews(true, combined, undefined, true);
   };
 
   // 3-1. 공통 이슈 기준 비율(언론사 보도율 & 유사도) 실시간 조정 및 브라우저 영구 저장
@@ -645,6 +691,7 @@ export default function App() {
         <Header
           preferences={preferences}
           briefingDate={briefing.briefingDate}
+          briefingTime={briefing.briefingTime}
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           isSidebarOpen={isSidebarOpen}
           onOpenPressModal={() => handleOpenPressModal('frontPage')}
@@ -824,6 +871,7 @@ export default function App() {
               onScrollToTop={scrollToTop}
               onOpenOutletSettings={() => handleOpenPressModal('frontPage')}
               isMobileView={isMobilePreview}
+              lastSyncedTime={briefing.briefingTime}
             />
 
             {/* 4. Section 2: 언론사들에서 중복적으로 낸 공통 핵심 기사 */}
@@ -904,7 +952,7 @@ export default function App() {
               <strong className="text-slate-800">모닝브리프 AI</strong> | 대한민국 주요 10대 언론사(종합 5개사, 경제 5개사) 당일 신문 1면 및 공통이슈 3줄 요약 플랫폼
             </p>
             <p className="text-[11px] text-slate-400">
-              모든 보도의 지적재산권은 해당 언론사에 있으며, 원기사 링크를 통해 전문을 확인하실 수 있습니다. 매일 오전 09:00 자동 집계 및 이메일 발송.
+              모든 보도의 지적재산권은 해당 언론사에 있으며, 원기사 링크를 통해 전문을 확인하실 수 있습니다. 실시간 홈페이지 1면 자동 갱신 · 예약 시각 이메일 발송.
             </p>
           </footer>
         </div>

@@ -20,6 +20,7 @@ interface FrontPageSectionProps {
   onScrollToTop?: () => void;
   onOpenOutletSettings?: () => void;
   isMobileView?: boolean;
+  lastSyncedTime?: string;
 }
 
 export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
@@ -32,6 +33,7 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
   onScrollToTop,
   onOpenOutletSettings,
   isMobileView = false,
+  lastSyncedTime,
 }) => {
   return (
     <section id="section-frontpage" className="bg-gradient-to-b from-blue-50/80 via-blue-50/40 to-white/90 border border-blue-200/80 rounded-3xl p-4 sm:p-6 space-y-4 scroll-mt-24 shadow-2xs">
@@ -42,16 +44,20 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
             <Newspaper className="w-4 h-4" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-base sm:text-lg font-black text-slate-900">
                 1. 각 언론사 공식 홈페이지 첫화면 중앙 1면 핵심 보도
               </h2>
               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
                 총 {stories.length}건
               </span>
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>{lastSyncedTime || '실시간 자동 갱신'}</span>
+              </span>
             </div>
             <p className="text-xs text-slate-500">
-              각 언론사 공식 홈페이지 첫화면 중앙에 가장 크게 떠있는 실시간 1면 톱기사를 엄선하여 3줄 브리핑으로 정밀 요약했습니다.
+              각 언론사 공식 홈페이지 첫화면 중앙에 가장 크게 떠있는 톱기사를 알림 시각과 무관하게 실시간으로 계속 갱신·요약합니다.
             </p>
           </div>
         </div>
@@ -150,11 +156,11 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
                       )}
                     </div>
 
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] text-slate-400 font-medium">
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="text-[11px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-semibold border border-emerald-200/70">
                         {(story.publishedAt && story.publishedAt.includes(' ')
-                          ? story.publishedAt.split(' ')[1]
-                          : story.publishedAt) || '09:00'} 집계
+                          ? story.publishedAt.split(' ').slice(1).join(' ')
+                          : story.publishedAt) || '실시간'}
                       </span>
                     </div>
                   </div>
