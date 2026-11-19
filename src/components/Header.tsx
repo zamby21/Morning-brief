@@ -4,6 +4,7 @@ import {
   RefreshCw,
   Smartphone,
   Calendar,
+  Settings,
 } from 'lucide-react';
 import { UserPreferences } from '../types/news';
 import { getCurrentKoreanDateString } from '../utils/dateUtils';
@@ -146,6 +147,23 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right: Streamlined Quick Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* Right Settings Button (Opens/Toggles Left Settings Sidebar) */}
+          <button
+            type="button"
+            onClick={onToggleSidebar}
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-bold border transition active:scale-95 cursor-pointer shrink-0 ${
+              isSidebarOpen
+                ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                : 'bg-blue-50 dark:bg-blue-950/70 hover:bg-blue-100 dark:hover:bg-blue-900/70 text-blue-700 dark:text-blue-300 border-blue-200/90 dark:border-blue-800'
+            }`}
+            title="설정 메뉴 열기/닫기"
+            aria-label="설정 메뉴 열기"
+            aria-expanded={isSidebarOpen}
+          >
+            <Settings className={`w-3.5 h-3.5 ${isSidebarOpen ? 'text-white' : 'text-blue-600 dark:text-blue-400'}`} />
+            <span>설정</span>
+          </button>
+
           {/* Refresh Live Button */}
           <button
             onClick={onRefreshLive}

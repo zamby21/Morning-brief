@@ -40,6 +40,7 @@ import {
   copyToClipboardSafe,
 } from '../utils/linkUtils';
 import { formatLeadSummaryByTone } from '../utils/toneTransformer';
+import { isArticleRead, ReadableArticleRef } from '../utils/readArticles';
 
 const STORAGE_KEY_SECTOR_PREFS = 'morning_brief_sector_preferences_v1';
 
@@ -70,6 +71,8 @@ interface RealEstateFinanceSectionProps {
   isMobileView?: boolean;
   sectorPreferences?: SectorPreferences;
   onSaveSectorPreferences?: (prefs: SectorPreferences) => void;
+  readArticleKeys?: ReadonlySet<string>;
+  onMarkArticleRead?: (article: ReadableArticleRef) => void;
 }
 
 const loadLocalSectorPrefs = (propPrefs?: SectorPreferences): SectorPreferences => {
@@ -115,6 +118,8 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
   isMobileView = false,
   sectorPreferences,
   onSaveSectorPreferences,
+  readArticleKeys,
+  onMarkArticleRead,
 }) => {
   // Personalized Sector Preferences
   const [prefs, setPrefs] = useState<SectorPreferences>(() =>
@@ -413,6 +418,8 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
     prefs.onlyCrucialOrHigh ||
     prefs.defaultSector !== 'all';
 
+  const readCount = headlines.filter((item) => isArticleRead(readArticleKeys, item)).length;
+
   return (
     <section id="section-realestate-finance" className="space-y-4 pt-2">
       {/* Section Header Card */}
@@ -442,6 +449,12 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                 <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-500 text-white shadow-xs">
                   총 {headlines.length}건 집계
                 </span>
+                {readCount > 0 && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                    <Check className="w-3 h-3" />
+                    <span>읽음 {readCount}</span>
+                  </span>
+                )}
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 건설 수주 및 SOC 국책사업, 수도권 청약/부동산 대책, 기준금리 및 부동산 PF 구조조정 헤드라인을 섹터별로 한눈에 정리합니다.
@@ -1100,6 +1113,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                     : 'bg-indigo-100 dark:bg-indigo-950/70 text-indigo-900 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800';
 
                   const isCopied = copiedId === item.id;
+                  const isRead = isArticleRead(readArticleKeys, item);
                   const isFavoriteMatch = doesItemMatchFavorites(
                     item,
                     prefs.favoriteKeywords
@@ -1113,8 +1127,12 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                     <article
                       key={item.id}
                       onClick={() => onOpenArticleModal(adaptToNewsStory(item))}
-                      className={`bg-white dark:bg-slate-900/95 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 sm:p-5 border-l-4 ${borderColor} shadow-xs hover:shadow-md transition-all duration-200 flex flex-col justify-between gap-3 cursor-pointer group hover:border-blue-300 dark:hover:border-blue-600 ${
-                        isFavoriteMatch ? 'ring-1 ring-amber-300/80 dark:ring-amber-600/60 bg-amber-50/20 dark:bg-amber-950/20' : ''
+                      className={`border rounded-2xl p-4 sm:p-5 border-l-4 ${borderColor} shadow-xs hover:shadow-md transition-all duration-200 flex flex-col justify-between gap-3 cursor-pointer group ${
+                        isRead
+                          ? 'bg-slate-50/75 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700'
+                          : 'bg-white dark:bg-slate-900/95 border-slate-200/90 dark:border-slate-800 hover:border-blue-300 dark:hover:border-blue-600'
+                      } ${
+                        isFavoriteMatch && !isRead ? 'ring-1 ring-amber-300/80 dark:ring-amber-600/60 bg-amber-50/20 dark:bg-amber-950/20' : ''
                       }`}
                     >
                       {/* Card Top: Outlet & Meta info (Section 1 parity) */}
@@ -1144,6 +1162,12 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                                 <span>관심 매칭</span>
                               </span>
                             )}
+                            {isRead && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-300/70 dark:border-slate-700">
+                                <Check className="w-2.5 h-2.5" />
+                                <span>읽은 기사</span>
+                              </span>
+                            )}
                           </div>
                           <span className="text-[11px] text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 px-2 py-0.5 rounded font-semibold border border-emerald-200/70 dark:border-emerald-800/70 shrink-0">
                             {publishedTimeLabel}
@@ -1152,8 +1176,12 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
 
                         {/* Title */}
                         <h3
-                          className="text-base font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors leading-snug mb-3"
-                          title="원기사 전문 및 포털 확인"
+                          className={`text-base font-bold transition-colors leading-snug mb-3 ${
+                            isRead
+                              ? 'text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300'
+                              : 'text-slate-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400'
+                          }`}
+                          title={isRead ? '읽은 기사 · 클릭하여 다시 확인' : '원기사 전문 및 포털 확인'}
                         >
                           {item.title}
                         </h3>
@@ -1234,7 +1262,10 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                             href={resolvedUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onMarkArticleRead?.(item);
+                            }}
                             className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition flex items-center gap-1"
                             title={`${item.outletName} 원문 기사 연결`}
                           >

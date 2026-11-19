@@ -56,6 +56,14 @@ import {
 import { getNextScheduledDispatchInfo } from './utils/emailScheduler';
 import { transformBriefingTone } from './utils/toneTransformer';
 import {
+  addReadArticleKeys,
+  isArticleRead,
+  loadReadArticleKeys,
+  ReadableArticleRef,
+  removeReadArticleKeys,
+  saveReadArticleKeys,
+} from './utils/readArticles';
+import {
   Clock,
   Mail,
   Smartphone,
@@ -209,6 +217,7 @@ export default function App() {
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [shareStory, setShareStory] = useState<NewsStory | null>(null);
   const [articleModalStory, setArticleModalStory] = useState<NewsStory | null>(null);
+  const [readArticleKeys, setReadArticleKeys] = useState<Set<string>>(() => loadReadArticleKeys());
 
   // States
   const [isLoading, setIsLoading] = useState(false);
@@ -262,6 +271,29 @@ export default function App() {
       console.warn('Failed to save preferences to localStorage', err);
     }
   }, [preferences]);
+
+  // Persist read article status to localStorage automatically
+  useEffect(() => {
+    saveReadArticleKeys(readArticleKeys);
+  }, [readArticleKeys]);
+
+  const handleMarkArticleRead = (article: ReadableArticleRef) => {
+    setReadArticleKeys((prev) => addReadArticleKeys(prev, article));
+  };
+
+  const handleToggleArticleRead = (story: NewsStory) => {
+    setReadArticleKeys((prev) => {
+      if (isArticleRead(prev, story)) {
+        return removeReadArticleKeys(prev, story);
+      }
+      return addReadArticleKeys(prev, story);
+    });
+  };
+
+  const handleOpenArticleModal = (story: NewsStory) => {
+    handleMarkArticleRead(story);
+    setArticleModalStory(story);
+  };
 
   // Track last live sync time for smart visibility refresh
   const lastLiveSyncRef = React.useRef<number>(0);
@@ -934,19 +966,35 @@ export default function App() {
               </div>
             )}
 
-            {/* Quick Section Jump Navigation Bar & Global Collapse Controls (Single Line, No Awkward Wrap on Mobile) */}
-            <div className="bg-white/95 dark:bg-slate-900/95 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-1.5 sm:p-2.5 flex items-center justify-between gap-1.5 sm:gap-2 shadow-xs backdrop-blur-md sticky top-[48px] sm:top-[57px] z-20 overflow-x-auto scrollbar-none">
-              <div className="flex items-center gap-1 sm:gap-1.5 flex-nowrap shrink-0">
-                <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider hidden md:inline mr-1 shrink-0">
-                  섹션 바로가기:
-                </span>
+            {/* Quick Section Jump Navigation Bar & Global Collapse Controls */}
+            <div
+              className={`bg-white/95 dark:bg-slate-900/95 border border-slate-200/90 dark:border-slate-800 rounded-2xl shadow-xs backdrop-blur-md sticky top-[48px] sm:top-[57px] z-20 ${
+                isMobilePreview
+                  ? 'p-2 flex flex-wrap items-center gap-1.5'
+                  : 'p-2 sm:p-2.5 flex flex-wrap items-center justify-between gap-1.5 sm:gap-2'
+              }`}
+            >
+              <div
+                className={`flex flex-wrap items-center gap-1.5 ${
+                  isMobilePreview ? 'w-full' : 'flex-1 min-w-0'
+                }`}
+              >
+                {!isMobilePreview && (
+                  <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider hidden lg:inline mr-1 shrink-0">
+                    섹션 바로가기:
+                  </span>
+                )}
                 <button
                   onClick={() => scrollToSection('section-frontpage')}
-                  className="px-2 sm:px-2.5 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/70 hover:bg-blue-100 dark:hover:bg-blue-900/70 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold transition flex items-center gap-1 sm:gap-1.5 active:scale-95 cursor-pointer shrink-0"
+                  className={`${
+                    isMobilePreview
+                      ? 'px-2 py-1.5 text-[11px] gap-1'
+                      : 'px-2 sm:px-2.5 py-1.5 text-xs gap-1 sm:gap-1.5'
+                  } rounded-xl bg-blue-50 dark:bg-blue-950/70 hover:bg-blue-100 dark:hover:bg-blue-900/70 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 font-bold transition flex items-center active:scale-95 cursor-pointer shrink-0`}
                 >
-                  <Newspaper className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                  <span className="hidden sm:inline">1. 1면 핵심</span>
-                  <span className="sm:hidden">1. 1면</span>
+                  <Newspaper className={isMobilePreview ? 'w-3 h-3 text-blue-600 dark:text-blue-400' : 'w-3.5 h-3.5 text-blue-600 dark:text-blue-400'} />
+                  <span className={isMobilePreview ? 'inline' : 'hidden sm:inline'}>1. 1면 핵심</span>
+                  {!isMobilePreview && <span className="sm:hidden">1. 1면</span>}
                   <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-600 text-white font-bold">
                     {filteredFrontPage.length}
                   </span>
@@ -954,11 +1002,15 @@ export default function App() {
 
                 <button
                   onClick={() => scrollToSection('section-overlapping')}
-                  className="px-2 sm:px-2.5 py-1.5 rounded-xl bg-purple-50 dark:bg-purple-950/70 hover:bg-purple-100 dark:hover:bg-purple-900/70 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 text-xs font-bold transition flex items-center gap-1 sm:gap-1.5 active:scale-95 cursor-pointer shrink-0"
+                  className={`${
+                    isMobilePreview
+                      ? 'px-2 py-1.5 text-[11px] gap-1'
+                      : 'px-2 sm:px-2.5 py-1.5 text-xs gap-1 sm:gap-1.5'
+                  } rounded-xl bg-purple-50 dark:bg-purple-950/70 hover:bg-purple-100 dark:hover:bg-purple-900/70 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-bold transition flex items-center active:scale-95 cursor-pointer shrink-0`}
                 >
-                  <Layers className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-                  <span className="hidden sm:inline">2. 공통 이슈</span>
-                  <span className="sm:hidden">2. 공통</span>
+                  <Layers className={isMobilePreview ? 'w-3 h-3 text-purple-600 dark:text-purple-400' : 'w-3.5 h-3.5 text-purple-600 dark:text-purple-400'} />
+                  <span className={isMobilePreview ? 'inline' : 'hidden sm:inline'}>2. 공통 이슈</span>
+                  {!isMobilePreview && <span className="sm:hidden">2. 공통</span>}
                   <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-purple-600 text-white font-bold">
                     {filteredOverlapping.length}
                   </span>
@@ -966,11 +1018,15 @@ export default function App() {
 
                 <button
                   onClick={() => scrollToSection('section-exclusive')}
-                  className="px-2 sm:px-2.5 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/70 hover:bg-rose-100 dark:hover:bg-rose-900/70 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-xs font-bold transition flex items-center gap-1 sm:gap-1.5 active:scale-95 cursor-pointer shrink-0"
+                  className={`${
+                    isMobilePreview
+                      ? 'px-2 py-1.5 text-[11px] gap-1'
+                      : 'px-2 sm:px-2.5 py-1.5 text-xs gap-1 sm:gap-1.5'
+                  } rounded-xl bg-rose-50 dark:bg-rose-950/70 hover:bg-rose-100 dark:hover:bg-rose-900/70 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 font-bold transition flex items-center active:scale-95 cursor-pointer shrink-0`}
                 >
-                  <Zap className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
-                  <span className="hidden sm:inline">3. 단독·특별</span>
-                  <span className="sm:hidden">3. 단독</span>
+                  <Zap className={isMobilePreview ? 'w-3 h-3 text-rose-600 dark:text-rose-400' : 'w-3.5 h-3.5 text-rose-600 dark:text-rose-400'} />
+                  <span className={isMobilePreview ? 'inline' : 'hidden sm:inline'}>3. 단독·특별</span>
+                  {!isMobilePreview && <span className="sm:hidden">3. 단독</span>}
                   <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-rose-600 text-white font-bold">
                     {filteredExclusive.length}
                   </span>
@@ -978,57 +1034,98 @@ export default function App() {
 
                 <button
                   onClick={() => scrollToSection('section-realestate-finance')}
-                  className="px-2 sm:px-2.5 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/70 hover:bg-amber-100 dark:hover:bg-amber-900/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-xs font-bold transition flex items-center gap-1 sm:gap-1.5 active:scale-95 cursor-pointer shrink-0"
+                  className={`${
+                    isMobilePreview
+                      ? 'px-2 py-1.5 text-[11px] gap-1'
+                      : 'px-2 sm:px-2.5 py-1.5 text-xs gap-1 sm:gap-1.5'
+                  } rounded-xl bg-amber-50 dark:bg-amber-950/70 hover:bg-amber-100 dark:hover:bg-amber-900/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-bold transition flex items-center active:scale-95 cursor-pointer shrink-0`}
                 >
-                  <Building className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                  <span className="hidden sm:inline">4. 건설·부동산·금융</span>
-                  <span className="sm:hidden">4. 건설·금융</span>
+                  <Building className={isMobilePreview ? 'w-3 h-3 text-amber-600 dark:text-amber-400' : 'w-3.5 h-3.5 text-amber-600 dark:text-amber-400'} />
+                  <span className={isMobilePreview ? 'inline' : 'hidden sm:inline'}>4. 건설·부동산·금융</span>
+                  {!isMobilePreview && <span className="sm:hidden">4. 건설·금융</span>}
                   <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-600 text-white font-bold">
                     {filteredSectorHeadlines.length}
                   </span>
                 </button>
+
+                {/* Inline right-aligned global controls when wrapped into 2 rows in mobile preview */}
+                {isMobilePreview && (
+                  <div className="flex items-center gap-1.5 ml-auto shrink-0">
+                    <button
+                      onClick={toggleAllSections}
+                      className="px-2 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-[11px] font-bold transition flex items-center gap-1 active:scale-95 cursor-pointer shrink-0"
+                      title="모든 섹션 일괄 접기 / 펼치기"
+                    >
+                      {collapsedSections.frontPage &&
+                      collapsedSections.overlapping &&
+                      collapsedSections.exclusive &&
+                      collapsedSections.realEstateFinance ? (
+                        <>
+                          <ChevronDown className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                          <span>펼치기</span>
+                        </>
+                      ) : (
+                        <>
+                          <ChevronUp className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                          <span>접기</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={scrollToTop}
+                      className="px-2 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold transition shadow-xs flex items-center gap-1 active:scale-95 cursor-pointer shrink-0"
+                      title="페이지 맨 위로 스크롤"
+                    >
+                      <ArrowUp className="w-3 h-3" />
+                      <span>맨위로</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
-              <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 pl-1">
-                <button
-                  onClick={toggleAllSections}
-                  className="px-2 sm:px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold transition flex items-center gap-1 active:scale-95 cursor-pointer shrink-0"
-                  title="모든 섹션 일괄 접기 / 펼치기"
-                >
-                  {collapsedSections.frontPage &&
-                  collapsedSections.overlapping &&
-                  collapsedSections.exclusive &&
-                  collapsedSections.realEstateFinance ? (
-                    <>
-                      <ChevronDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                      <span className="hidden sm:inline">전체 펼치기</span>
-                      <span className="sm:hidden">펼치기</span>
-                    </>
-                  ) : (
-                    <>
-                      <ChevronUp className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                      <span className="hidden sm:inline">전체 접기</span>
-                      <span className="sm:hidden">접기</span>
-                    </>
-                  )}
-                </button>
+              {!isMobilePreview && (
+                <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 ml-auto">
+                  <button
+                    onClick={toggleAllSections}
+                    className="px-2 sm:px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold transition flex items-center gap-1 active:scale-95 cursor-pointer shrink-0"
+                    title="모든 섹션 일괄 접기 / 펼치기"
+                  >
+                    {collapsedSections.frontPage &&
+                    collapsedSections.overlapping &&
+                    collapsedSections.exclusive &&
+                    collapsedSections.realEstateFinance ? (
+                      <>
+                        <ChevronDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                        <span className="hidden sm:inline">전체 펼치기</span>
+                        <span className="sm:hidden">펼치기</span>
+                      </>
+                    ) : (
+                      <>
+                        <ChevronUp className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                        <span className="hidden sm:inline">전체 접기</span>
+                        <span className="sm:hidden">접기</span>
+                      </>
+                    )}
+                  </button>
 
-                <button
-                  onClick={scrollToTop}
-                  className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs flex items-center gap-1 active:scale-95 cursor-pointer shrink-0"
-                  title="페이지 맨 위로 스크롤"
-                >
-                  <ArrowUp className="w-3.5 h-3.5" />
-                  <span className="hidden md:inline">맨위로</span>
-                </button>
-              </div>
+                  <button
+                    onClick={scrollToTop}
+                    className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs flex items-center gap-1 active:scale-95 cursor-pointer shrink-0"
+                    title="페이지 맨 위로 스크롤"
+                  >
+                    <ArrowUp className="w-3.5 h-3.5" />
+                    <span className="hidden md:inline">맨위로</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* 3. Section 1: 각 언론사 신문 첫페이지 (1면) 핵심 내용 먼저 제시 */}
             <FrontPageSection
               stories={filteredFrontPage}
               onOpenShareModal={(s) => setShareStory(s)}
-              onOpenArticleModal={(s) => setArticleModalStory(s)}
+              onOpenArticleModal={handleOpenArticleModal}
               onReact={handleReaction}
               isCollapsed={collapsedSections.frontPage}
               onToggleCollapse={() => toggleSection('frontPage')}
@@ -1036,13 +1133,14 @@ export default function App() {
               onOpenOutletSettings={() => handleOpenPressModal('frontPage')}
               isMobileView={isMobilePreview}
               lastSyncedTime={briefing.briefingTime}
+              readArticleKeys={readArticleKeys}
             />
 
             {/* 4. Section 2: 언론사들에서 중복적으로 낸 공통 핵심 기사 */}
             <OverlappingStoriesSection
               stories={filteredOverlapping}
               onOpenShareModal={(s) => setShareStory(s)}
-              onOpenArticleModal={(s) => setArticleModalStory(s)}
+              onOpenArticleModal={handleOpenArticleModal}
               onReact={handleReaction}
               isCollapsed={collapsedSections.overlapping}
               onToggleCollapse={() => toggleSection('overlapping')}
@@ -1055,18 +1153,20 @@ export default function App() {
               onSaveThresholds={(ratio, score) => handleChangeOverlapThresholds(ratio, score, true)}
               totalSelectedOutletsCount={activeOverlapOutlets.length}
               totalAvailableStoriesCount={briefing.overlappingStories.length}
+              readArticleKeys={readArticleKeys}
             />
 
             {/* 5. Section 3: 각 언론사만의 단독 및 특별 기사 */}
             <ExclusiveStoriesSection
               stories={filteredExclusive}
               onOpenShareModal={(s) => setShareStory(s)}
-              onOpenArticleModal={(s) => setArticleModalStory(s)}
+              onOpenArticleModal={handleOpenArticleModal}
               onReact={handleReaction}
               isCollapsed={collapsedSections.exclusive}
               onToggleCollapse={() => toggleSection('exclusive')}
               onScrollToTop={scrollToTop}
               isMobileView={isMobilePreview}
+              readArticleKeys={readArticleKeys}
             />
 
             {/* 6. Section 4: 건설, 부동산, 금융 관련 주제 기사들 제목 모아보기 및 핵심 정리 */}
@@ -1076,11 +1176,13 @@ export default function App() {
               isCollapsed={collapsedSections.realEstateFinance}
               onToggleCollapse={() => toggleSection('realEstateFinance')}
               onScrollToTop={scrollToTop}
-              onOpenArticleModal={(s) => setArticleModalStory(s)}
+              onOpenArticleModal={handleOpenArticleModal}
               onOpenShareModal={(s) => setShareStory(s)}
               isMobileView={isMobilePreview}
               sectorPreferences={preferences.sectorPreferences || DEFAULT_SECTOR_PREFERENCES}
               onSaveSectorPreferences={handleSaveSectorPreferences}
+              readArticleKeys={readArticleKeys}
+              onMarkArticleRead={handleMarkArticleRead}
             />
 
             {/* Weekly Report Promotion Banner */}
@@ -1190,6 +1292,8 @@ export default function App() {
         onClose={() => setArticleModalStory(null)}
         story={articleModalStory}
         onOpenShare={(s) => setShareStory(s)}
+        isRead={articleModalStory ? isArticleRead(readArticleKeys, articleModalStory) : false}
+        onToggleReadStatus={handleToggleArticleRead}
       />
 
       {/* Tone Personalization Modal */}

@@ -171,12 +171,105 @@ export function extractSearchKeywords(title: string, keywords?: string[]): strin
 }
 
 /**
+ * Extracts title words for accurate portal news search.
+ * Combines at least `minWords` (default 3) and up to `defaultWords` (default 5) words
+ * from the original article title while preserving headline order.
+ */
+export function extractTitleSearchWords(
+  title: string,
+  keywords?: string[],
+  outletName?: string,
+  defaultWords = 5,
+  minWords = 3
+): string[] {
+  const cleaned = cleanTitleForSearch(title);
+  const rawTokens = cleaned
+    .split(/\s+/)
+    .map((w) => w.replace(/[^a-zA-Z0-9가-힣.]/g, '').replace(/^\.+|\.+$/g, '').trim())
+    .filter(Boolean);
+
+  const uniqueTokens: string[] = [];
+  const seen = new Set<string>();
+  for (const token of rawTokens) {
+    const key = token.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniqueTokens.push(token);
+    }
+  }
+
+  const preferredTokens = uniqueTokens.filter(
+    (w) => w.length >= 2 && !SEARCH_STOP_WORDS.has(w)
+  );
+  const lengthTwoTokens = uniqueTokens.filter((w) => w.length >= 2);
+
+  const selectedSet = new Set<string>();
+  for (const token of preferredTokens) {
+    if (selectedSet.size >= defaultWords) break;
+    selectedSet.add(token);
+  }
+
+  // Fill up to defaultWords (5) from remaining 2+ char title words so short/stopword-heavy headlines stay rich
+  if (selectedSet.size < defaultWords) {
+    for (const token of lengthTwoTokens) {
+      if (selectedSet.size >= defaultWords) break;
+      selectedSet.add(token);
+    }
+  }
+
+  // Ensure at least minWords (3) from title tokens (including 1-char tokens if needed)
+  if (selectedSet.size < minWords) {
+    for (const token of uniqueTokens) {
+      if (selectedSet.size >= minWords) break;
+      selectedSet.add(token);
+    }
+  }
+
+  // Preserve original headline word order
+  const orderedResult = uniqueTokens
+    .filter((token) => selectedSet.has(token))
+    .slice(0, defaultWords);
+
+  // Fallback only when the title itself had fewer than minWords (3) words
+  if (orderedResult.length < minWords && keywords && keywords.length > 0) {
+    const existingLower = new Set(orderedResult.map((w) => w.toLowerCase()));
+    for (const kw of keywords) {
+      if (orderedResult.length >= minWords) break;
+      const cleanKw = safeDecodeUri(kw).replace(/[^a-zA-Z0-9가-힣]/g, '').trim();
+      if (cleanKw.length >= 2 && !existingLower.has(cleanKw.toLowerCase())) {
+        orderedResult.push(cleanKw);
+        existingLower.add(cleanKw.toLowerCase());
+      }
+    }
+  }
+
+  if (orderedResult.length < minWords && outletName) {
+    const isMultiple =
+      outletName.includes('공통') ||
+      outletName.includes('multiple') ||
+      outletName.includes('전체') ||
+      outletName.includes('개사') ||
+      outletName.includes('언론사');
+    const cleanOutlet = outletName.replace(/[^a-zA-Z0-9가-힣]/g, '').trim();
+    if (
+      !isMultiple &&
+      cleanOutlet &&
+      !orderedResult.some((w) => w.toLowerCase() === cleanOutlet.toLowerCase())
+    ) {
+      orderedResult.unshift(cleanOutlet);
+    }
+  }
+
+  return orderedResult.slice(0, defaultWords);
+}
+
+/**
  * Formulates a clean, human-readable Korean search query free of syntax/encoding errors.
- * Format for single outlet: "[언론사명] [핵심키워드 1개]" -> e.g. "조선일보 AI반도체"
- * Format for cluster/general: "[핵심키워드 1~2개]" -> e.g. "기준금리 가계부채"
- * This guarantees near-100% search result hit rate on Naver News.
+ * Combines the press outlet name (when a specific outlet is present) with at least 3 and
+ * by default 5 words from the original article title.
  */
 export function getCleanNaverQuery(title: string, outletName?: string, keywords?: string[]): string {
+  const titleWords = extractTitleSearchWords(title, keywords, undefined, 5, 3);
   const isMultiple =
     !outletName ||
     outletName.includes('공통') ||
@@ -184,29 +277,24 @@ export function getCleanNaverQuery(title: string, outletName?: string, keywords?
     outletName.includes('전체') ||
     outletName.includes('개사') ||
     outletName.includes('언론사');
-
   const cleanOutlet = outletName ? outletName.replace(/[^a-zA-Z0-9가-힣]/g, '').trim() : '';
 
-  if (isMultiple || !cleanOutlet) {
-    return extractSearchKeywords(title, keywords);
-  }
-
-  // For a specific outlet, take only the single best keyword to avoid over-constraining the search
-  let coreKeyword = '';
-  if (keywords && keywords.length > 0) {
-    const validKws = keywords
-      .map((k) => safeDecodeUri(k).replace(/[^a-zA-Z0-9가-힣]/g, '').trim())
-      .filter((k) => k.length >= 2 && !SEARCH_STOP_WORDS.has(k));
-    if (validKws.length > 0) {
-      coreKeyword = validKws[0];
+  if (titleWords.length > 0) {
+    if (
+      !isMultiple &&
+      cleanOutlet &&
+      !titleWords.some((w) => w.toLowerCase() === cleanOutlet.toLowerCase())
+    ) {
+      return `${cleanOutlet} ${titleWords.join(' ')}`.trim();
     }
+    return titleWords.join(' ').trim();
   }
 
-  if (!coreKeyword) {
-    coreKeyword = extractSearchKeywords(title).split(' ')[0] || '';
+  const fallback = extractSearchKeywords(title, keywords);
+  if (!isMultiple && cleanOutlet && !fallback.includes(cleanOutlet)) {
+    return `${cleanOutlet} ${fallback}`.trim();
   }
-
-  return `${cleanOutlet} ${coreKeyword}`.trim();
+  return fallback;
 }
 
 /**

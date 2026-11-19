@@ -13,6 +13,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { NewsStory } from '../types/news';
+import { isArticleRead } from '../utils/readArticles';
 
 interface OverlappingStoriesSectionProps {
   stories: NewsStory[];
@@ -30,6 +31,7 @@ interface OverlappingStoriesSectionProps {
   onSaveThresholds?: (coverageRatio: number, similarityScore: number) => void;
   totalSelectedOutletsCount?: number;
   totalAvailableStoriesCount?: number;
+  readArticleKeys?: ReadonlySet<string>;
 }
 
 export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps> = ({
@@ -48,9 +50,11 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
   onSaveThresholds,
   totalSelectedOutletsCount = 10,
   totalAvailableStoriesCount,
+  readArticleKeys,
 }) => {
   const [isAdjustPanelOpen, setIsAdjustPanelOpen] = useState(false);
   const [savedBadge, setSavedBadge] = useState(false);
+  const readCount = stories.filter((story) => isArticleRead(readArticleKeys, story)).length;
 
   const handleSaveSettings = () => {
     if (onSaveThresholds) {
@@ -81,6 +85,12 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
                 주요 {stories.length}대 어젠다
               </span>
+              {readCount > 0 && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                  <Check className="w-3 h-3" />
+                  <span>읽음 {readCount}</span>
+                </span>
+              )}
               <button
                 onClick={() => setIsAdjustPanelOpen((prev) => !prev)}
                 className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 hover:bg-emerald-200 dark:hover:bg-emerald-900 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1 cursor-pointer transition shadow-2xs"
@@ -418,59 +428,75 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
         </div>
       ) : (
         <div className={isMobileView ? 'grid grid-cols-1 gap-4' : 'grid grid-cols-1 lg:grid-cols-2 gap-4'}>
-          {stories.map((story) => (
-            <div
-              key={story.id}
-              className="bg-white dark:bg-slate-900/90 border border-purple-100 dark:border-slate-800 hover:border-purple-300 dark:hover:border-purple-600 rounded-2xl p-4 sm:p-5 flex flex-col justify-between transition-all duration-200 hover:shadow-md shadow-xs group"
-            >
-              <div>
-                {/* Topic & Covered Outlets */}
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5 pb-2 border-b border-slate-100 dark:border-slate-800">
-                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                    <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-purple-600 text-white shadow-xs">
-                      {story.topic || '종합 어젠다'}
-                    </span>
-                    <span className="text-[11px] font-bold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/70 px-2 py-0.5 rounded border border-purple-200 dark:border-purple-800 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3 text-purple-600 dark:text-purple-400" />
-                      {story.coveredOutlets?.length || 0}개 언론사 동시 집중 보도
-                    </span>
-                    {story.similarityScore && (
-                      <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
-                        <Sparkles className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                        유사도 {story.similarityScore}%
+          {stories.map((story) => {
+            const isRead = isArticleRead(readArticleKeys, story);
+            return (
+              <div
+                key={story.id}
+                className={`rounded-2xl p-4 sm:p-5 flex flex-col justify-between transition-all duration-200 hover:shadow-md shadow-xs group border ${
+                  isRead
+                    ? 'bg-slate-50/75 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700'
+                    : 'bg-white dark:bg-slate-900/90 border-purple-100 dark:border-slate-800 hover:border-purple-300 dark:hover:border-purple-600'
+                }`}
+              >
+                <div>
+                  {/* Topic & Covered Outlets */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5 pb-2 border-b border-slate-100 dark:border-slate-800">
+                    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                      <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-purple-600 text-white shadow-xs">
+                        {story.topic || '종합 어젠다'}
                       </span>
-                    )}
-                  </div>
-                  <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">
-                    {(story.publishedAt && story.publishedAt.includes(' ')
-                      ? story.publishedAt.split(' ')[1]
-                      : story.publishedAt) || '09:00'} 집계
-                  </span>
-                </div>
-
-                {/* Covered Outlet Badges */}
-                {story.coveredOutlets && (
-                  <div className="flex flex-wrap items-center gap-1.5 mb-3 bg-slate-50 dark:bg-slate-950/60 p-2 rounded-xl border border-slate-200/60 dark:border-slate-800">
-                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mr-1 shrink-0">보도 언론사:</span>
-                    {story.coveredOutlets.map((outlet, idx) => (
-                      <span
-                        key={idx}
-                        className="text-[10px] font-semibold px-2 py-0.5 rounded bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-xs"
-                      >
-                        {outlet}
+                      <span className="text-[11px] font-bold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/70 px-2 py-0.5 rounded border border-purple-200 dark:border-purple-800 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                        {story.coveredOutlets?.length || 0}개 언론사 동시 집중 보도
                       </span>
-                    ))}
+                      {story.similarityScore && (
+                        <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
+                          <Sparkles className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                          유사도 {story.similarityScore}%
+                        </span>
+                      )}
+                      {isRead && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-300/70 dark:border-slate-700">
+                          <Check className="w-2.5 h-2.5" />
+                          <span>읽은 기사</span>
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">
+                      {(story.publishedAt && story.publishedAt.includes(' ')
+                        ? story.publishedAt.split(' ')[1]
+                        : story.publishedAt) || '09:00'} 집계
+                    </span>
                   </div>
-                )}
 
-                {/* Headline */}
-                <h3
-                  onClick={() => onOpenArticleModal(story)}
-                  className="text-base font-bold text-slate-900 dark:text-slate-100 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors leading-snug mb-3 cursor-pointer"
-                  title="원기사 교차 비교 확인"
-                >
-                  {story.title}
-                </h3>
+                  {/* Covered Outlet Badges */}
+                  {story.coveredOutlets && (
+                    <div className="flex flex-wrap items-center gap-1.5 mb-3 bg-slate-50 dark:bg-slate-950/60 p-2 rounded-xl border border-slate-200/60 dark:border-slate-800">
+                      <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mr-1 shrink-0">보도 언론사:</span>
+                      {story.coveredOutlets.map((outlet, idx) => (
+                        <span
+                          key={idx}
+                          className="text-[10px] font-semibold px-2 py-0.5 rounded bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-xs"
+                        >
+                          {outlet}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Headline */}
+                  <h3
+                    onClick={() => onOpenArticleModal(story)}
+                    className={`text-base font-bold transition-colors leading-snug mb-3 cursor-pointer ${
+                      isRead
+                        ? 'text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300'
+                        : 'text-slate-900 dark:text-slate-100 group-hover:text-purple-600 dark:group-hover:text-purple-400'
+                    }`}
+                    title={isRead ? '읽은 기사 · 클릭하여 다시 확인' : '원기사 교차 비교 확인'}
+                  >
+                    {story.title}
+                  </h3>
 
                 {/* 3-line Summary Box */}
                 <div className="bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 rounded-xl p-3 sm:p-3.5 space-y-1.5 mb-2.5">
@@ -515,7 +541,8 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </section>

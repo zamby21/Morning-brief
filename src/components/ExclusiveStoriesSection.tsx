@@ -4,9 +4,11 @@ import {
   ChevronDown,
   ChevronUp,
   ArrowUp,
+  Check,
 } from 'lucide-react';
 import { NewsStory } from '../types/news';
 import { PRESS_OUTLETS } from '../data/mockNewsData';
+import { isArticleRead } from '../utils/readArticles';
 
 interface ExclusiveStoriesSectionProps {
   stories: NewsStory[];
@@ -17,6 +19,7 @@ interface ExclusiveStoriesSectionProps {
   onToggleCollapse?: () => void;
   onScrollToTop?: () => void;
   isMobileView?: boolean;
+  readArticleKeys?: ReadonlySet<string>;
 }
 
 export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = ({
@@ -28,7 +31,10 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
   onToggleCollapse,
   onScrollToTop,
   isMobileView = false,
+  readArticleKeys,
 }) => {
+  const readCount = stories.filter((story) => isArticleRead(readArticleKeys, story)).length;
+
   return (
     <section id="section-exclusive" className="bg-gradient-to-b from-rose-50/80 via-rose-50/40 to-white/90 dark:from-rose-950/35 dark:via-slate-900/90 dark:to-slate-900 border border-rose-200/80 dark:border-rose-900/60 rounded-3xl p-4 sm:p-6 space-y-4 scroll-mt-24 shadow-2xs transition-colors">
       {/* Section Header */}
@@ -38,11 +44,17 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
             <Zap className="w-4 h-4" />
           </div>
           <div>
-            <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+            <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
               3. 각 언론사 단독 및 심층 특별 보도
               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300">
                 특종·단독 {stories.length}건
               </span>
+              {readCount > 0 && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                  <Check className="w-3 h-3" />
+                  <span>읽음 {readCount}</span>
+                </span>
+              )}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               다른 언론사에는 없는 해당 언론사만의 단독 취재 및 차별화된 심층 기획 보도입니다.
@@ -107,16 +119,21 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
         <div className={isMobileView ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 lg:grid-cols-2 gap-4"}>
           {stories.map((story) => {
             const outletMeta = PRESS_OUTLETS.find((p) => p.name === story.outletName || p.id === story.outletId);
+            const isRead = isArticleRead(readArticleKeys, story);
 
             return (
               <div
                 key={story.id}
-                className="bg-white dark:bg-slate-900/90 border border-rose-100 dark:border-slate-800 hover:border-rose-300 dark:hover:border-rose-600 rounded-2xl p-4 sm:p-5 flex flex-col justify-between transition-all duration-200 hover:shadow-md shadow-xs group"
+                className={`rounded-2xl p-4 sm:p-5 flex flex-col justify-between transition-all duration-200 hover:shadow-md shadow-xs group border ${
+                  isRead
+                    ? 'bg-slate-50/75 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700'
+                    : 'bg-white dark:bg-slate-900/90 border-rose-100 dark:border-slate-800 hover:border-rose-300 dark:hover:border-rose-600'
+                }`}
               >
                 <div>
                   {/* Outlet & Meta info */}
                   <div className="flex items-center justify-between gap-2 mb-2.5 pb-2 border-b border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                       <span
                         className={`text-xs font-bold px-2.5 py-1 rounded-md shadow-xs ${
                           outletMeta?.badgeColor || 'bg-slate-800 text-white'
@@ -132,8 +149,14 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
                           {story.topic}
                         </span>
                       )}
+                      {isRead && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-300/70 dark:border-slate-700">
+                          <Check className="w-2.5 h-2.5" />
+                          <span>읽은 기사</span>
+                        </span>
+                      )}
                     </div>
-                    <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">
+                    <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium shrink-0">
                       {(story.publishedAt && story.publishedAt.includes(' ')
                         ? story.publishedAt.split(' ')[1]
                         : story.publishedAt) || '09:00'} 집계
@@ -143,8 +166,12 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
                   {/* Headline */}
                   <h3
                     onClick={() => onOpenArticleModal(story)}
-                    className="text-base font-bold text-slate-900 dark:text-slate-100 group-hover:text-rose-600 dark:group-hover:text-rose-400 transition-colors leading-snug mb-3 cursor-pointer"
-                    title="원기사 전문 및 포털 확인"
+                    className={`text-base font-bold transition-colors leading-snug mb-3 cursor-pointer ${
+                      isRead
+                        ? 'text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300'
+                        : 'text-slate-900 dark:text-slate-100 group-hover:text-rose-600 dark:group-hover:text-rose-400'
+                    }`}
+                    title={isRead ? '읽은 기사 · 클릭하여 다시 확인' : '원기사 전문 및 포털 확인'}
                   >
                     {story.title}
                   </h3>
