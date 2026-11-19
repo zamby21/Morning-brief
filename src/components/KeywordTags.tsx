@@ -33,6 +33,7 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
   const [hoveredPointIdx, setHoveredPointIdx] = useState<number | null>(null);
   const [popoverAlign, setPopoverAlign] = useState<'left' | 'center' | 'right'>('left');
   const [anchorLeftPx, setAnchorLeftPx] = useState<number>(0);
+  const [rankSortBy, setRankSortBy] = useState<'surge' | 'coverage'>('surge');
 
   const containerRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -44,6 +45,49 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
     }
     return map;
   }, [keywords, briefing]);
+
+  const rankedKeywords = useMemo(() => {
+    const items = keywords.map((kw) => ({
+      keyword: kw,
+      label: kw.replace(/^#/, ''),
+      trend: trendMap[kw],
+    }));
+
+    return items.sort((a, b) => {
+      if (rankSortBy === 'coverage') {
+        if (b.trend.currentOutletCount !== a.trend.currentOutletCount) {
+          return b.trend.currentOutletCount - a.trend.currentOutletCount;
+        }
+        return b.trend.dailyChangePercent - a.trend.dailyChangePercent;
+      }
+      if (b.trend.dailyChangePercent !== a.trend.dailyChangePercent) {
+        return b.trend.dailyChangePercent - a.trend.dailyChangePercent;
+      }
+      if (b.trend.currentOutletCount !== a.trend.currentOutletCount) {
+        return b.trend.currentOutletCount - a.trend.currentOutletCount;
+      }
+      return b.trend.peakOutletCount - a.trend.peakOutletCount;
+    });
+  }, [keywords, trendMap, rankSortBy]);
+
+  const buildMiniSparklinePath = (trend: KeywordTrendData): string => {
+    const series = trend.hourlySeries || [];
+    if (series.length < 2) return '';
+    const w = 28;
+    const h = 12;
+    const padY = 1.5;
+    const vals = series.map((p) => p.outletCount);
+    const minV = Math.min(...vals);
+    const maxV = Math.max(...vals);
+    const span = Math.max(1, maxV - minV);
+    return series
+      .map((pt, idx) => {
+        const x = (idx / (series.length - 1)) * w;
+        const y = h - padY - ((pt.outletCount - minV) / span) * (h - padY * 2);
+        return `${idx === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+      })
+      .join(' ');
+  };
 
   useEffect(() => {
     if (openTrendKeyword && !keywords.includes(openTrendKeyword)) {
@@ -221,138 +265,218 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
   return (
     <div
       ref={containerRef}
-      className="relative bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-xs transition-colors"
+      className="relative bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 sm:p-3.5 shadow-xs transition-colors"
     >
       <div
-        className={`flex gap-3.5 ${
+        className={`flex gap-3 ${
           isMobileView
             ? 'flex-col'
-            : 'flex-col xl:flex-row xl:items-center xl:justify-between'
+            : 'flex-col lg:flex-row lg:items-center lg:justify-between'
         }`}
       >
-        {/* Left: Keyword Tags Header + Tag List */}
+        {/* Left: Unified Core + Real-Time Rising Keyword Ranking */}
         <div className="flex-1 min-w-0">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-2.5">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-orange-50 dark:bg-orange-950/70 text-orange-600 dark:text-orange-400 border border-orange-200/60 dark:border-orange-800/70 shrink-0">
-                <Flame className="w-3.5 h-3.5" />
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="p-1 rounded-lg bg-orange-50 dark:bg-orange-950/70 text-orange-600 dark:text-orange-400 border border-orange-200/60 dark:border-orange-800/70 shrink-0">
+                <Flame className="w-3.5 h-3.5" aria-hidden="true" />
               </div>
-              <div>
-                <h3 className="text-xs font-bold text-slate-900 dark:text-white flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                  <span>오늘의 핵심 키워드 태그</span>
-                  <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                    (태그 클릭: 관련 보도 필터링 · 변화율 아이콘 클릭: 24시간 언론사 추이)
-                  </span>
-                </h3>
-              </div>
+              <h3 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5 min-w-0">
+                <span className="whitespace-nowrap shrink-0">오늘의 급상승 핵심 키워드</span>
+                <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400 truncate hidden xl:inline">
+                  · 클릭 시 기사 필터 · 수치 클릭 시 24시간 추이
+                </span>
+              </h3>
             </div>
 
-            {selectedKeyword && (
-              <button
-                type="button"
-                onClick={() => onSelectKeyword(null)}
-                className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-semibold transition cursor-pointer whitespace-nowrap shrink-0"
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Segmented Sort Control */}
+              <div
+                role="group"
+                aria-label="키워드 순위 정렬 기준"
+                className="inline-flex items-center p-0.5 rounded-lg bg-slate-100 dark:bg-slate-800"
               >
-                <span>전체 키워드 보기</span>
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Keyword tags with adjacent daily change rate icon */}
-          <div className="flex flex-wrap items-center gap-2">
-            {keywords.length === 0 && (
-              <span className="text-xs text-slate-400 dark:text-slate-500 py-1">
-                집계된 핵심 키워드가 없습니다.
-              </span>
-            )}
-            {keywords.map((kw) => {
-              const isSelected = selectedKeyword === kw;
-              const isPopoverOpen = openTrendKeyword === kw;
-              const trend = trendMap[kw];
-              const visual = getTrendVisual(trend.direction);
-              const TrendIcon = visual.Icon;
-              const changeText = formatChangeText(trend.dailyChangePercent);
-
-              return (
-                <div
-                  key={kw}
-                  className={`inline-flex items-stretch rounded-xl border transition-all duration-150 overflow-hidden ${
-                    isSelected
-                      ? 'border-blue-600 ring-2 ring-blue-300/70 dark:ring-blue-500/40 shadow-xs'
-                      : isPopoverOpen
-                      ? 'border-blue-400 dark:border-blue-500 ring-2 ring-blue-200 dark:ring-blue-500/30 shadow-xs'
-                      : 'border-slate-200/90 dark:border-slate-700'
+                <button
+                  type="button"
+                  onClick={() => setRankSortBy('surge')}
+                  aria-pressed={rankSortBy === 'surge'}
+                  className={`px-2 py-0.5 text-[11px] font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                    rankSortBy === 'surge'
+                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                   }`}
                 >
-                  <button
-                    type="button"
-                    onClick={() => onSelectKeyword(isSelected ? null : kw)}
-                    aria-pressed={isSelected}
-                    className={`text-xs px-2.5 py-1.5 font-medium transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
-                      isSelected
-                        ? 'bg-blue-600 text-white font-bold'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 hover:bg-slate-200/80 dark:hover:bg-slate-700'
-                    }`}
-                  >
-                    <span>{kw}</span>
-                  </button>
+                  상승률순
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRankSortBy('coverage')}
+                  aria-pressed={rankSortBy === 'coverage'}
+                  className={`px-2 py-0.5 text-[11px] font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                    rankSortBy === 'coverage'
+                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  보도량순
+                </button>
+              </div>
 
-                  <button
-                    type="button"
-                    data-keyword-trend-trigger="true"
-                    onClick={(e) => handleTogglePopover(kw, e.currentTarget)}
-                    aria-expanded={isPopoverOpen}
-                    aria-haspopup="dialog"
-                    aria-label={`${kw} 일간 변화율 ${changeText} (${visual.statusLabel}), 클릭하여 24시간 언론사 보도 트렌드 보기`}
-                    title={`${kw} 전일 대비 ${changeText} (${visual.statusLabel}) — 클릭하여 지난 24시간 언론사 보도 그래프 보기`}
-                    className={`px-2 py-1.5 text-[11px] font-mono tabular-nums font-bold border-l flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+              {selectedKeyword && (
+                <button
+                  type="button"
+                  onClick={() => onSelectKeyword(null)}
+                  className="inline-flex items-center gap-0.5 text-[11px] text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-bold transition cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <span>전체 보기</span>
+                  <X className="w-3.5 h-3.5" aria-hidden="true" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Unified Ranked Interactive Keyword List */}
+          {rankedKeywords.length === 0 ? (
+            <p className="text-xs text-slate-400 dark:text-slate-500 py-1">
+              집계된 핵심 키워드가 없습니다.
+            </p>
+          ) : (
+            <ol
+              aria-label="오늘의 급상승 핵심 키워드 랭킹"
+              className="flex flex-wrap items-center gap-1.5"
+            >
+              {rankedKeywords.map((item, idx) => {
+                const rank = idx + 1;
+                const isSelected = selectedKeyword === item.keyword;
+                const isPopoverOpen = openTrendKeyword === item.keyword;
+                const visual = getTrendVisual(item.trend.direction);
+                const TrendIcon = visual.Icon;
+                const changeText = formatChangeText(item.trend.dailyChangePercent);
+                const sparkPath = buildMiniSparklinePath(item.trend);
+
+                const rankTextClass = isSelected
+                  ? 'text-amber-200'
+                  : rank === 1
+                  ? 'text-orange-600 dark:text-orange-400'
+                  : rank <= 3
+                  ? 'text-blue-600 dark:text-blue-400'
+                  : 'text-slate-400 dark:text-slate-500';
+
+                return (
+                  <li
+                    key={item.keyword}
+                    className={`inline-flex items-stretch rounded-xl border transition-all duration-150 overflow-hidden ${
                       isSelected
-                        ? `border-blue-500 ${visual.activeBtnClass}`
-                        : `border-slate-200/80 dark:border-slate-700 ${visual.badgeClass}`
+                        ? 'border-blue-600 ring-2 ring-blue-300/70 dark:ring-blue-500/40 shadow-xs'
+                        : isPopoverOpen
+                        ? 'border-blue-400 dark:border-blue-500 ring-2 ring-blue-200 dark:ring-blue-500/30 shadow-xs'
+                        : 'border-slate-200/90 dark:border-slate-700'
                     }`}
                   >
-                    <TrendIcon className="w-3 h-3 shrink-0" aria-hidden="true" />
-                    <span>{changeText}</span>
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                    <button
+                      type="button"
+                      onClick={() => onSelectKeyword(isSelected ? null : item.keyword)}
+                      aria-pressed={isSelected}
+                      title={`${rank}위 ${item.keyword} — 클릭하여 관련 기사 필터링`}
+                      className={`text-xs px-2.5 py-1.5 font-semibold transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
+                        isSelected
+                          ? 'bg-blue-600 text-white font-bold'
+                          : 'bg-slate-50 dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-700/80'
+                      }`}
+                    >
+                      <span className={`text-[11px] font-black font-mono tabular-nums leading-none ${rankTextClass}`}>
+                        {rank}
+                      </span>
+                      <span>
+                        <span className="opacity-45 font-normal mr-0.5">#</span>
+                        {item.label}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      data-keyword-trend-trigger="true"
+                      onClick={(e) => handleTogglePopover(item.keyword, e.currentTarget)}
+                      aria-expanded={isPopoverOpen}
+                      aria-haspopup="dialog"
+                      aria-label={`${rank}위 ${item.label}, ${item.trend.currentOutletCount}개사 보도, 전일 대비 ${changeText} (${visual.statusLabel}), 24시간 추이 보기`}
+                      title={`${rank}위 ${item.keyword} · ${item.trend.currentOutletCount}개사 보도 · 전일 대비 ${changeText} · 최고 ${item.trend.peakHourLabel} (클릭: 24시간 추이 그래프)`}
+                      className={`px-2 py-1.5 text-[11px] font-mono tabular-nums font-bold border-l flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                        isSelected
+                          ? `border-blue-500 ${visual.activeBtnClass}`
+                          : `border-slate-200/80 dark:border-slate-700 ${visual.badgeClass}`
+                      }`}
+                    >
+                      {sparkPath && !isMobileView && (
+                        <svg
+                          viewBox="0 0 28 12"
+                          className="w-6 h-3 overflow-visible shrink-0 hidden sm:block"
+                          aria-hidden="true"
+                        >
+                          <path
+                            d={sparkPath}
+                            fill="none"
+                            stroke={isSelected ? '#ffffff' : visual.strokeColor}
+                            strokeWidth={1.6}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      )}
+                      <span className="inline-flex items-center gap-0.5">
+                        <TrendIcon className="w-3 h-3 shrink-0" aria-hidden="true" />
+                        <span>{changeText}</span>
+                      </span>
+                      <span
+                        className={`text-[10px] font-medium ${
+                          isSelected
+                            ? 'text-blue-100'
+                            : 'text-slate-500 dark:text-slate-400'
+                        }`}
+                      >
+                        · {item.trend.currentOutletCount}사
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
         </div>
 
         {/* Right: Compact Weekly Comprehensive Report Card */}
         {onOpenWeeklyReport && (
           <div
-            className={`shrink-0 rounded-xl bg-gradient-to-r from-purple-50 via-indigo-50/60 to-white dark:from-purple-950/50 dark:via-indigo-950/40 dark:to-slate-900/90 border border-purple-200/90 dark:border-purple-800/70 p-3 flex items-center justify-between gap-3 ${
+            className={`shrink-0 rounded-xl bg-gradient-to-r from-purple-50 via-indigo-50/60 to-white dark:from-purple-950/50 dark:via-indigo-950/40 dark:to-slate-900/90 border border-purple-200/90 dark:border-purple-800/70 px-3 py-2.5 flex items-center justify-between gap-2.5 ${
               isMobileView
                 ? 'w-full'
-                : 'w-full xl:w-auto xl:min-w-[300px] xl:max-w-[360px]'
+                : 'w-full lg:w-[260px] xl:w-[300px]'
             }`}
           >
             <div className="min-w-0 space-y-0.5">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/70 text-purple-800 dark:text-purple-200 whitespace-nowrap">
+              <div className="flex items-center gap-1.5 text-[10px] whitespace-nowrap">
+                <span className="font-bold text-purple-700 dark:text-purple-300">
                   주간 종합 리포트
                 </span>
-                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium whitespace-nowrap">
+                <span className="text-slate-400 dark:text-slate-500">·</span>
+                <span className="text-slate-500 dark:text-slate-400 font-medium">
                   7일간 분석
                 </span>
               </div>
               <p className="text-xs font-extrabold text-slate-900 dark:text-white leading-snug truncate">
-                주간 주요 이슈 &amp; 언론사 논조 비교
+                주간 주요 이슈 &amp; 논조 비교
               </p>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight truncate">
-                이슈 전개 타임라인과 시각 차이를 한눈에
+                타임라인·시각 차이를 한눈에
               </p>
             </div>
             <button
               type="button"
               onClick={onOpenWeeklyReport}
-              className="px-3 py-2 rounded-xl text-[11px] font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-xs transition active:scale-95 whitespace-nowrap flex items-center gap-1.5 cursor-pointer shrink-0"
+              className="px-2.5 py-2 rounded-xl text-[11px] font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-xs transition active:scale-95 whitespace-nowrap flex items-center gap-1 cursor-pointer shrink-0"
             >
-              <Sparkles className="w-3.5 h-3.5 text-amber-300 shrink-0" />
-              <span>리포트 열기</span>
+              <Sparkles className="w-3.5 h-3.5 text-amber-300 shrink-0" aria-hidden="true" />
+              <span>열기</span>
             </button>
           </div>
         )}
