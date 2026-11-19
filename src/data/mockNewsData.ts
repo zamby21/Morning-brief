@@ -390,7 +390,7 @@ export const PRESS_OUTLETS: PressOutlet[] = [
     isDefaultMajor: false,
     logoText: '비즈워치',
     badgeColor: 'bg-blue-600 text-white',
-    homepageUrl: 'https://biz.heraldcorp.com',
+    homepageUrl: 'https://news.bizwatch.co.kr',
   },
   {
     id: 'bizhankook',

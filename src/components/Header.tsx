@@ -1,3 +1,4 @@
+import React from 'react';
 import {
   Newspaper,
   Menu,
@@ -26,6 +27,7 @@ interface HeaderProps {
   isMobilePreview: boolean;
   onRefreshLive: () => void;
   isLoading: boolean;
+  subNav?: React.ReactNode;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -40,6 +42,7 @@ export const Header: React.FC<HeaderProps> = ({
   isMobilePreview,
   onRefreshLive,
   isLoading,
+  subNav,
 }) => {
 
   return (
@@ -189,6 +192,15 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Fixed Quick Section Navigation Bar directly below Main Header */}
+      {subNav && (
+        <div className="border-t border-slate-200/80 dark:border-slate-800 bg-slate-50/85 dark:bg-slate-900/95">
+          <div className="max-w-7xl mx-auto px-2.5 sm:px-4 py-1.5 sm:py-2">
+            {subNav}
+          </div>
+        </div>
+      )}
     </header>
   );
 };

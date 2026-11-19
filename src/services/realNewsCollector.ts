@@ -30,10 +30,12 @@ let cachedSectorHeadlines: SectorHeadlineItem[] = [];
 let lastSectorFetchedTime = 0;
 const CACHE_TTL_MS = 30 * 1000;
 
+// Verified official Naver Press Desk (media.naver.com/press/{naverCode}) directory for all Naver CP outlets
 export const OUTLET_PRESS_DESK_MAP: Record<
   string,
   { name: string; naverCode: string; homepageUrl: string }
 > = {
+  // 10대 대표 종합·경제지 (기본값)
   mk: { name: '매일경제', naverCode: '009', homepageUrl: 'https://www.mk.co.kr' },
   hankyung: { name: '한국경제', naverCode: '015', homepageUrl: 'https://www.hankyung.com' },
   chosun: { name: '조선일보', naverCode: '023', homepageUrl: 'https://www.chosun.com' },
@@ -44,6 +46,63 @@ export const OUTLET_PRESS_DESK_MAP: Record<
   sedaily: { name: '서울경제', naverCode: '011', homepageUrl: 'https://www.sedaily.com' },
   herald: { name: '헤럴드경제', naverCode: '016', homepageUrl: 'https://biz.heraldcorp.com' },
   asiae: { name: '아시아경제', naverCode: '277', homepageUrl: 'https://www.asiae.co.kr' },
+
+  // 종합·경제·전문지 (Naver CP 공식 코드 검증 완료)
+  kmib: { name: '국민일보', naverCode: '005', homepageUrl: 'https://www.kmib.co.kr' },
+  hankookilbo: { name: '한국일보', naverCode: '469', homepageUrl: 'https://www.hankookilbo.com' },
+  munhwa: { name: '문화일보', naverCode: '021', homepageUrl: 'https://www.munhwa.com' },
+  seoul: { name: '서울신문', naverCode: '081', homepageUrl: 'https://www.seoul.co.kr' },
+  segye: { name: '세계일보', naverCode: '022', homepageUrl: 'https://www.segye.com' },
+  mt: { name: '머니투데이', naverCode: '008', homepageUrl: 'https://www.mt.co.kr' },
+  edaily: { name: '이데일리', naverCode: '018', homepageUrl: 'https://www.edaily.co.kr' },
+  fnnews: { name: '파이낸셜뉴스', naverCode: '014', homepageUrl: 'https://www.fnnews.com' },
+  chosunbiz: { name: '조선비즈', naverCode: '366', homepageUrl: 'https://biz.chosun.com' },
+  nocut: { name: '노컷뉴스', naverCode: '079', homepageUrl: 'https://www.nocutnews.co.kr' },
+  newstapa: { name: '뉴스타파', naverCode: '607', homepageUrl: 'https://newstapa.org' },
+  thefact: { name: '더팩트', naverCode: '629', homepageUrl: 'https://www.tf.co.kr' },
+  dailian: { name: '데일리안', naverCode: '119', homepageUrl: 'https://www.dailian.co.kr' },
+  sidae: { name: '동행미디어 시대', naverCode: '417', homepageUrl: 'https://www.sidaenews.co.kr' },
+  mediatoday: { name: '미디어오늘', naverCode: '006', homepageUrl: 'https://www.mediatoday.co.kr' },
+  bizwatch: { name: '비즈워치', naverCode: '648', homepageUrl: 'https://news.bizwatch.co.kr' },
+  inews24: { name: '아이뉴스24', naverCode: '031', homepageUrl: 'https://www.inews24.com' },
+  ohmynews: { name: '오마이뉴스', naverCode: '047', homepageUrl: 'https://www.ohmynews.com' },
+  economist: { name: '이코노미스트', naverCode: '243', homepageUrl: 'https://economist.co.kr' },
+  joseilbo: { name: '조세일보', naverCode: '123', homepageUrl: 'https://www.joseilbo.com' },
+  joongangsunday: { name: '중앙SUNDAY', naverCode: '353', homepageUrl: 'https://www.joongang.co.kr/sunday' },
+  pressian: { name: '프레시안', naverCode: '002', homepageUrl: 'https://www.pressian.com' },
+
+  // 방송·통신사
+  yonhap: { name: '연합뉴스', naverCode: '001', homepageUrl: 'https://www.yna.co.kr' },
+  news1: { name: '뉴스1', naverCode: '421', homepageUrl: 'https://www.news1.kr' },
+  newsis: { name: '뉴시스', naverCode: '003', homepageUrl: 'https://www.newsis.com' },
+  kbs: { name: 'KBS', naverCode: '056', homepageUrl: 'https://news.kbs.co.kr' },
+  mbc: { name: 'MBC', naverCode: '214', homepageUrl: 'https://imnews.imbc.com' },
+  sbs: { name: 'SBS', naverCode: '055', homepageUrl: 'https://news.sbs.co.kr' },
+  ytn: { name: 'YTN', naverCode: '052', homepageUrl: 'https://www.ytn.co.kr' },
+  jtbc: { name: 'JTBC', naverCode: '437', homepageUrl: 'https://news.jtbc.co.kr' },
+  tvchosun: { name: 'TV조선', naverCode: '448', homepageUrl: 'http://news.tvchosun.com' },
+  mbn: { name: 'MBN', naverCode: '057', homepageUrl: 'https://www.mbn.co.kr' },
+  channela: { name: '채널A', naverCode: '449', homepageUrl: 'https://www.ichannela.com' },
+  yonhaptv: { name: '연합뉴스TV', naverCode: '422', homepageUrl: 'https://www.yonhapnewstv.co.kr' },
+  wowtv: { name: '한국경제TV', naverCode: '215', homepageUrl: 'https://www.wowtv.co.kr' },
+  sbsbiz: { name: 'SBS 비즈', naverCode: '374', homepageUrl: 'https://biz.sbs.co.kr' },
+  kbc: { name: 'kbc광주방송', naverCode: '660', homepageUrl: 'https://www.ikbc.co.kr' },
+
+  // IT 전문지
+  etnews: { name: '전자신문', naverCode: '030', homepageUrl: 'https://www.etnews.com' },
+  zdnet: { name: '지디넷코리아', naverCode: '092', homepageUrl: 'https://zdnet.co.kr' },
+  bloter: { name: '블로터', naverCode: '293', homepageUrl: 'https://www.bloter.net' },
+  ddaily: { name: '디지털데일리', naverCode: '138', homepageUrl: 'https://www.ddaily.co.kr' },
+  dt: { name: '디지털타임스', naverCode: '029', homepageUrl: 'https://www.dt.co.kr' },
+
+  // 지역 주요 언론사
+  gangwon_domin: { name: '강원도민일보', naverCode: '654', homepageUrl: 'https://www.kado.net' },
+  gangwon_ilbo: { name: '강원일보', naverCode: '087', homepageUrl: 'https://www.kwnews.co.kr' },
+  gyeonggi_ilbo: { name: '경기일보', naverCode: '666', homepageUrl: 'https://www.kyeonggi.com' },
+  kookje_shinmun: { name: '국제신문', naverCode: '658', homepageUrl: 'http://www.kookje.co.kr' },
+  daejeon_ilbo: { name: '대전일보', naverCode: '656', homepageUrl: 'https://www.daejonilbo.com' },
+  imaeil: { name: '매일신문', naverCode: '088', homepageUrl: 'https://www.imaeil.com' },
+  busan_ilbo: { name: '부산일보', naverCode: '082', homepageUrl: 'https://www.busan.com' },
 };
 
 const BROWSER_HEADERS: Record<string, string> = {
@@ -54,65 +113,98 @@ const BROWSER_HEADERS: Record<string, string> = {
   'Accept-Encoding': 'gzip, deflate, br',
 };
 
+function decodeHtmlBuffer(buf: Buffer, contentTypeHeader = ''): string {
+  const ct = contentTypeHeader.toLowerCase();
+  const headAscii = buf.subarray(0, 2048).toString('latin1').toLowerCase();
+  const isEucKr =
+    ct.includes('euc-kr') ||
+    ct.includes('ks_c_5601') ||
+    ct.includes('cp949') ||
+    /charset\s*=\s*['"]?(?:euc-kr|ks_c_5601|cp949)/.test(headAscii);
+
+  if (isEucKr) {
+    try {
+      return new TextDecoder('euc-kr').decode(buf);
+    } catch {
+      return buf.toString('utf8');
+    }
+  }
+  return buf.toString('utf8');
+}
+
 /**
  * IPv4-guaranteed fast HTML fetcher (avoids container IPv6 DNS hangs on Naver/Korean news domains)
+ * Automatically decodes gzip/br/deflate and EUC-KR/CP949 legacy Korean press encodings.
  */
-async function fetchHtmlFast(url: string, timeoutMs = 4500, redirectsLeft = 4): Promise<{ ok: boolean; status: number; text: string; finalUrl: string }> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const done = (resObj: { ok: boolean; status: number; text: string; finalUrl: string }) => {
-      if (!settled) {
-        settled = true;
-        resolve(resObj);
-      }
-    };
-
-    try {
-      const parsed = new URL(url);
-      const lib = parsed.protocol === 'https:' ? https : http;
-      const req = lib.get(
-        url,
-        {
-          family: 4,
-          timeout: timeoutMs,
-          headers: BROWSER_HEADERS,
-        },
-        (res) => {
-          const status = res.statusCode || 0;
-          if (status >= 300 && status < 400 && res.headers.location && redirectsLeft > 0) {
-            res.resume();
-            const nextUrl = new URL(res.headers.location, url).toString();
-            fetchHtmlFast(nextUrl, timeoutMs, redirectsLeft - 1).then(done);
-            return;
-          }
-
-          const chunks: Buffer[] = [];
-          res.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
-          res.on('end', () => {
-            try {
-              const raw = Buffer.concat(chunks);
-              const enc = (res.headers['content-encoding'] || '').toLowerCase();
-              let buf: Buffer = raw;
-              if (enc.includes('gzip')) buf = zlib.gunzipSync(raw);
-              else if (enc.includes('br')) buf = zlib.brotliDecompressSync(raw);
-              else if (enc.includes('deflate')) buf = zlib.inflateSync(raw);
-              done({ ok: status >= 200 && status < 300, status, text: buf.toString('utf8'), finalUrl: url });
-            } catch {
-              done({ ok: false, status, text: '', finalUrl: url });
-            }
-          });
-          res.on('error', () => done({ ok: false, status, text: '', finalUrl: url }));
+async function fetchHtmlFast(
+  url: string,
+  timeoutMs = 4500,
+  redirectsLeft = 4,
+  retriesLeft = 1
+): Promise<{ ok: boolean; status: number; text: string; finalUrl: string }> {
+  const attempt = (): Promise<{ ok: boolean; status: number; text: string; finalUrl: string }> =>
+    new Promise((resolve) => {
+      let settled = false;
+      const done = (resObj: { ok: boolean; status: number; text: string; finalUrl: string }) => {
+        if (!settled) {
+          settled = true;
+          resolve(resObj);
         }
-      );
-      req.on('timeout', () => {
-        req.destroy();
+      };
+
+      try {
+        const parsed = new URL(url);
+        const lib = parsed.protocol === 'https:' ? https : http;
+        const req = lib.get(
+          url,
+          {
+            family: 4,
+            timeout: timeoutMs,
+            headers: BROWSER_HEADERS,
+          },
+          (res) => {
+            const status = res.statusCode || 0;
+            if (status >= 300 && status < 400 && res.headers.location && redirectsLeft > 0) {
+              res.resume();
+              const nextUrl = new URL(res.headers.location, url).toString();
+              fetchHtmlFast(nextUrl, timeoutMs, redirectsLeft - 1, retriesLeft).then(done);
+              return;
+            }
+
+            const chunks: Buffer[] = [];
+            res.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+            res.on('end', () => {
+              try {
+                const raw = Buffer.concat(chunks);
+                const enc = (res.headers['content-encoding'] || '').toLowerCase();
+                let buf: Buffer = raw;
+                if (enc.includes('gzip')) buf = zlib.gunzipSync(raw);
+                else if (enc.includes('br')) buf = zlib.brotliDecompressSync(raw);
+                else if (enc.includes('deflate')) buf = zlib.inflateSync(raw);
+                const decodedText = decodeHtmlBuffer(buf, String(res.headers['content-type'] || ''));
+                done({ ok: status >= 200 && status < 300, status, text: decodedText, finalUrl: url });
+              } catch {
+                done({ ok: false, status, text: '', finalUrl: url });
+              }
+            });
+            res.on('error', () => done({ ok: false, status, text: '', finalUrl: url }));
+          }
+        );
+        req.on('timeout', () => {
+          req.destroy();
+          done({ ok: false, status: 0, text: '', finalUrl: url });
+        });
+        req.on('error', () => done({ ok: false, status: 0, text: '', finalUrl: url }));
+      } catch {
         done({ ok: false, status: 0, text: '', finalUrl: url });
-      });
-      req.on('error', () => done({ ok: false, status: 0, text: '', finalUrl: url }));
-    } catch {
-      done({ ok: false, status: 0, text: '', finalUrl: url });
-    }
-  });
+      }
+    });
+
+  const first = await attempt();
+  if (!first.ok && first.status === 0 && retriesLeft > 0) {
+    return fetchHtmlFast(url, timeoutMs, redirectsLeft, retriesLeft - 1);
+  }
+  return first;
 }
 
 export function decodeHtmlEntities(str: string): string {
@@ -219,15 +311,15 @@ function stripReporterEmailSuffix(text: string): string {
 }
 
 function isCleanBodySentence(s: string): boolean {
-  if (!s || s.length < 22 || s.length > 260) return false;
-  if (!/[.?!다요음임]$/.test(s)) return false;
+  if (!s || s.length < 20 || s.length > 480) return false;
+  if (!/[.?!다요음임함됨]["'”’)\]]*$/.test(s)) return false;
   if (s.includes('http://') || s.includes('https://') || s.includes('&lt;') || s.includes('@')) return false;
   return !BOILERPLATE_SUBSTRINGS.some((bad) => s.includes(bad));
 }
 
 function isCleanParagraph(p: string): boolean {
-  if (!p || p.length < 30 || p.length > 900) return false;
-  if (!/[.?!다요음임]$/.test(p)) return false;
+  if (!p || p.length < 28 || p.length > 1100) return false;
+  if (!/[.?!다요음임함됨]["'”’)\]]*$/.test(p)) return false;
   if (p.includes('http://') || p.includes('https://') || p.includes('@')) return false;
   return !BOILERPLATE_SUBSTRINGS.some((bad) => p.includes(bad));
 }
@@ -241,39 +333,46 @@ function extractArticleTextAndSummary(
   const paragraphPool: string[] = [];
   const fullBodyParas: string[] = [];
 
-  // 1. Naver News article page: strictly scope to <article id="dic_area"> and NEVER scan global <p>
-  const dicArea = articleHtml.match(/<article[^>]*id="dic_area"[^>]*>([\s\S]*?)<\/article>/i)?.[1];
+  const pushLinesToPools = (rawLines: string[]) => {
+    const cleanedLines = rawLines
+      .map((s) => stripReporterEmailSuffix(s.replace(/\s+/g, ' ').trim()))
+      .filter(Boolean);
+
+    const paras = cleanedLines.filter(isCleanParagraph);
+    fullBodyParas.push(...paras);
+
+    for (const line of cleanedLines) {
+      const sents = line
+        .split(/(?<=[.?!]["'”’)?]*)\s+/)
+        .map((s) => stripReporterEmailSuffix(s.trim()))
+        .filter(isCleanBodySentence);
+      paragraphPool.push(...sents);
+    }
+
+    if (fullBodyParas.length < 2 && paragraphPool.length >= 2) {
+      for (let i = 0; i < paragraphPool.length; i += 2) {
+        const chunk = paragraphPool.slice(i, i + 2).join(' ');
+        if (chunk.length >= 28) fullBodyParas.push(chunk);
+      }
+    }
+  };
+
+  // 1. Naver News article page: scope strictly to dic_area / articeBody (never scan global <p>)
+  const dicArea =
+    articleHtml.match(/<article[^>]*id=["']dic_area["'][^>]*>([\s\S]*?)<\/article>/i)?.[1] ||
+    articleHtml.match(/<div[^>]*id=["'](?:dic_area|articeBody|newsEndContents)["'][^>]*>([\s\S]*?)<\/div>\s*(?:<div[^>]*class=["'][^"']*(?:byline|copyright|news_end|reporter|media_end))/i)?.[1] ||
+    articleHtml.match(/<div[^>]*class=["'][^"']*newsct_article[^"']*["'][^>]*>([\s\S]*?)<\/article>/i)?.[1];
+
   if (dicArea || articleUrl.includes('news.naver.com')) {
     if (dicArea) {
       const cleanedDic = dicArea
         .replace(/<strong[^>]*class="media_end_summary"[^>]*>[\s\S]*?<\/strong>/gi, '\n')
-        .replace(/<div[^>]*class="[^"]*(?:subtitle|summary|nbd_im_w)[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '\n')
+        .replace(/<div[^>]*class="[^"]*(?:subtitle|summary|nbd_im_w|vod_player|video_area)[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '\n')
         .replace(/<span[^>]*class="end_photo_org"[^>]*>[\s\S]*?<\/span>/gi, '\n')
         .replace(/<em[^>]*class="img_desc"[^>]*>[\s\S]*?<\/em>/gi, '\n');
 
-      const rawLines = stripInlineTagsCleanly(cleanedDic)
-        .split(/\n+/)
-        .map((s) => stripReporterEmailSuffix(s.replace(/\s+/g, ' ').trim()))
-        .filter(Boolean);
-
-      const lines = rawLines.filter(isCleanParagraph);
-      fullBodyParas.push(...lines);
-
-      for (const line of rawLines) {
-        const sents = line
-          .split(/(?<=[.?!])\s+/)
-          .map((s) => stripReporterEmailSuffix(s.trim()))
-          .filter(isCleanBodySentence);
-        paragraphPool.push(...sents);
-      }
-
-      // If inline subheadings prevented full-line period checks, group extracted clean sentences into clean paragraphs
-      if (fullBodyParas.length < 2 && paragraphPool.length >= 2) {
-        for (let i = 0; i < paragraphPool.length; i += 2) {
-          const chunk = paragraphPool.slice(i, i + 2).join(' ');
-          if (chunk.length >= 30) fullBodyParas.push(chunk);
-        }
-      }
+      const rawLines = stripInlineTagsCleanly(cleanedDic).split(/\n+/);
+      pushLinesToPools(rawLines);
     }
   } else {
     // 2. Donga Ilbo <section class="news_view"> (text with <br /> inside news_view)
@@ -285,22 +384,11 @@ function extractArticleTextAndSummary(
       const cleanedDonga = dongaView
         .replace(/<div[^>]*view_[^>]*>[\s\S]*?<\/div>/gi, '\n')
         .replace(/<h2[^>]*sub_tit[^>]*>[\s\S]*?<\/h2>/gi, '\n');
-      const dongaLines = stripInlineTagsCleanly(cleanedDonga)
-        .split(/\n+/)
-        .map((s) => s.replace(/\s+/g, ' ').trim())
-        .filter(isCleanParagraph);
-      fullBodyParas.push(...dongaLines);
-      for (const line of dongaLines) {
-        const sents = line
-          .split(/(?<=[.?!])\s+/)
-          .map((s) => s.trim())
-          .filter(isCleanBodySentence);
-        paragraphPool.push(...sents);
-      }
+      pushLinesToPools(stripInlineTagsCleanly(cleanedDonga).split(/\n+/));
     }
 
     // 3. Chosun Fusion JSON content elements
-    const fusionBlocks = [...articleHtml.matchAll(/"content":"([^"]{35,550})","type":"text"/g)]
+    const fusionBlocks = [...articleHtml.matchAll(/"content":"([^"]{35,650})","type":"text"/g)]
       .map((m) =>
         decodeHtmlEntities(
           m[1]
@@ -313,34 +401,41 @@ function extractArticleTextAndSummary(
       .filter(isCleanParagraph);
 
     if (fusionBlocks.length > 0) {
-      fullBodyParas.push(...fusionBlocks);
-      for (const blk of fusionBlocks) {
-        const sents = blk
-          .split(/(?<=[.?!])\s+/)
-          .map((s) => s.trim())
-          .filter(isCleanBodySentence);
-        paragraphPool.push(...sents);
+      pushLinesToPools(fusionBlocks);
+    }
+
+    // 4. Common Korean press CMS body containers (covers Edaily, SBS, NewsTomato, BoanNews, ITChosun, DNews, regional CMS)
+    if (fullBodyParas.length < 2) {
+      const cmsContainerMatch =
+        articleHtml.match(/<(?:article|div|section)[^>]*(?:id|class)=["'][^"']*(?:article-view-content-div|article_body|articleBody|news_body|news_text|rns_text|text_area|art_txt|article_txt|view_con|news_cnt|content_body|article_view_body)[^"']*["'][^>]*>([\s\S]*?)<\/(?:article|section)>/i)?.[1] ||
+        articleHtml.match(/<div[^>]*(?:id|class)=["'][^"']*(?:article-view-content-div|article_body|articleBody|news_body|news_text|rns_text|text_area|art_txt|article_txt|view_con|news_cnt)[^"']*["'][^>]*>([\s\S]{150,15000}?)(?:<div[^>]*class=["'][^"']*(?:copyright|byline|reporter|share|related|tag|banner|ad_|comment)|<\/section>|<\/article>)/i)?.[1] ||
+        articleHtml.match(/itemprop=["']articleBody["'][^>]*>([\s\S]{150,15000}?)(?:<\/article>|<\/section>|<div[^>]*class=["'][^"']*(?:copyright|byline|related|share))/i)?.[1];
+
+      if (cmsContainerMatch) {
+        const cleanedCms = cmsContainerMatch
+          .replace(/<(?:script|style|figure|figcaption|aside|nav|iframe|button)[\s\S]*?<\/(?:script|style|figure|figcaption|aside|nav|iframe|button)>/gi, '\n')
+          .replace(/<div[^>]*class=["'][^"']*(?:ad|banner|related|caption|img_desc|photo)[^"']*["'][^>]*>[\s\S]*?<\/div>/gi, '\n');
+        pushLinesToPools(stripInlineTagsCleanly(cleanedCms).split(/\n+/));
       }
     }
 
-    // 4. Standard <p> body paragraphs from newspaper article pages
+    // 5. Standard <p> body paragraphs from newspaper article pages
     if (fullBodyParas.length < 2) {
-      const pMatches = [...articleHtml.matchAll(/<p(?:\s+[^>]*)?>([\s\S]*?)<\/p>/gi)];
+      const bodyOnly = articleHtml.replace(
+        /<(?:header|footer|nav|aside|script|style)[\s\S]*?<\/(?:header|footer|nav|aside|script|style)>/gi,
+        ' '
+      );
+      const pMatches = [...bodyOnly.matchAll(/<p(?:\s+[^>]*)?>([\s\S]*?)<\/p>/gi)];
+      const pLines: string[] = [];
       for (const pm of pMatches) {
         const clean = stripInlineTagsCleanly(pm[1]).replace(/\s+/g, ' ').trim();
-        if (isCleanParagraph(clean)) {
-          fullBodyParas.push(clean);
-          const sents = clean
-            .split(/(?<=[.?!])\s+/)
-            .map((s) => s.trim())
-            .filter(isCleanBodySentence);
-          paragraphPool.push(...sents);
-        }
+        if (clean) pLines.push(clean);
       }
+      pushLinesToPools(pLines);
     }
 
-    // 5. JSON-LD articleBody fallback
-    if (paragraphPool.length < 3) {
+    // 6. JSON-LD articleBody fallback (also populates fullBodyParas!)
+    if (fullBodyParas.length < 2 || paragraphPool.length < 3) {
       const ldMatches = [
         ...articleHtml.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi),
       ];
@@ -349,14 +444,11 @@ function extractArticleTextAndSummary(
           const json = JSON.parse(m[1]);
           const body =
             json?.articleBody ||
-            (Array.isArray(json) ? json.find((x: any) => x?.articleBody)?.articleBody : '');
+            (Array.isArray(json) ? json.find((x: any) => x?.articleBody)?.articleBody : '') ||
+            (Array.isArray(json?.['@graph']) ? json['@graph'].find((x: any) => x?.articleBody)?.articleBody : '');
           if (body && typeof body === 'string' && body.length > 80) {
-            const cleanBody = decodeHtmlEntities(body);
-            const sents = cleanBody
-              .split(/(?<=[.?!])\s+/)
-              .map((s) => s.trim())
-              .filter(isCleanBodySentence);
-            paragraphPool.push(...sents);
+            const cleanBody = decodeHtmlEntities(body.replace(/<[^>]+>/g, ' '));
+            pushLinesToPools(cleanBody.split(/\n+/));
           }
         } catch {
           // Ignore malformed JSON-LD
@@ -364,14 +456,27 @@ function extractArticleTextAndSummary(
       }
     }
 
-    // 6. Meta og:description fallback
+    // 7. Generic <br>-delimited body line fallback for legacy Korean sites that avoid <p> tags
+    if (fullBodyParas.length < 2) {
+      const strippedAll = articleHtml
+        .replace(/<(?:head|script|style|header|footer|nav|aside|noscript|iframe|form)[\s\S]*?<\/(?:head|script|style|header|footer|nav|aside|noscript|iframe|form)>/gi, '\n');
+      const rawLines = stripInlineTagsCleanly(strippedAll)
+        .split(/\n+/)
+        .map((s) => s.trim())
+        .filter((s) => s.length >= 42 && s.length <= 800 && isCleanParagraph(s));
+      if (rawLines.length >= 2) {
+        pushLinesToPools(rawLines.slice(0, 10));
+      }
+    }
+
+    // 8. Meta og:description fallback
     const ogDesc =
       articleHtml.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([\s\S]*?)["']/i)?.[1] ||
       articleHtml.match(/<meta[^>]+content=["']([\s\S]*?)["'][^>]+property=["']og:description["']/i)?.[1] ||
       '';
     if (ogDesc) {
       const ogSents = decodeHtmlEntities(ogDesc)
-        .split(/(?<=[.?!])\s+/)
+        .split(/(?<=[.?!]["'”’)?]*)\s+/)
         .map((s) => s.trim())
         .filter(isCleanBodySentence);
       paragraphPool.push(...ogSents);
@@ -380,7 +485,7 @@ function extractArticleTextAndSummary(
 
   if (homepagePrologue) {
     const proSents = decodeHtmlEntities(homepagePrologue)
-      .split(/(?<=[.?!])\s+/)
+      .split(/(?<=[.?!]["'”’)?]*)\s+/)
       .map((s) => s.trim())
       .filter(isCleanBodySentence);
     paragraphPool.push(...proSents);
@@ -406,14 +511,26 @@ function extractArticleTextAndSummary(
     }
   }
 
-  // Deduplicate fullBody paragraphs cleanly
+  // Deduplicate fullBody paragraphs cleanly (preserve up to 10 rich paragraphs for full article reading)
   const uniqueParas: string[] = [];
   for (const p of fullBodyParas) {
     const key = p.slice(0, 20);
     if (!uniqueParas.some((u) => u.includes(key) || p.includes(u.slice(0, 20)))) {
       uniqueParas.push(p);
     }
-    if (uniqueParas.length >= 6) break;
+    if (uniqueParas.length >= 10) break;
+  }
+
+  // If sentence pool came up short (<3) despite rich paragraphs, derive clean sentences from uniqueParas
+  if (uniqueSentences.length < 3 && uniqueParas.length > 0) {
+    for (const para of uniqueParas) {
+      const normalized = para.length > 260 ? `${para.slice(0, 255).trim()}…` : para;
+      const key = normalized.slice(0, 16);
+      if (!uniqueSentences.some((u) => u.includes(key) || normalized.includes(u.slice(0, 16)))) {
+        uniqueSentences.push(normalized);
+      }
+      if (uniqueSentences.length >= 3) break;
+    }
   }
 
   const fullBody = uniqueParas.length > 0 ? uniqueParas.join('\n\n') : uniqueSentences.join('\n\n');
@@ -421,216 +538,477 @@ function extractArticleTextAndSummary(
   return { sentences: uniqueSentences, fullBody };
 }
 
+const TOP10_CUSTOM_HOMEPAGE_IDS = new Set([
+  'khan',
+  'chosun',
+  'joongang',
+  'donga',
+  'hani',
+  'mk',
+  'sedaily',
+  'herald',
+  'asiae',
+]);
+
+function extractCleanHtmlTitle(html: string, outletName: string): string {
+  const raw =
+    html.match(/<h2[^>]*id=["']title_area["'][^>]*>([\s\S]*?)<\/h2>/i)?.[1] ||
+    html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([\s\S]*?)["']/i)?.[1] ||
+    html.match(/<meta[^>]+content=["']([\s\S]*?)["'][^>]+property=["']og:title["']/i)?.[1] ||
+    html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ||
+    html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ||
+    '';
+
+  let cleaned = decodeHtmlEntities(raw.replace(/<[^>]+>/g, ' ')).trim();
+  const escapedOutlet = outletName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  cleaned = cleaned
+    .replace(new RegExp(`\\s*[-|·:]\\s*${escapedOutlet}(?:\\s*뉴스)?\\s*$`, 'i'), '')
+    .replace(/\s*[-|]\s*(?:네이버\s*뉴스|다음\s*뉴스|뉴스)\s*$/i, '')
+    .trim();
+  return cleaned;
+}
+
+function parseNaverPressDeskCandidates(html: string, naverCode: string): Array<{ url: string; title: string }> {
+  const candidates: Array<{ url: string; title: string }> = [];
+  const seen = new Set<string>();
+
+  const editMatches = [
+    ...html.matchAll(
+      /<li class="press_edit_news_item[^"]*"[\s\S]*?<a href="([^"]+)"[^>]*>[\s\S]*?<span class="press_edit_news_title">([\s\S]*?)<\/span>/gi
+    ),
+  ];
+  for (const m of editMatches) {
+    const url = decodeHtmlEntities(m[1]).trim();
+    const title = decodeHtmlEntities(
+      m[2].replace(/<[^>]+>/g, '').replace(/\s*[0-9]+(?:\.[0-9]+)?\s*(?:초|분|시간|일)\s*전.*$/g, '')
+    ).trim();
+    if (url && title.length >= 6 && !seen.has(url)) {
+      seen.add(url);
+      candidates.push({ url, title });
+    }
+  }
+
+  // Fallback pattern if Naver press page renders ranking or headline card markup
+  if (candidates.length === 0) {
+    const fallbackRe = new RegExp(
+      `<a[^>]*href="(https:\\/\\/n\\.news\\.naver\\.com\\/(?:mnews\\/)?article\\/${naverCode}\\/\\d+[^"]*)"[^>]*>([\\s\\S]{6,300}?)<\\/a>`,
+      'gi'
+    );
+    for (const m of html.matchAll(fallbackRe)) {
+      const url = decodeHtmlEntities(m[1]).trim();
+      const title = decodeHtmlEntities(m[2].replace(/<[^>]+>/g, ' ')).trim();
+      if (url && title.length >= 8 && !seen.has(url)) {
+        seen.add(url);
+        candidates.push({ url, title });
+      }
+    }
+  }
+
+  return candidates;
+}
+
+async function fetchNaverArticleDetail(
+  naverArticleUrl: string,
+  fallbackTitle: string,
+  outletName: string,
+  homepageBullets: string[] = [],
+  prologue = ''
+): Promise<{
+  title: string;
+  originUrl: string;
+  naverUrl: string;
+  leadSentences: string[];
+  fullBody: string;
+} | null> {
+  const artRes = await fetchHtmlFast(naverArticleUrl, 4500);
+  if (!artRes.ok || !artRes.text) return null;
+
+  const artHtml = artRes.text;
+  const origM =
+    artHtml.match(/<a[^>]*href="([^"]+)"[^>]*class="[^"]*media_end_head_origin_link/i) ||
+    artHtml.match(/<a[^>]*class="[^"]*media_end_head_origin_link[^"]*"[^>]*href="([^"]+)"/i);
+  const originUrl = origM ? decodeHtmlEntities(origM[1]).trim() : '';
+  const resolvedTitle = fallbackTitle || extractCleanHtmlTitle(artHtml, outletName);
+  const extracted = extractArticleTextAndSummary(artHtml, homepageBullets, prologue, naverArticleUrl);
+
+  return {
+    title: resolvedTitle,
+    originUrl,
+    naverUrl: naverArticleUrl,
+    leadSentences: extracted.sentences,
+    fullBody: extracted.fullBody,
+  };
+}
+
+function extractGenericArticleLinks(html: string, homepageUrl: string): string[] {
+  let rootHost = '';
+  try {
+    rootHost = new URL(homepageUrl).hostname.replace(/^(?:www|news|biz|it|m|imnews)\./, '');
+  } catch {
+    return [];
+  }
+
+  const links: string[] = [];
+  const seen = new Set<string>();
+  const hrefMatches = [...html.matchAll(/href=["']([^"'#\s]+)["']/gi)];
+
+  for (const m of hrefMatches) {
+    const rawHref = decodeHtmlEntities(m[1]).trim();
+    if (!rawHref || rawHref.startsWith('javascript:') || rawHref.startsWith('mailto:')) continue;
+    let absUrl = '';
+    try {
+      absUrl = new URL(rawHref, homepageUrl).toString();
+    } catch {
+      continue;
+    }
+    if (!absUrl.startsWith('http')) continue;
+    let u: URL;
+    try {
+      u = new URL(absUrl);
+    } catch {
+      continue;
+    }
+    if (!u.hostname.includes(rootHost)) continue;
+    const pathAndQuery = `${u.pathname}${u.search}`;
+    if (
+      /\/(?:login|member|join|search|rss|sitemap|company|about|privacy|terms|ad|event|subscribe|mypage|video|photo|gallery|list|section|category|tag)\b/i.test(
+        pathAndQuery
+      ) ||
+      /\.(?:jpg|jpeg|png|gif|webp|svg|css|js|pdf|ico|xml)(?:\?|$)/i.test(u.pathname)
+    ) {
+      continue;
+    }
+
+    const looksLikeArticle =
+      /(?:articleView|ReadNews|news\/view|news\/read|uhtml\/view|site\/data\/html|view\.php|view\.jsp|view\.html|view\.do|view\.asp|\/article\/|\/articles\/|\/view\/\d|\/news\/\d|\/\d{4}\/\d{2}\/\d{2}\/|idxno=\d|newsId=\d|seq=\d|no=\d|art_id=\d|nid=\d|aid=\d)/i.test(
+        pathAndQuery
+      );
+
+    if (looksLikeArticle && !seen.has(absUrl)) {
+      seen.add(absUrl);
+      links.push(absUrl);
+      if (links.length >= 8) break;
+    }
+  }
+  return links;
+}
+
 /**
- * Directly scrapes the REAL-TIME center biggest lead article displayed on each newspaper's official homepage.
+ * Universal fallback for outlets without an official Naver CP Press Desk (or if Press Desk fails):
+ * 1) Direct homepage article discovery + full body extraction
+ * 2) Naver News Search filtered to the outlet's own domain + full body extraction
+ */
+async function fetchUniversalOutletArticle(
+  outletId: string,
+  outletName: string,
+  homepageUrl: string
+): Promise<RawRSSArticle | null> {
+  const candidateUrls: string[] = [];
+  const seen = new Set<string>();
+  const pushCandidate = (u: string) => {
+    if (u && !seen.has(u)) {
+      seen.add(u);
+      candidateUrls.push(u);
+    }
+  };
+
+  // Step A: Direct homepage scrape for top article links on same domain
+  try {
+    const homeRes = await fetchHtmlFast(homepageUrl, 4000, 4, 0);
+    if (homeRes.ok && homeRes.text) {
+      for (const u of extractGenericArticleLinks(homeRes.text, homepageUrl).slice(0, 4)) {
+        pushCandidate(u);
+      }
+    }
+  } catch {
+    // Continue to Naver News search discovery
+  }
+
+  // Step B: Naver News search discovery matching the outlet's official domain
+  if (candidateUrls.length < 3) {
+    try {
+      const hostBase = new URL(homepageUrl).hostname.replace(/^(?:www|news|biz|it|m|imnews)\./, '');
+      const sr = await fetchHtmlFast(
+        `https://search.naver.com/search.naver?where=news&sort=1&query=${encodeURIComponent(outletName)}`,
+        4000,
+        3,
+        0
+      );
+      if (sr.ok && sr.text) {
+        const domainRe = new RegExp(
+          `https?:\\/\\/[a-zA-Z0-9.-]*${hostBase.replace(/\./g, '\\.')}\\/[^"'\\s<>]+`,
+          'gi'
+        );
+        for (const m of sr.text.matchAll(domainRe)) {
+          const u = decodeHtmlEntities(m[0]).trim();
+          if (
+            u.length > homepageUrl.length + 5 &&
+            !/\/(?:index|main|login|member|rss|search|image|img|photo|static|assets|favicon)\b/i.test(u) &&
+            !/\.(?:jpg|jpeg|png|gif|webp|svg|css|js|ico)(?:\?|$)/i.test(u)
+          ) {
+            pushCandidate(u);
+            if (candidateUrls.length >= 6) break;
+          }
+        }
+      }
+    } catch {
+      // Ignore search error
+    }
+  }
+
+  let bestFallback: RawRSSArticle | null = null;
+
+  for (const url of candidateUrls.slice(0, 4)) {
+    const artRes = await fetchHtmlFast(url, 4000, 3, 0);
+    if (!artRes.ok || !artRes.text) continue;
+
+    const title = extractCleanHtmlTitle(artRes.text, outletName);
+    if (!title || title.length < 8) continue;
+
+    const extracted = extractArticleTextAndSummary(artRes.text, [], '', artRes.finalUrl || url);
+    const articleObj: RawRSSArticle = {
+      outletId,
+      outletName,
+      title,
+      link: artRes.finalUrl || url,
+      pubDate: new Date().toISOString(),
+      snippet: extracted.fullBody || extracted.sentences.join(' '),
+      leadSentences: extracted.sentences,
+      fullBody: extracted.fullBody,
+      isTopLead: true,
+    };
+
+    if (extracted.fullBody.length >= 140) {
+      return articleObj;
+    }
+    if (!bestFallback || (articleObj.fullBody?.length || 0) > (bestFallback.fullBody?.length || 0)) {
+      bestFallback = articleObj;
+    }
+  }
+
+  return bestFallback;
+}
+
+/**
+ * Directly scrapes the REAL-TIME center biggest lead article displayed on each newspaper's official homepage,
+ * with verified Naver Press Desk full-text extraction for all 59 Naver CP outlets and universal scraping for all remaining outlets.
  */
 async function fetchHomepageCenterLeadArticle(
   outletId: string,
   outletName: string
 ): Promise<RawRSSArticle | null> {
+  const outletMeta = PRESS_OUTLETS.find((p) => p.id === outletId);
   const desk = OUTLET_PRESS_DESK_MAP[outletId];
-  if (!desk) return null;
+  const homepageUrl = desk?.homepageUrl || outletMeta?.homepageUrl || getOfficialOutletHomepage(outletId, outletName);
+  const naverCode = desk?.naverCode || '';
 
   let title = '';
   let link = '';
   let prologue = '';
   let homepageBullets: string[] = [];
-
-  // 1. Direct Homepage HTML Extraction for Center Top Lead Article
-  try {
-    const res = await fetchHtmlFast(desk.homepageUrl, 4500);
-
-    if (res.ok) {
-      const html = res.text;
-
-      if (outletId === 'khan') {
-        const sec = html.match(/<section class="head">([\s\S]*?)<\/section>/i)?.[1] || html;
-        const m = sec.match(/<a href="(https:\/\/www\.khan\.co\.kr\/article\/[^"]+)"[^>]*title="([^"]+)"/i);
-        if (m) {
-          link = m[1];
-          title = decodeHtmlEntities(m[2]);
-          const ul = sec.match(/<ul[^>]*>([\s\S]*?)<\/ul>/i)?.[1] || '';
-          const bullets = [...ul.matchAll(/<li[^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/gi)]
-            .slice(1, 4)
-            .map((x) => decodeHtmlEntities(x[1].replace(/<[^>]+>/g, '')));
-          homepageBullets = bullets.filter(Boolean);
-        }
-      } else if (outletId === 'chosun') {
-        const m =
-          html.match(
-            /text--center[\s\S]{0,220}<a class="story-card__headline[^"]*h2[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i
-          ) ||
-          html.match(/<a class="story-card__headline[^"]*h2[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i) ||
-          html.match(/<a class="story-card__headline[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
-        if (m) {
-          link = normalizeArticleUrl(m[1], desk.homepageUrl);
-          title = decodeHtmlEntities(m[2].replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, ''));
-        }
-      } else if (outletId === 'joongang') {
-        const m =
-          html.match(/<h2 class="headline[^"]*fs_lg32[^"]*"[\s\S]*?<a href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i) ||
-          html.match(/<h2 class="headline[^"]*"[\s\S]*?<a href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
-        if (m) {
-          link = normalizeArticleUrl(m[1], desk.homepageUrl);
-          const spanMatch = m[2].match(/<span class="sm_hidden">([\s\S]*?)<\/span>/i);
-          title = decodeHtmlEntities(
-            (spanMatch ? spanMatch[1] : m[2]).replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '')
-          );
-        }
-      } else if (outletId === 'donga') {
-        const m = html.match(/class="top_headline_sec"[\s\S]*?<h2[^>]*>[\s\S]*?<a href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
-        if (m) {
-          link = normalizeArticleUrl(m[1], desk.homepageUrl);
-          title = decodeHtmlEntities(m[2].replace(/<[^>]+>/g, ''));
-        }
-      } else if (outletId === 'hani') {
-        const m = html.match(
-          /<article class="MainTopArticle_card__[^"]*"[\s\S]*?<a href="([^"]+)"[^>]*>[\s\S]*?<strong class="MainTopArticle_title__[^"]*">([\s\S]*?)<\/strong>([\s\S]*?)<\/a>/i
-        );
-        if (m) {
-          link = normalizeArticleUrl(m[1], desk.homepageUrl);
-          title = decodeHtmlEntities(m[2].replace(/<[^>]+>/g, ''));
-          const p = m[3].match(/<p class="MainTopArticle_prologue__[^"]*">([\s\S]*?)<\/p>/i);
-          if (p) prologue = decodeHtmlEntities(p[1].replace(/<[^>]+>/g, ''));
-        }
-      } else if (outletId === 'mk') {
-        const m = html.match(
-          /class="headline_news_sec"[\s\S]*?class="top_headline_title[^"]*"[\s\S]*?<a href="([^"]+)"[^>]*>[\s\S]*?<h3 class="headline_tit">([\s\S]*?)<\/h3>([\s\S]*?)<\/a>/i
-        );
-        if (m) {
-          link = normalizeArticleUrl(m[1], desk.homepageUrl);
-          title = decodeHtmlEntities(m[2].replace(/<[^>]+>/g, ''));
-          const d = m[3].match(/<div class="newsdesc">([\s\S]*?)<\/div>/i);
-          if (d) prologue = decodeHtmlEntities(d[1].replace(/<[^>]+>/g, ''));
-        }
-      } else if (outletId === 'sedaily') {
-        const m = html.match(
-          /class="card main-23"[^>]*>[\s\S]{0,120}?<h2[^>]*class="headline"[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>([\s\S]{0,900})/i
-        );
-        if (m) {
-          link = normalizeArticleUrl(m[1], desk.homepageUrl);
-          title = decodeHtmlEntities(m[2].replace(/<[^>]+>/g, ''));
-          const d = m[3].match(/<p class="description[^"]*">([\s\S]*?)<\/p>/i);
-          if (d) prologue = decodeHtmlEntities(d[1].replace(/<[^>]+>/g, ''));
-        }
-      } else if (outletId === 'herald') {
-        const m = html.match(
-          /site_main connect_layout[\s\S]*?<article class="headline"[\s\S]*?<a href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i
-        );
-        if (m) {
-          link = normalizeArticleUrl(m[1], desk.homepageUrl);
-          const tM = m[2].match(/<p class="news_title">([\s\S]*?)<\/p>/i);
-          title = decodeHtmlEntities((tM ? tM[1] : m[2]).replace(/<[^>]+>/g, ''));
-          const d = m[2].match(/<p class="news_text[^"]*">([\s\S]*?)<\/p>/i);
-          if (d) prologue = decodeHtmlEntities(d[1].replace(/<[^>]+>/g, ''));
-        }
-      } else if (outletId === 'asiae') {
-        const m = html.match(
-          /<section class="headline" id="top"[\s\S]*?<div class="txt_box">[\s\S]*?<h2>[\s\S]*?<a href="([^"]+)"[^>]*>([\s\S]*?)<\/a>([\s\S]*?)<\/div>/i
-        );
-        if (m) {
-          link = normalizeArticleUrl(m[1], desk.homepageUrl);
-          title = decodeHtmlEntities(m[2].replace(/<[^>]+>/g, ''));
-          const d = m[3].match(/<p class="desc">([\s\S]*?)<\/p>/i);
-          if (d) prologue = decodeHtmlEntities(d[1].replace(/<[^>]+>/g, ''));
-        }
-      }
-    }
-  } catch (err) {
-    console.warn(`Direct homepage scrape failed for ${outletName}:`, err);
-  }
-
-  // 2. Official Naver Press Desk Fallback (for WAF-protected homepages like Hankyung 403 or timeout like Donga)
   let naverArticleUrl = '';
-  if (!title && desk.naverCode) {
+  let leadSentences: string[] = [];
+  let fullBody = '';
+
+  // 1. Direct Homepage HTML Extraction for Top 10 Custom-Mapped Major Outlets
+  if (TOP10_CUSTOM_HOMEPAGE_IDS.has(outletId)) {
     try {
-      const res = await fetchHtmlFast(`https://media.naver.com/press/${desk.naverCode}`, 4500);
+      const res = await fetchHtmlFast(homepageUrl, 4500);
+
       if (res.ok) {
         const html = res.text;
-        const m = html.match(
-          /<li class="press_edit_news_item[^"]*"[\s\S]*?<a href="([^"]+)"[^>]*>[\s\S]*?<span class="press_edit_news_title">([\s\S]*?)<\/span>/i
-        );
-        if (m) {
-          naverArticleUrl = m[1].trim();
-          link = naverArticleUrl;
-          title = decodeHtmlEntities(
-            m[2].replace(/<[^>]+>/g, '').replace(/\s*[0-9]+(?:\.[0-9]+)?\s*(?:초|분|시간|일)\s*전.*$/g, '')
+
+        if (outletId === 'khan') {
+          const sec = html.match(/<section class="head">([\s\S]*?)<\/section>/i)?.[1] || html;
+          const m = sec.match(/<a href="(https:\/\/www\.khan\.co\.kr\/article\/[^"]+)"[^>]*title="([^"]+)"/i);
+          if (m) {
+            link = m[1];
+            title = decodeHtmlEntities(m[2]);
+            const ul = sec.match(/<ul[^>]*>([\s\S]*?)<\/ul>/i)?.[1] || '';
+            const bullets = [...ul.matchAll(/<li[^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/gi)]
+              .slice(1, 4)
+              .map((x) => decodeHtmlEntities(x[1].replace(/<[^>]+>/g, '')));
+            homepageBullets = bullets.filter(Boolean);
+          }
+        } else if (outletId === 'chosun') {
+          const m =
+            html.match(
+              /text--center[\s\S]{0,220}<a class="story-card__headline[^"]*h2[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i
+            ) ||
+            html.match(/<a class="story-card__headline[^"]*h2[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i) ||
+            html.match(/<a class="story-card__headline[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+          if (m) {
+            link = normalizeArticleUrl(m[1], homepageUrl);
+            title = decodeHtmlEntities(m[2].replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, ''));
+          }
+        } else if (outletId === 'joongang') {
+          const m =
+            html.match(/<h2 class="headline[^"]*fs_lg32[^"]*"[\s\S]*?<a href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i) ||
+            html.match(/<h2 class="headline[^"]*"[\s\S]*?<a href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+          if (m) {
+            link = normalizeArticleUrl(m[1], homepageUrl);
+            const spanMatch = m[2].match(/<span class="sm_hidden">([\s\S]*?)<\/span>/i);
+            title = decodeHtmlEntities(
+              (spanMatch ? spanMatch[1] : m[2]).replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '')
+            );
+          }
+        } else if (outletId === 'donga') {
+          const m = html.match(/class="top_headline_sec"[\s\S]*?<h2[^>]*>[\s\S]*?<a href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+          if (m) {
+            link = normalizeArticleUrl(m[1], homepageUrl);
+            title = decodeHtmlEntities(m[2].replace(/<[^>]+>/g, ''));
+          }
+        } else if (outletId === 'hani') {
+          const m = html.match(
+            /<article class="MainTopArticle_card__[^"]*"[\s\S]*?<a href="([^"]+)"[^>]*>[\s\S]*?<strong class="MainTopArticle_title__[^"]*">([\s\S]*?)<\/strong>([\s\S]*?)<\/a>/i
           );
+          if (m) {
+            link = normalizeArticleUrl(m[1], homepageUrl);
+            title = decodeHtmlEntities(m[2].replace(/<[^>]+>/g, ''));
+            const p = m[3].match(/<p class="MainTopArticle_prologue__[^"]*">([\s\S]*?)<\/p>/i);
+            if (p) prologue = decodeHtmlEntities(p[1].replace(/<[^>]+>/g, ''));
+          }
+        } else if (outletId === 'mk') {
+          const m = html.match(
+            /class="headline_news_sec"[\s\S]*?class="top_headline_title[^"]*"[\s\S]*?<a href="([^"]+)"[^>]*>[\s\S]*?<h3 class="headline_tit">([\s\S]*?)<\/h3>([\s\S]*?)<\/a>/i
+          );
+          if (m) {
+            link = normalizeArticleUrl(m[1], homepageUrl);
+            title = decodeHtmlEntities(m[2].replace(/<[^>]+>/g, ''));
+            const d = m[3].match(/<div class="newsdesc">([\s\S]*?)<\/div>/i);
+            if (d) prologue = decodeHtmlEntities(d[1].replace(/<[^>]+>/g, ''));
+          }
+        } else if (outletId === 'sedaily') {
+          const m = html.match(
+            /class="card main-23"[^>]*>[\s\S]{0,120}?<h2[^>]*class="headline"[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>([\s\S]{0,900})/i
+          );
+          if (m) {
+            link = normalizeArticleUrl(m[1], homepageUrl);
+            title = decodeHtmlEntities(m[2].replace(/<[^>]+>/g, ''));
+            const d = m[3].match(/<p class="description[^"]*">([\s\S]*?)<\/p>/i);
+            if (d) prologue = decodeHtmlEntities(d[1].replace(/<[^>]+>/g, ''));
+          }
+        } else if (outletId === 'herald') {
+          const m = html.match(
+            /site_main connect_layout[\s\S]*?<article class="headline"[\s\S]*?<a href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i
+          );
+          if (m) {
+            link = normalizeArticleUrl(m[1], homepageUrl);
+            const tM = m[2].match(/<p class="news_title">([\s\S]*?)<\/p>/i);
+            title = decodeHtmlEntities((tM ? tM[1] : m[2]).replace(/<[^>]+>/g, ''));
+            const d = m[2].match(/<p class="news_text[^"]*">([\s\S]*?)<\/p>/i);
+            if (d) prologue = decodeHtmlEntities(d[1].replace(/<[^>]+>/g, ''));
+          }
+        } else if (outletId === 'asiae') {
+          const m = html.match(
+            /<section class="headline" id="top"[\s\S]*?<div class="txt_box">[\s\S]*?<h2>[\s\S]*?<a href="([^"]+)"[^>]*>([\s\S]*?)<\/a>([\s\S]*?)<\/div>/i
+          );
+          if (m) {
+            link = normalizeArticleUrl(m[1], homepageUrl);
+            title = decodeHtmlEntities(m[2].replace(/<[^>]+>/g, ''));
+            const d = m[3].match(/<p class="desc">([\s\S]*?)<\/p>/i);
+            if (d) prologue = decodeHtmlEntities(d[1].replace(/<[^>]+>/g, ''));
+          }
         }
       }
     } catch (err) {
-      console.warn(`Naver press desk fallback failed for ${outletName}:`, err);
+      console.warn(`Direct homepage scrape failed for ${outletName}:`, err);
+    }
+  }
+
+  // 1-b. If direct homepage link was obtained, extract genuine full body from the direct article page
+  if (title && link) {
+    const artRes = await fetchHtmlFast(link, 4500);
+    if (artRes.ok && artRes.text) {
+      const extracted = extractArticleTextAndSummary(artRes.text, homepageBullets, prologue, link);
+      if (extracted.sentences.length > 0 || extracted.fullBody.length > 50) {
+        leadSentences = extracted.sentences;
+        fullBody = extracted.fullBody;
+      }
+    }
+  }
+
+  // 2. Official Naver Press Desk (primary for all 50+ non-top-10 Naver CP outlets like Edaily/SBS/KBS/MBC/JTBC/MT/FNNews,
+  //    and reliable full-body fallback for Top 10 outlets when homepage is WAF-blocked or returned a 1-line breaking-news stub)
+  if (naverCode && (!title || fullBody.length < 150)) {
+    try {
+      const deskRes = await fetchHtmlFast(`https://media.naver.com/press/${naverCode}`, 4500);
+      if (deskRes.ok && deskRes.text) {
+        const candidates = parseNaverPressDeskCandidates(deskRes.text, naverCode);
+
+        // If we already have a homepage title whose body was thin (<150 chars), try matching that exact story on Naver first
+        if (title && candidates.length > 0) {
+          const titleWords = extractSearchKeywords(title)
+            .split(' ')
+            .filter((w) => w.length >= 2);
+          const matchingCandidate = candidates.find((c) =>
+            titleWords.slice(0, 3).filter((w) => c.title.includes(w)).length >= Math.min(2, titleWords.length)
+          );
+          if (matchingCandidate) {
+            const detail = await fetchNaverArticleDetail(
+              matchingCandidate.url,
+              title,
+              outletName,
+              homepageBullets,
+              prologue
+            );
+            if (detail && detail.fullBody.length > fullBody.length) {
+              naverArticleUrl = detail.naverUrl;
+              if (!link || link.includes('news.naver.com')) {
+                link = detail.originUrl || detail.naverUrl;
+              }
+              leadSentences = detail.leadSentences.length > 0 ? detail.leadSentences : leadSentences;
+              fullBody = detail.fullBody;
+            }
+          }
+        }
+
+        // If we still don't have a rich article (>=150 chars body), pick the top lead candidate with a real full body
+        // (skipping 1-line [속보] stubs or video-only clips when full lead articles exist right below them)
+        if ((!title || fullBody.length < 120) && candidates.length > 0) {
+          let bestDetail: Awaited<ReturnType<typeof fetchNaverArticleDetail>> = null;
+          for (const cand of candidates.slice(0, 5)) {
+            const detail = await fetchNaverArticleDetail(cand.url, cand.title, outletName);
+            if (!detail) continue;
+            if (!bestDetail || detail.fullBody.length > bestDetail.fullBody.length) {
+              bestDetail = detail;
+            }
+            if (detail.fullBody.length >= 260) {
+              bestDetail = detail;
+              break;
+            }
+          }
+
+          if (bestDetail && bestDetail.fullBody.length > fullBody.length) {
+            title = bestDetail.title;
+            naverArticleUrl = bestDetail.naverUrl;
+            link = bestDetail.originUrl || bestDetail.naverUrl;
+            leadSentences = bestDetail.leadSentences;
+            fullBody = bestDetail.fullBody;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`Naver press desk fetch failed for ${outletName}:`, err);
+    }
+  }
+
+  // 3. Universal Direct-Site + Naver News Search Fallback for non-Naver-CP outlets (or if CP desk failed completely)
+  if (!title || fullBody.length < 100) {
+    const universal = await fetchUniversalOutletArticle(outletId, outletName, homepageUrl);
+    if (universal && (!title || (universal.fullBody?.length || 0) > fullBody.length)) {
+      return universal;
     }
   }
 
   if (!title) return null;
-
-  // 3. Fetch the actual article page to get genuine body text & factual summary sentences
-  let leadSentences: string[] = [];
-  let fullBody = '';
-
-  const tryExtractFromUrl = async (targetUrl: string) => {
-    const artRes = await fetchHtmlFast(targetUrl, 4500);
-    if (!artRes.ok || !artRes.text) return false;
-
-    const artHtml = artRes.text;
-    // Extract true press origin link if article came from Naver Press fallback
-    if (targetUrl.includes('news.naver.com')) {
-      const origM =
-        artHtml.match(/<a[^>]*href="([^"]+)"[^>]*class="[^"]*media_end_head_origin_link/i) ||
-        artHtml.match(/<a[^>]*class="[^"]*media_end_head_origin_link[^"]*"[^>]*href="([^"]+)"/i);
-      if (origM) link = decodeHtmlEntities(origM[1]).trim();
-    }
-    const extracted = extractArticleTextAndSummary(artHtml, homepageBullets, prologue, targetUrl);
-    if (extracted.sentences.length > 0 || extracted.fullBody.length > 50) {
-      leadSentences = extracted.sentences;
-      fullBody = extracted.fullBody;
-      return true;
-    }
-    return false;
-  };
-
-  if (link) {
-    await tryExtractFromUrl(link);
-  }
-
-  // 3-b. If direct article fetch failed or timed out (e.g., Donga article tarpit), look up matching article on Naver Press Desk
-  if (leadSentences.length === 0 && !fullBody && desk.naverCode) {
-    try {
-      const deskRes = await fetchHtmlFast(`https://media.naver.com/press/${desk.naverCode}`, 4000);
-      if (deskRes.ok) {
-        const deskItems = [
-          ...deskRes.text.matchAll(
-            /<li class="press_edit_news_item[^"]*"[\s\S]*?<a href="([^"]+)"[^>]*>[\s\S]*?<span class="press_edit_news_title">([\s\S]*?)<\/span>/gi
-          ),
-        ];
-        const titleWords = extractSearchKeywords(title)
-          .split(' ')
-          .filter((w) => w.length >= 2);
-        const bestMatch =
-          deskItems.find((item) => {
-            const itemTitle = decodeHtmlEntities(item[2].replace(/<[^>]+>/g, ''));
-            return titleWords.slice(0, 2).some((w) => itemTitle.includes(w));
-          }) || deskItems[0];
-
-        if (bestMatch) {
-          naverArticleUrl = bestMatch[1].trim();
-          const savedDirectLink = link && !link.includes('news.naver.com') ? link : '';
-          await tryExtractFromUrl(naverArticleUrl);
-          if (savedDirectLink) link = savedDirectLink;
-        }
-      }
-    } catch {
-      // Ignore fallback error
-    }
-  }
 
   if (leadSentences.length === 0) {
     if (homepageBullets.length > 0) {
       leadSentences = homepageBullets.slice(0, 3);
     } else if (prologue) {
       leadSentences = prologue
-        .split(/(?<=[.?!])\s+/)
+        .split(/(?<=[.?!]["'”’)?]*)\s+/)
         .filter(isCleanBodySentence)
         .slice(0, 3);
     }
@@ -640,7 +1018,7 @@ async function fetchHomepageCenterLeadArticle(
     outletId,
     outletName,
     title,
-    link: link || desk.homepageUrl,
+    link: link || homepageUrl,
     naverUrl: naverArticleUrl || undefined,
     pubDate: new Date().toISOString(),
     snippet: fullBody || prologue || leadSentences.join(' '),
@@ -671,71 +1049,80 @@ export async function fetchRealArticlesForOutlets(
 
   const results: Record<string, RawRSSArticle[]> = {};
 
-  await Promise.allSettled(
-    outletsToFetch.map(async (outlet) => {
-      const articles: RawRSSArticle[] = [];
+  // Process in controlled concurrency batches (max 8 outlets at a time) so selecting many outlets never overwhelms sockets
+  const BATCH_SIZE = 8;
+  for (let i = 0; i < outletsToFetch.length; i += BATCH_SIZE) {
+    const batch = outletsToFetch.slice(i, i + BATCH_SIZE);
+    await Promise.allSettled(
+      batch.map(async (outlet) => {
+        const articles: RawRSSArticle[] = [];
 
-      // 1. Fetch the exact center top lead article from the outlet's official homepage
-      const topLead = await fetchHomepageCenterLeadArticle(outlet.id, outlet.name);
-      if (topLead) {
-        articles.push(topLead);
-      }
+        // 1. Fetch verified full-text lead article (Homepage -> Naver Press Desk -> Universal Direct/Search)
+        const topLead = await fetchHomepageCenterLeadArticle(outlet.id, outlet.name);
+        if (topLead) {
+          articles.push(topLead);
+        }
 
-      // 2. Also fetch Google News RSS feed ONLY if homepage failed OR to supply secondary news for overlapping clusters
-      try {
-        const searchUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(outlet.name)}&hl=ko&gl=KR&ceid=KR:ko`;
-        const res = await fetch(searchUrl, {
-          signal: AbortSignal.timeout(3000),
-          headers: { 'User-Agent': 'Mozilla/5.0 (MorningBrief/1.0)' },
-        });
+        // 2. Fetch Google News RSS ONLY as last-resort fallback if lead failed, or lightweight secondary items for cluster matching
+        try {
+          const searchUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(outlet.name)}&hl=ko&gl=KR&ceid=KR:ko`;
+          const res = await fetch(searchUrl, {
+            signal: AbortSignal.timeout(3000),
+            headers: { 'User-Agent': 'Mozilla/5.0 (MorningBrief/1.0)' },
+          });
 
-        if (res.ok) {
-          const xml = await res.text();
-          const items = [
-            ...xml.matchAll(
-              /<item>[\s\S]*?<title>(.*?)<\/title>[\s\S]*?<link>(.*?)<\/link>[\s\S]*?<pubDate>(.*?)<\/pubDate>[\s\S]*?<description>(.*?)<\/description>/g
-            ),
-          ].slice(0, 3);
+          if (res.ok) {
+            const xml = await res.text();
+            const items = [
+              ...xml.matchAll(
+                /<item>[\s\S]*?<title>(.*?)<\/title>[\s\S]*?<link>(.*?)<\/link>[\s\S]*?<pubDate>(.*?)<\/pubDate>[\s\S]*?<description>(.*?)<\/description>/g
+              ),
+            ].slice(0, 3);
 
-          for (const m of items) {
-            let t = decodeHtmlEntities(m[1].replace(/<!\[CDATA\[(.*?)\]\]>/g, '$1'));
-            t = t.replace(new RegExp(`\\s*-\\s*${outlet.name}\\s*$`), '').trim();
+            const escapedOutlet = outlet.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            for (const m of items) {
+              let t = decodeHtmlEntities(m[1].replace(/<!\[CDATA\[(.*?)\]\]>/g, '$1'));
+              t = t
+                .replace(new RegExp(`\\s*-\\s*${escapedOutlet}(?:\\s*뉴스)?\\s*$`, 'i'), '')
+                .replace(/\s*-\s*(?:KBS|MBC|SBS|YTN|JTBC)\s*뉴스\s*$/i, '')
+                .trim();
 
-            let snip = decodeHtmlEntities(
-              m[4]
-                .replace(/<!\[CDATA\[(.*?)\]\]>/g, '$1')
-                .replace(/<[^>]+>/g, ' ')
-                .replace(/https?:\/\/[^\s]+/g, ' ')
-                .replace(/[\r\n]+/g, ' ')
-                .replace(/\s+/g, ' ')
-                .trim()
-            );
+              let snip = decodeHtmlEntities(
+                m[4]
+                  .replace(/<!\[CDATA\[(.*?)\]\]>/g, '$1')
+                  .replace(/<[^>]+>/g, ' ')
+                  .replace(/https?:\/\/[^\s]+/g, ' ')
+                  .replace(/[\r\n]+/g, ' ')
+                  .replace(/\s+/g, ' ')
+                  .trim()
+              );
 
-            if (snip.includes('news.google.com') || snip.length < 25 || snip === t) {
-              snip = '';
-            }
+              if (snip.includes('news.google.com') || snip.length < 25 || snip === t) {
+                snip = '';
+              }
 
-            if (t && !articles.some((a) => a.title === t)) {
-              articles.push({
-                outletId: outlet.id,
-                outletName: outlet.name,
-                title: t,
-                link: m[2].replace(/&amp;/g, '&').trim(),
-                pubDate: m[3],
-                snippet: snip,
-              });
+              if (t && !articles.some((a) => a.title === t)) {
+                articles.push({
+                  outletId: outlet.id,
+                  outletName: outlet.name,
+                  title: t,
+                  link: m[2].replace(/&amp;/g, '&').trim(),
+                  pubDate: m[3],
+                  snippet: snip,
+                });
+              }
             }
           }
+        } catch {
+          // Ignore RSS secondary feed failure
         }
-      } catch {
-        // Ignore RSS secondary feed failure
-      }
 
-      if (articles.length > 0) {
-        results[outlet.id] = articles;
-      }
-    })
-  );
+        if (articles.length > 0) {
+          results[outlet.id] = articles;
+        }
+      })
+    );
+  }
 
   if (Object.keys(results).length > 0) {
     cachedArticles = { ...cachedArticles, ...results };
@@ -1274,10 +1661,15 @@ export function buildRealBriefing(
   }
 
   // 3. Exclusive stories dynamically picked from real articles containing [단독] or distinct investigative stories
-  const realExclusives = allCollected.filter(
+  //    Prefer articles that already have verified fullBody text & official origin URLs (avoid empty-body Google redirects)
+  const fullBodyCollected = allCollected.filter(
+    (a) => Boolean(a.fullBody && a.fullBody.length >= 100) && !a.link.includes('news.google.com')
+  );
+  const exclusivePool = fullBodyCollected.length >= 2 ? fullBodyCollected : allCollected;
+  const realExclusives = exclusivePool.filter(
     (a) => a.title.includes('단독') || a.title.includes('기획') || a.title.includes('포착')
   );
-  const pickedExclusives = (realExclusives.length >= 2 ? realExclusives : allCollected.slice(0, 4))
+  const pickedExclusives = (realExclusives.length >= 2 ? realExclusives : exclusivePool.slice(0, 4))
     .filter((art, idx, arr) => arr.findIndex((x) => x.outletId === art.outletId) === idx)
     .slice(0, 3);
 
@@ -1328,7 +1720,7 @@ export function buildRealBriefing(
     frontPageOutletIds: targetIds,
     overlappingOutletIds: targetIds,
     summaryNote:
-      '대한민국 10대 주요 언론사 공식 홈페이지 첫화면 중앙에 현재 가장 크게 보도 중인 실시간 톱기사를 자동 수집하여 요약 2줄·시사점 1줄 인사이트 브리핑으로 정리했습니다.',
+      '선택한 대한민국 주요 언론사의 최신 1면 핵심 톱기사를 실시간 수집하여 요약 2줄·시사점 1줄 인사이트 브리핑으로 정리했습니다.',
     frontPageStories,
     overlappingStories,
     exclusiveStories,
