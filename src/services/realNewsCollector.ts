@@ -1,7 +1,13 @@
 import http from 'node:http';
 import https from 'node:https';
 import zlib from 'node:zlib';
-import type { DailyBriefing, NewsStory, BriefingTone, SectorHeadlineItem } from '../types/news.ts';
+import type {
+  DailyBriefing,
+  NewsStory,
+  BriefingTone,
+  SectorHeadlineItem,
+  ArticleContentBlock,
+} from '../types/news.ts';
 import { PRESS_OUTLETS, DEFAULT_10_OUTLETS } from '../data/mockNewsData.ts';
 import { MOCK_SECTOR_HEADLINES } from '../data/mockSectorHeadlines.ts';
 import { getCurrentKoreanDateString } from '../utils/dateUtils.ts';
@@ -19,6 +25,10 @@ export interface RawRSSArticle {
   snippet: string;
   leadSentences?: string[];
   fullBody?: string;
+  articleBlocks?: ArticleContentBlock[];
+  leadImage?: string;
+  leadImageCaption?: string;
+  reporter?: string;
   category?: string;
   isTopLead?: boolean;
 }
@@ -324,21 +334,373 @@ function isCleanParagraph(p: string): boolean {
   return !BOILERPLATE_SUBSTRINGS.some((bad) => p.includes(bad));
 }
 
+function isCleanVerbatimLine(p: string): boolean {
+  if (!p || p.length < 12 || p.length > 2000) return false;
+  if (p.includes('http://') || p.includes('https://') || p.includes('&lt;')) return false;
+  // Filter pure email/byline-only lines, but keep genuine body sentences/quotes/subheadings
+  if (/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(p)) return false;
+  if (/^[가-힣]{2,4}\s*기자\s*$/.test(p)) return false;
+  if (p.length < 28 && !/[.?!다요음임함됨"'”’]/.test(p)) return false;
+  return !BOILERPLATE_SUBSTRINGS.some((bad) => p.includes(bad));
+}
+
+function isCleanSubheading(s: string): boolean {
+  if (!s || s.length < 6 || s.length > 140) return false;
+  if (s.includes('http://') || s.includes('https://') || s.includes('@')) return false;
+  return !BOILERPLATE_SUBSTRINGS.some((bad) => s.includes(bad));
+}
+
+function splitLongParagraphCleanly(text: string): string[] {
+  const normalized = (text || '')
+    // Separate fused Korean sentence boundaries (e.g. "커지고 있다.19일" -> "커지고 있다. 19일")
+    .replace(/(?<=[다요음임함됨][.?!]["'”’)?]*)(?=[가-힣A-Z0-9\[“‘"'(])/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!normalized) return [];
+  if (normalized.length <= 320) return [normalized];
+
+  const sentences = normalized
+    .split(/(?<=[.?!]["'”’)?]*)\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (sentences.length <= 2) return [normalized];
+
+  const chunks: string[] = [];
+  let buf = '';
+  let countInBuf = 0;
+
+  for (const sent of sentences) {
+    const candidate = buf ? `${buf} ${sent}` : sent;
+    if (buf && (candidate.length > 280 || countInBuf >= 2)) {
+      chunks.push(buf);
+      buf = sent;
+      countInBuf = 1;
+    } else {
+      buf = candidate;
+      countInBuf += 1;
+    }
+  }
+  if (buf) chunks.push(buf);
+
+  return chunks.length > 0 ? chunks : [normalized];
+}
+
+function resolveArticleImageUrl(rawUrl: string, baseUrl: string): string | null {
+  if (!rawUrl) return null;
+  const cleaned = decodeHtmlEntities(rawUrl).trim().replace(/^['"]|['"]$/g, '');
+  if (!cleaned || cleaned.startsWith('data:') || cleaned.startsWith('javascript:')) return null;
+
+  let abs = cleaned;
+  try {
+    if (cleaned.startsWith('//')) {
+      abs = `https:${cleaned}`;
+    } else if (!/^https?:\/\//i.test(cleaned)) {
+      abs = baseUrl ? new URL(cleaned, baseUrl).toString() : '';
+    }
+  } catch {
+    return null;
+  }
+  if (!/^https?:\/\//i.test(abs)) return null;
+
+  const lower = abs.toLowerCase();
+  if (/\.(?:svg|ico)(?:\?|$)/i.test(lower)) return null;
+  if (
+    /(?:\/icon|\/icons\/|\/logo|logo_|_logo|\/btn|btn_|_btn|banner|\/ad\/|\/ads\/|ad_|doubleclick|googlesyndication|blank\.|spacer\.|1x1|pixel\.|sprite|share_|sns_|journalist_img|profile_|avatar|loading\.gif|noimage|no_img|default_img|common\/img\/ic_|static\.news\.naver\.net\/image\/news\/m\/20|ssl\.pstatic\.net\/static\/newsstand|dthumb-phinf\.pstatic\.net\/.*type=nf)/i.test(
+      lower
+    )
+  ) {
+    return null;
+  }
+  return abs;
+}
+
+function extractImgSrcFromTag(imgTag: string, baseUrl: string): string | null {
+  // Skip tiny tracking pixels / UI icons based on explicit width/height attributes
+  const widthM = imgTag.match(/\bwidth\s*=\s*["']?(\d+)/i);
+  const heightM = imgTag.match(/\bheight\s*=\s*["']?(\d+)/i);
+  if ((widthM && Number(widthM[1]) > 0 && Number(widthM[1]) < 80) || (heightM && Number(heightM[1]) > 0 && Number(heightM[1]) < 60)) {
+    return null;
+  }
+
+  const attrPriority = [
+    /\bdata-src\s*=\s*["']([^"']+)["']/i,
+    /\bdata-lazy-src\s*=\s*["']([^"']+)["']/i,
+    /\bdata-original\s*=\s*["']([^"']+)["']/i,
+    /\bdata-origin\s*=\s*["']([^"']+)["']/i,
+    /\bdata-img-src\s*=\s*["']([^"']+)["']/i,
+    /\bsrc\s*=\s*["']([^"']+)["']/i,
+  ];
+  for (const re of attrPriority) {
+    const m = imgTag.match(re);
+    if (m && m[1]) {
+      const resolved = resolveArticleImageUrl(m[1], baseUrl);
+      if (resolved) return resolved;
+    }
+  }
+  return null;
+}
+
+function extractOgImage(articleHtml: string, articleUrl: string): string | undefined {
+  const raw =
+    articleHtml.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
+    articleHtml.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i)?.[1] ||
+    articleHtml.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
+    '';
+  return resolveArticleImageUrl(raw, articleUrl) || undefined;
+}
+
+function extractReporterName(articleHtml: string): string | undefined {
+  const raw =
+    articleHtml.match(/<em[^>]*class=["'][^"']*media_end_head_journalist_name[^"']*["'][^>]*>([\s\S]*?)<\/em>/i)?.[1] ||
+    articleHtml.match(/<span[^>]*class=["'][^"']*byline_s[^"']*["'][^>]*>([\s\S]*?)<\/span>/i)?.[1] ||
+    articleHtml.match(/<meta[^>]+(?:name|property)=["'](?:dable:author|author|article:author)["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
+    '';
+  const cleaned = decodeHtmlEntities(raw.replace(/<[^>]+>/g, ' '))
+    .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (cleaned && cleaned.length >= 2 && cleaned.length <= 40 && !cleaned.startsWith('http')) {
+    return cleaned;
+  }
+  return undefined;
+}
+
+/**
+ * Extracts ordered verbatim article blocks (inline photos with captions, editorial subheadings,
+ * and complete body paragraphs without artificial truncation) directly from an article body HTML fragment.
+ */
+function extractOrderedArticleBlocks(containerHtml: string, baseUrl: string): ArticleContentBlock[] {
+  if (!containerHtml) return [];
+
+  let work = containerHtml
+    .replace(/<(?:script|style|noscript|iframe|aside|nav|form|button|svg)[\s\S]*?<\/(?:script|style|noscript|iframe|aside|nav|form|button|svg)>/gi, '\n')
+    .replace(/<div[^>]*class=["'][^"']*(?:vod_player|video_area|ad_wrap|art_ad|related_news|reporter_area|copyright|byline_wrap|share_area|sns_area|news_like|tag_area)[^"']*["'][^>]*>[\s\S]*?<\/div>/gi, '\n');
+
+  const placeholders: ArticleContentBlock[] = [];
+  const seenImages = new Set<string>();
+  const registerBlock = (block: ArticleContentBlock): string => {
+    const idx = placeholders.length;
+    placeholders.push(block);
+    return `\n[[ART_BLOCK_${idx}]]\n`;
+  };
+
+  // 1. Naver News inline photo + caption (<span class="end_photo_org">...</span> + optional <em class="img_desc">...</em>)
+  work = work.replace(
+    /<span[^>]*class=["'][^"']*end_photo_org[^"']*["'][^>]*>([\s\S]*?)<\/span>(?:\s*(?:<br\s*\/?>|\s)*<em[^>]*class=["'][^"']*img_desc[^"']*["'][^>]*>([\s\S]*?)<\/em>)?/gi,
+    (_m, spanInner: string, capInner?: string) => {
+      const imgTag = spanInner.match(/<img[^>]+>/i)?.[0] || '';
+      const imgUrl = extractImgSrcFromTag(imgTag, baseUrl);
+      if (!imgUrl || seenImages.has(imgUrl)) return '\n';
+      seenImages.add(imgUrl);
+      const caption = capInner
+        ? decodeHtmlEntities(capInner.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, ' ')).trim()
+        : decodeHtmlEntities(imgTag.match(/\balt=["']([^"']+)["']/i)?.[1] || '').trim();
+      return registerBlock({
+        type: 'image',
+        url: imgUrl,
+        caption: caption && caption.length >= 2 && caption !== '이미지' ? caption : undefined,
+      });
+    }
+  );
+
+  // 2. Standard HTML5 <figure> ... <img> ... <figcaption> ... </figure>
+  work = work.replace(/<figure[^>]*>([\s\S]*?)<\/figure>/gi, (_m, figInner: string) => {
+    const imgTag = figInner.match(/<img[^>]+>/i)?.[0] || '';
+    const imgUrl = extractImgSrcFromTag(imgTag, baseUrl);
+    if (!imgUrl || seenImages.has(imgUrl)) return '\n';
+    seenImages.add(imgUrl);
+    const capMatch =
+      figInner.match(/<figcaption[^>]*>([\s\S]*?)<\/figcaption>/i)?.[1] ||
+      figInner.match(/<(?:p|span|div|em)[^>]*class=["'][^"']*(?:caption|img_desc|desc|txt)[^"']*["'][^>]*>([\s\S]*?)<\/(?:p|span|div|em)>/i)?.[1] ||
+      '';
+    const caption = decodeHtmlEntities(capMatch.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, ' ')).trim() ||
+      decodeHtmlEntities(imgTag.match(/\balt=["']([^"']+)["']/i)?.[1] || '').trim();
+    return registerBlock({
+      type: 'image',
+      url: imgUrl,
+      caption: caption && caption.length >= 2 && caption !== '이미지' ? caption : undefined,
+    });
+  });
+
+  // 3. Remaining standalone <img> tags inside article body (optionally followed by caption element)
+  work = work.replace(
+    /<img[^>]+>(?:\s*(?:<\/a>|<\/span>|<br\s*\/?>|\s)*<(?:em|figcaption|p|span|div)[^>]*class=["'][^"']*(?:img_desc|caption|photo_desc|img_txt|photo_cap)[^"']*["'][^>]*>([\s\S]*?)<\/(?:em|figcaption|p|span|div)>)?/gi,
+    (fullMatch: string, capInner?: string) => {
+      const imgTag = fullMatch.match(/<img[^>]+>/i)?.[0] || '';
+      const imgUrl = extractImgSrcFromTag(imgTag, baseUrl);
+      if (!imgUrl || seenImages.has(imgUrl)) return '\n';
+      seenImages.add(imgUrl);
+      const caption = capInner
+        ? decodeHtmlEntities(capInner.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, ' ')).trim()
+        : decodeHtmlEntities(imgTag.match(/\balt=["']([^"']+)["']/i)?.[1] || '').trim();
+      return registerBlock({
+        type: 'image',
+        url: imgUrl,
+        caption: caption && caption.length >= 2 && caption !== '이미지' ? caption : undefined,
+      });
+    }
+  );
+
+  // Strip stray orphan img_desc captions after images were extracted
+  work = work.replace(/<em[^>]*class=["'][^"']*img_desc[^"']*["'][^>]*>[\s\S]*?<\/em>/gi, '\n');
+
+  // 4. Editorial subheadings (<strong class="media_end_summary">, <h2>, <h3>, <h4>)
+  work = work.replace(
+    /<strong[^>]*class=["'][^"']*media_end_summary[^"']*["'][^>]*>([\s\S]*?)<\/strong>/gi,
+    (_m, inner: string) => {
+      const text = decodeHtmlEntities(inner.replace(/<br\s*\/?>/gi, ' · ').replace(/<[^>]+>/g, ' ')).trim();
+      return isCleanSubheading(text) ? registerBlock({ type: 'subheading', text }) : '\n';
+    }
+  );
+  work = work.replace(/<h[2-4][^>]*>([\s\S]*?)<\/h[2-4]>/gi, (_m, inner: string) => {
+    const text = decodeHtmlEntities(inner.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, ' ')).trim();
+    return isCleanSubheading(text) ? registerBlock({ type: 'subheading', text }) : '\n';
+  });
+
+  // 5. Convert block-level separators into newlines and strip remaining inline formatting tags
+  const textWithMarkers = work
+    .replace(/<\/?(?:a|span|strong|em|b|i|u|mark|font|small)[^>]*>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<(?:p|div|li|blockquote)(?:\s+[^>]*)?>/gi, '\n')
+    .replace(/<\/(?:p|div|li|blockquote)>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ');
+
+  const rawLines = textWithMarkers
+    .split(/\n+/)
+    .map((line) => decodeHtmlEntities(line).trim())
+    .filter(Boolean);
+
+  const blocks: ArticleContentBlock[] = [];
+  const seenTextKeys = new Set<string>();
+
+  for (const line of rawLines) {
+    const markerMatch = line.match(/^\[\[ART_BLOCK_(\d+)\]\]$/);
+    if (markerMatch) {
+      const blk = placeholders[Number(markerMatch[1])];
+      if (blk) blocks.push(blk);
+      continue;
+    }
+
+    // Handle cases where text and marker appear on the same line
+    if (line.includes('[[ART_BLOCK_')) {
+      const parts = line.split(/(\[\[ART_BLOCK_\d+\]\])/g).map((x) => x.trim()).filter(Boolean);
+      for (const part of parts) {
+        const mm = part.match(/^\[\[ART_BLOCK_(\d+)\]\]$/);
+        if (mm) {
+          const blk = placeholders[Number(mm[1])];
+          if (blk) blocks.push(blk);
+        } else {
+          const cleaned = stripReporterEmailSuffix(part.replace(/\s+/g, ' ').trim());
+          for (const para of splitLongParagraphCleanly(cleaned)) {
+            if (isCleanVerbatimLine(para)) {
+              const key = para.slice(0, 28);
+              if (!seenTextKeys.has(key)) {
+                seenTextKeys.add(key);
+                blocks.push({ type: 'text', text: para });
+              }
+            }
+          }
+        }
+      }
+      continue;
+    }
+
+    const cleaned = stripReporterEmailSuffix(line.replace(/\s+/g, ' ').trim());
+    for (const para of splitLongParagraphCleanly(cleaned)) {
+      if (isCleanVerbatimLine(para)) {
+        const key = para.slice(0, 28);
+        if (!seenTextKeys.has(key)) {
+          seenTextKeys.add(key);
+          blocks.push({ type: 'text', text: para });
+        }
+      }
+    }
+
+    if (blocks.length >= 120) break;
+  }
+
+  return blocks;
+}
+
+/**
+ * Extracts ordered text, header, and image blocks from Chosun Fusion JSON payloads
+ */
+function extractChosunFusionBlocks(articleHtml: string, articleUrl: string): ArticleContentBlock[] {
+  const blocks: ArticleContentBlock[] = [];
+  const seenImages = new Set<string>();
+  const seenText = new Set<string>();
+
+  // Match Fusion JSON content_elements in sequence (text, header, image)
+  const tokenRe =
+    /"content":"((?:[^"\\]|\\.)*)","type":"(text|header)"|"caption":"((?:[^"\\]|\\.)*)"[^}]{0,400}"type":"image"[^}]{0,400}"url":"(https?:\/\/[^"]+)"|"type":"image"[^}]{0,400}"url":"(https?:\/\/[^"]+)"(?:[^}]{0,400}"caption":"((?:[^"\\]|\\.)*)")?/g;
+
+  for (const m of articleHtml.matchAll(tokenRe)) {
+    if (m[2] === 'text' || m[2] === 'header') {
+      const raw = decodeHtmlEntities(
+        (m[1] || '')
+          .replace(/\\"/g, '"')
+          .replace(/\\n/g, ' ')
+          .replace(/\\u003c/gi, '<')
+          .replace(/\\u003e/gi, '>')
+          .replace(/<\/?(?:a|span|strong|em|b|i|u)[^>]*>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+      ).trim();
+      const cleaned = stripReporterEmailSuffix(raw);
+      if (m[2] === 'header' && isCleanSubheading(cleaned)) {
+        blocks.push({ type: 'subheading', text: cleaned });
+      } else if (isCleanVerbatimLine(cleaned)) {
+        const key = cleaned.slice(0, 28);
+        if (!seenText.has(key)) {
+          seenText.add(key);
+          blocks.push({ type: 'text', text: cleaned });
+        }
+      }
+    } else {
+      const imgUrlRaw = m[4] || m[5] || '';
+      const capRaw = m[3] || m[6] || '';
+      const imgUrl = resolveArticleImageUrl(imgUrlRaw, articleUrl);
+      if (imgUrl && !seenImages.has(imgUrl)) {
+        seenImages.add(imgUrl);
+        const caption = decodeHtmlEntities(capRaw.replace(/\\"/g, '"').replace(/\\n/g, ' ').replace(/<[^>]+>/g, ' ')).trim();
+        blocks.push({
+          type: 'image',
+          url: imgUrl,
+          caption: caption && caption.length >= 2 ? caption : undefined,
+        });
+      }
+    }
+    if (blocks.length >= 120) break;
+  }
+
+  return blocks;
+}
+
 function extractArticleTextAndSummary(
   articleHtml: string,
   homepageBullets: string[] = [],
   homepagePrologue = '',
   articleUrl = ''
-): { sentences: string[]; fullBody: string } {
+): {
+  sentences: string[];
+  fullBody: string;
+  articleBlocks: ArticleContentBlock[];
+  leadImage?: string;
+  leadImageCaption?: string;
+  reporter?: string;
+} {
   const paragraphPool: string[] = [];
   const fullBodyParas: string[] = [];
+  let orderedBlocks: ArticleContentBlock[] = [];
+  const reporter = extractReporterName(articleHtml);
 
   const pushLinesToPools = (rawLines: string[]) => {
     const cleanedLines = rawLines
-      .map((s) => stripReporterEmailSuffix(s.replace(/\s+/g, ' ').trim()))
+      .flatMap((s) => splitLongParagraphCleanly(stripReporterEmailSuffix(s.replace(/\s+/g, ' ').trim())))
       .filter(Boolean);
 
-    const paras = cleanedLines.filter(isCleanParagraph);
+    const paras = cleanedLines.filter(isCleanVerbatimLine);
     fullBodyParas.push(...paras);
 
     for (const line of cleanedLines) {
@@ -357,7 +719,16 @@ function extractArticleTextAndSummary(
     }
   };
 
-  // 1. Naver News article page: scope strictly to dic_area / articeBody (never scan global <p>)
+  const absorbOrderedBlocks = (blocks: ArticleContentBlock[]) => {
+    if (blocks.length === 0) return;
+    orderedBlocks = blocks;
+    const textLines = blocks
+      .filter((b) => b.type === 'text' && b.text)
+      .map((b) => b.text as string);
+    pushLinesToPools(textLines);
+  };
+
+  // 1. Naver News article page: scope strictly to dic_area / articeBody (preserves ALL text + inline photos + captions)
   const dicArea =
     articleHtml.match(/<article[^>]*id=["']dic_area["'][^>]*>([\s\S]*?)<\/article>/i)?.[1] ||
     articleHtml.match(/<div[^>]*id=["'](?:dic_area|articeBody|newsEndContents)["'][^>]*>([\s\S]*?)<\/div>\s*(?:<div[^>]*class=["'][^"']*(?:byline|copyright|news_end|reporter|media_end))/i)?.[1] ||
@@ -365,57 +736,36 @@ function extractArticleTextAndSummary(
 
   if (dicArea || articleUrl.includes('news.naver.com')) {
     if (dicArea) {
-      const cleanedDic = dicArea
-        .replace(/<strong[^>]*class="media_end_summary"[^>]*>[\s\S]*?<\/strong>/gi, '\n')
-        .replace(/<div[^>]*class="[^"]*(?:subtitle|summary|nbd_im_w|vod_player|video_area)[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '\n')
-        .replace(/<span[^>]*class="end_photo_org"[^>]*>[\s\S]*?<\/span>/gi, '\n')
-        .replace(/<em[^>]*class="img_desc"[^>]*>[\s\S]*?<\/em>/gi, '\n');
-
-      const rawLines = stripInlineTagsCleanly(cleanedDic).split(/\n+/);
-      pushLinesToPools(rawLines);
+      absorbOrderedBlocks(extractOrderedArticleBlocks(dicArea, articleUrl));
     }
   } else {
-    // 2. Donga Ilbo <section class="news_view"> (text with <br /> inside news_view)
+    // 2. Donga Ilbo <section class="news_view"> (keeps inline photos + full verbatim text)
     const dongaView =
       articleHtml.match(/class="news_view"[^>]*>([\s\S]*?)<div class="news_like_wrap/i)?.[1] ||
       articleHtml.match(/class="news_view"[^>]*>([\s\S]*?)<\/section>/i)?.[1];
 
     if (dongaView && articleUrl.includes('donga.com')) {
-      const cleanedDonga = dongaView
-        .replace(/<div[^>]*view_[^>]*>[\s\S]*?<\/div>/gi, '\n')
-        .replace(/<h2[^>]*sub_tit[^>]*>[\s\S]*?<\/h2>/gi, '\n');
-      pushLinesToPools(stripInlineTagsCleanly(cleanedDonga).split(/\n+/));
+      const cleanedDonga = dongaView.replace(/<div[^>]*class=["'][^"']*view_(?:m_ad|ad|relation|series)[^"']*["'][^>]*>[\s\S]*?<\/div>/gi, '\n');
+      absorbOrderedBlocks(extractOrderedArticleBlocks(cleanedDonga, articleUrl));
     }
 
-    // 3. Chosun Fusion JSON content elements
-    const fusionBlocks = [...articleHtml.matchAll(/"content":"([^"]{35,650})","type":"text"/g)]
-      .map((m) =>
-        decodeHtmlEntities(
-          m[1]
-            .replace(/\\"/g, '"')
-            .replace(/\\n/g, ' ')
-            .replace(/<\/?(?:a|span|strong|em|b|i|u)[^>]*>/gi, '')
-            .replace(/<[^>]+>/g, ' ')
-        )
-      )
-      .filter(isCleanParagraph);
-
-    if (fusionBlocks.length > 0) {
-      pushLinesToPools(fusionBlocks);
+    // 3. Chosun Fusion JSON content elements (ordered text + headers + inline images)
+    if (fullBodyParas.length < 2) {
+      const fusionOrdered = extractChosunFusionBlocks(articleHtml, articleUrl);
+      if (fusionOrdered.some((b) => b.type === 'text')) {
+        absorbOrderedBlocks(fusionOrdered);
+      }
     }
 
-    // 4. Common Korean press CMS body containers (covers Edaily, SBS, NewsTomato, BoanNews, ITChosun, DNews, regional CMS)
+    // 4. Common Korean press CMS body containers (covers Edaily, SBS, JoongAng, MK, Hankyung, NewsTomato, regional CMS)
     if (fullBodyParas.length < 2) {
       const cmsContainerMatch =
         articleHtml.match(/<(?:article|div|section)[^>]*(?:id|class)=["'][^"']*(?:article-view-content-div|article_body|articleBody|news_body|news_text|rns_text|text_area|art_txt|article_txt|view_con|news_cnt|content_body|article_view_body)[^"']*["'][^>]*>([\s\S]*?)<\/(?:article|section)>/i)?.[1] ||
-        articleHtml.match(/<div[^>]*(?:id|class)=["'][^"']*(?:article-view-content-div|article_body|articleBody|news_body|news_text|rns_text|text_area|art_txt|article_txt|view_con|news_cnt)[^"']*["'][^>]*>([\s\S]{150,15000}?)(?:<div[^>]*class=["'][^"']*(?:copyright|byline|reporter|share|related|tag|banner|ad_|comment)|<\/section>|<\/article>)/i)?.[1] ||
-        articleHtml.match(/itemprop=["']articleBody["'][^>]*>([\s\S]{150,15000}?)(?:<\/article>|<\/section>|<div[^>]*class=["'][^"']*(?:copyright|byline|related|share))/i)?.[1];
+        articleHtml.match(/<div[^>]*(?:id|class)=["'][^"']*(?:article-view-content-div|article_body|articleBody|news_body|news_text|rns_text|text_area|art_txt|article_txt|view_con|news_cnt)[^"']*["'][^>]*>([\s\S]{150,45000}?)(?:<div[^>]*class=["'][^"']*(?:copyright|byline|reporter|share|related|tag|banner|ad_|comment)|<\/section>|<\/article>)/i)?.[1] ||
+        articleHtml.match(/itemprop=["']articleBody["'][^>]*>([\s\S]{150,45000}?)(?:<\/article>|<\/section>|<div[^>]*class=["'][^"']*(?:copyright|byline|related|share))/i)?.[1];
 
       if (cmsContainerMatch) {
-        const cleanedCms = cmsContainerMatch
-          .replace(/<(?:script|style|figure|figcaption|aside|nav|iframe|button)[\s\S]*?<\/(?:script|style|figure|figcaption|aside|nav|iframe|button)>/gi, '\n')
-          .replace(/<div[^>]*class=["'][^"']*(?:ad|banner|related|caption|img_desc|photo)[^"']*["'][^>]*>[\s\S]*?<\/div>/gi, '\n');
-        pushLinesToPools(stripInlineTagsCleanly(cleanedCms).split(/\n+/));
+        absorbOrderedBlocks(extractOrderedArticleBlocks(cmsContainerMatch, articleUrl));
       }
     }
 
@@ -434,7 +784,7 @@ function extractArticleTextAndSummary(
       pushLinesToPools(pLines);
     }
 
-    // 6. JSON-LD articleBody fallback (also populates fullBodyParas!)
+    // 6. JSON-LD articleBody fallback
     if (fullBodyParas.length < 2 || paragraphPool.length < 3) {
       const ldMatches = [
         ...articleHtml.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi),
@@ -463,9 +813,9 @@ function extractArticleTextAndSummary(
       const rawLines = stripInlineTagsCleanly(strippedAll)
         .split(/\n+/)
         .map((s) => s.trim())
-        .filter((s) => s.length >= 42 && s.length <= 800 && isCleanParagraph(s));
+        .filter((s) => s.length >= 42 && s.length <= 1200 && isCleanParagraph(s));
       if (rawLines.length >= 2) {
-        pushLinesToPools(rawLines.slice(0, 10));
+        pushLinesToPools(rawLines);
       }
     }
 
@@ -511,14 +861,14 @@ function extractArticleTextAndSummary(
     }
   }
 
-  // Deduplicate fullBody paragraphs cleanly (preserve up to 10 rich paragraphs for full article reading)
+  // Deduplicate fullBody paragraphs cleanly WITHOUT truncating the original article (up to 100 paragraphs)
   const uniqueParas: string[] = [];
   for (const p of fullBodyParas) {
-    const key = p.slice(0, 20);
-    if (!uniqueParas.some((u) => u.includes(key) || p.includes(u.slice(0, 20)))) {
+    const key = p.slice(0, 24);
+    if (!uniqueParas.some((u) => u.includes(key) || p.includes(u.slice(0, 24)))) {
       uniqueParas.push(p);
     }
-    if (uniqueParas.length >= 10) break;
+    if (uniqueParas.length >= 100) break;
   }
 
   // If sentence pool came up short (<3) despite rich paragraphs, derive clean sentences from uniqueParas
@@ -533,9 +883,35 @@ function extractArticleTextAndSummary(
     }
   }
 
+  // Ensure articleBlocks exists even when extracted via <p> or JSON-LD fallback
+  if (orderedBlocks.filter((b) => b.type === 'text').length === 0 && uniqueParas.length > 0) {
+    orderedBlocks = [
+      ...orderedBlocks.filter((b) => b.type === 'image'),
+      ...uniqueParas.map((text): ArticleContentBlock => ({ type: 'text', text })),
+    ];
+  }
+
+  // If no inline image was found in body container, prepend og:image as lead photo when available
+  const hasInlineImage = orderedBlocks.some((b) => b.type === 'image' && b.url);
+  const ogImage = extractOgImage(articleHtml, articleUrl);
+  if (!hasInlineImage && ogImage) {
+    orderedBlocks = [{ type: 'image', url: ogImage }, ...orderedBlocks];
+  }
+
+  const firstImgBlock = orderedBlocks.find((b) => b.type === 'image' && b.url);
+  const leadImage = firstImgBlock?.url || ogImage;
+  const leadImageCaption = firstImgBlock?.caption;
+
   const fullBody = uniqueParas.length > 0 ? uniqueParas.join('\n\n') : uniqueSentences.join('\n\n');
 
-  return { sentences: uniqueSentences, fullBody };
+  return {
+    sentences: uniqueSentences,
+    fullBody,
+    articleBlocks: orderedBlocks,
+    leadImage,
+    leadImageCaption,
+    reporter,
+  };
 }
 
 const TOP10_CUSTOM_HOMEPAGE_IDS = new Set([
@@ -619,6 +995,10 @@ async function fetchNaverArticleDetail(
   naverUrl: string;
   leadSentences: string[];
   fullBody: string;
+  articleBlocks: ArticleContentBlock[];
+  leadImage?: string;
+  leadImageCaption?: string;
+  reporter?: string;
 } | null> {
   const artRes = await fetchHtmlFast(naverArticleUrl, 4500);
   if (!artRes.ok || !artRes.text) return null;
@@ -637,6 +1017,10 @@ async function fetchNaverArticleDetail(
     naverUrl: naverArticleUrl,
     leadSentences: extracted.sentences,
     fullBody: extracted.fullBody,
+    articleBlocks: extracted.articleBlocks,
+    leadImage: extracted.leadImage,
+    leadImageCaption: extracted.leadImageCaption,
+    reporter: extracted.reporter,
   };
 }
 
@@ -775,6 +1159,10 @@ async function fetchUniversalOutletArticle(
       snippet: extracted.fullBody || extracted.sentences.join(' '),
       leadSentences: extracted.sentences,
       fullBody: extracted.fullBody,
+      articleBlocks: extracted.articleBlocks,
+      leadImage: extracted.leadImage,
+      leadImageCaption: extracted.leadImageCaption,
+      reporter: extracted.reporter,
       isTopLead: true,
     };
 
@@ -809,6 +1197,10 @@ async function fetchHomepageCenterLeadArticle(
   let naverArticleUrl = '';
   let leadSentences: string[] = [];
   let fullBody = '';
+  let articleBlocks: ArticleContentBlock[] = [];
+  let leadImage: string | undefined;
+  let leadImageCaption: string | undefined;
+  let reporter: string | undefined;
 
   // 1. Direct Homepage HTML Extraction for Top 10 Custom-Mapped Major Outlets
   if (TOP10_CUSTOM_HOMEPAGE_IDS.has(outletId)) {
@@ -916,7 +1308,7 @@ async function fetchHomepageCenterLeadArticle(
     }
   }
 
-  // 1-b. If direct homepage link was obtained, extract genuine full body from the direct article page
+  // 1-b. If direct homepage link was obtained, extract genuine full body + inline photos from the direct article page
   if (title && link) {
     const artRes = await fetchHtmlFast(link, 4500);
     if (artRes.ok && artRes.text) {
@@ -924,19 +1316,24 @@ async function fetchHomepageCenterLeadArticle(
       if (extracted.sentences.length > 0 || extracted.fullBody.length > 50) {
         leadSentences = extracted.sentences;
         fullBody = extracted.fullBody;
+        articleBlocks = extracted.articleBlocks;
+        leadImage = extracted.leadImage;
+        leadImageCaption = extracted.leadImageCaption;
+        reporter = extracted.reporter;
       }
     }
   }
 
   // 2. Official Naver Press Desk (primary for all 50+ non-top-10 Naver CP outlets like Edaily/SBS/KBS/MBC/JTBC/MT/FNNews,
-  //    and reliable full-body fallback for Top 10 outlets when homepage is WAF-blocked or returned a 1-line breaking-news stub)
-  if (naverCode && (!title || fullBody.length < 150)) {
+  //    and reliable full-body + photo fallback for Top 10 outlets when homepage is WAF-blocked or returned thin body/no photos)
+  const needsNaverEnrichment = !title || fullBody.length < 220 || !articleBlocks.some((b) => b.type === 'image');
+  if (naverCode && needsNaverEnrichment) {
     try {
       const deskRes = await fetchHtmlFast(`https://media.naver.com/press/${naverCode}`, 4500);
       if (deskRes.ok && deskRes.text) {
         const candidates = parseNaverPressDeskCandidates(deskRes.text, naverCode);
 
-        // If we already have a homepage title whose body was thin (<150 chars), try matching that exact story on Naver first
+        // If we already have a homepage title, try matching that exact story on Naver first for cleaner full body & photos
         if (title && candidates.length > 0) {
           const titleWords = extractSearchKeywords(title)
             .split(' ')
@@ -952,20 +1349,29 @@ async function fetchHomepageCenterLeadArticle(
               homepageBullets,
               prologue
             );
-            if (detail && detail.fullBody.length > fullBody.length) {
+            if (detail && (detail.fullBody.length >= fullBody.length || (!articleBlocks.some((b) => b.type === 'image') && detail.articleBlocks.some((b) => b.type === 'image')))) {
               naverArticleUrl = detail.naverUrl;
               if (!link || link.includes('news.naver.com')) {
                 link = detail.originUrl || detail.naverUrl;
               }
-              leadSentences = detail.leadSentences.length > 0 ? detail.leadSentences : leadSentences;
-              fullBody = detail.fullBody;
+              if (detail.leadSentences.length > 0) leadSentences = detail.leadSentences;
+              if (detail.fullBody.length >= fullBody.length) {
+                fullBody = detail.fullBody;
+                articleBlocks = detail.articleBlocks;
+                leadImage = detail.leadImage || leadImage;
+                leadImageCaption = detail.leadImageCaption || leadImageCaption;
+              } else if (detail.leadImage && !leadImage) {
+                leadImage = detail.leadImage;
+                leadImageCaption = detail.leadImageCaption;
+                articleBlocks = [{ type: 'image', url: detail.leadImage, caption: detail.leadImageCaption }, ...articleBlocks];
+              }
+              reporter = detail.reporter || reporter;
             }
           }
         }
 
         // If we still don't have a rich article (>=150 chars body), pick the top lead candidate with a real full body
-        // (skipping 1-line [속보] stubs or video-only clips when full lead articles exist right below them)
-        if ((!title || fullBody.length < 120) && candidates.length > 0) {
+        if ((!title || fullBody.length < 150) && candidates.length > 0) {
           let bestDetail: Awaited<ReturnType<typeof fetchNaverArticleDetail>> = null;
           for (const cand of candidates.slice(0, 5)) {
             const detail = await fetchNaverArticleDetail(cand.url, cand.title, outletName);
@@ -973,7 +1379,7 @@ async function fetchHomepageCenterLeadArticle(
             if (!bestDetail || detail.fullBody.length > bestDetail.fullBody.length) {
               bestDetail = detail;
             }
-            if (detail.fullBody.length >= 260) {
+            if (detail.fullBody.length >= 280) {
               bestDetail = detail;
               break;
             }
@@ -985,6 +1391,10 @@ async function fetchHomepageCenterLeadArticle(
             link = bestDetail.originUrl || bestDetail.naverUrl;
             leadSentences = bestDetail.leadSentences;
             fullBody = bestDetail.fullBody;
+            articleBlocks = bestDetail.articleBlocks;
+            leadImage = bestDetail.leadImage;
+            leadImageCaption = bestDetail.leadImageCaption;
+            reporter = bestDetail.reporter || reporter;
           }
         }
       }
@@ -1024,6 +1434,10 @@ async function fetchHomepageCenterLeadArticle(
     snippet: fullBody || prologue || leadSentences.join(' '),
     leadSentences,
     fullBody,
+    articleBlocks: articleBlocks.length > 0 ? articleBlocks : undefined,
+    leadImage,
+    leadImageCaption,
+    reporter,
     isTopLead: true,
   };
 }
@@ -1302,10 +1716,7 @@ export async function fetchSectorHeadlinesReal(forceRefresh = false): Promise<Se
           outletName,
           extracted.sentences
         );
-        const bodyText = (extracted.fullBody || baseSummary.join('\n\n'))
-          .replace(/^\[[^\]]+\]\s*/g, '')
-          .trim();
-        const fullContent = `[${outletName}] ${bodyText}`;
+        const bodyText = (extracted.fullBody || baseSummary.join('\n\n')).trim();
         const rawTags = extractSearchKeywords(title).split(' ').filter((w) => w.length >= 2);
         const tags = Array.from(
           new Set([
@@ -1340,8 +1751,11 @@ export async function fetchSectorHeadlinesReal(forceRefresh = false): Promise<Se
           impactRating,
           highlightBadge,
           keyFigure,
-          fullContent,
-          reporter: reporterClean || `${outletName} 취재기자`,
+          fullContent: bodyText,
+          articleBlocks: extracted.articleBlocks.length > 0 ? extracted.articleBlocks : undefined,
+          leadImage: extracted.leadImage,
+          leadImageCaption: extracted.leadImageCaption,
+          reporter: reporterClean || extracted.reporter || `${outletName} 취재기자`,
           pressSection: cfg.pressSection,
         });
       }
@@ -1528,13 +1942,14 @@ export function buildRealBriefing(
       publishedAt: `${todayFormatted} ${shortTime} 실시간`,
       keywords: keywords.length > 0 ? keywords : ['첫화면톱', '실시간'],
       topic: inferTopicFromText(art.title),
-      reporter: `${art.outletName} 편집국`,
+      reporter: art.reporter || `${art.outletName} 편집국`,
       pressSection: '첫화면 중앙 톱',
       newspaperPage: '홈페이지 첫화면 중앙',
       reactions: { insightful: 45, important: 110, surprising: 18 },
-      fullContent: `[${art.outletName} 첫화면 중앙 톱보도]\n${art.title}\n\n${
-        art.fullBody || art.snippet || baseSummary.join('\n\n')
-      }\n\n본 기사는 ${art.outletName} 공식 홈페이지 첫화면 중앙에 가장 크게 보도되고 있는 실시간 톱기사입니다.`,
+      fullContent: (art.fullBody || art.snippet || baseSummary.join('\n\n')).trim(),
+      articleBlocks: art.articleBlocks,
+      leadImage: art.leadImage,
+      leadImageCaption: art.leadImageCaption,
     });
   }
 
@@ -1601,10 +2016,15 @@ export function buildRealBriefing(
           stance: '실시간 집중 보도',
           originalUrl: cleanUrl,
           publishedAt: `${todayFormatted} ${shortTime} 실시간`,
-          reporter: `${m.outletName} 편집국`,
+          reporter: m.reporter || `${m.outletName} 편집국`,
+          fullContent: m.fullBody,
+          articleBlocks: m.articleBlocks,
+          leadImage: m.leadImage,
+          leadImageCaption: m.leadImageCaption,
         };
       });
 
+      const primaryWithBody = uniqueByOutlet.find((m) => m.fullBody && m.fullBody.length >= 120) || uniqueByOutlet[0];
       overlappingStories.push({
         id: `ol-${bucket.id}-${Date.now().toString(36)}`,
         outletId: 'multiple',
@@ -1612,6 +2032,7 @@ export function buildRealBriefing(
         category: 'overlapping',
         title: bucket.title,
         leadSummary: sampleSummaries.slice(0, 3),
+        baseSummary: sampleSummaries.slice(0, 3),
         originalUrl: clusterOutlets[0]?.originalUrl || getOfficialOutletHomepage(uniqueByOutlet[0]?.outletId, uniqueByOutlet[0]?.outletName),
         publishedAt: `${todayFormatted} ${shortTime} 실시간`,
         keywords: bucket.keywords,
@@ -1620,6 +2041,10 @@ export function buildRealBriefing(
         coveredOutlets: uniqueOutlets,
         clusterOutlets,
         consensusPoints: uniqueByOutlet.slice(0, 3).map((m) => `[${m.outletName}] ${m.title}`),
+        fullContent: primaryWithBody?.fullBody,
+        articleBlocks: primaryWithBody?.articleBlocks,
+        leadImage: primaryWithBody?.leadImage,
+        leadImageCaption: primaryWithBody?.leadImageCaption,
       });
     }
   }
@@ -1640,6 +2065,10 @@ export function buildRealBriefing(
         originalUrl: s.originalUrl,
         publishedAt: s.publishedAt,
         reporter: s.reporter || `${s.outletName} 편집국`,
+        fullContent: s.fullContent,
+        articleBlocks: s.articleBlocks,
+        leadImage: s.leadImage,
+        leadImageCaption: s.leadImageCaption,
       };
     });
     overlappingStories.push({
@@ -1649,6 +2078,7 @@ export function buildRealBriefing(
       category: 'overlapping',
       title: '[실시간 종합] 당일 주요 언론사 첫화면 중앙 톱뉴스 핵심 현안 모음',
       leadSummary: topStories.map((s) => `${s.outletName}: ${s.title}`),
+      baseSummary: topStories.map((s) => `${s.outletName}: ${s.title}`),
       originalUrl: clusterOutlets[0]?.originalUrl || 'https://www.chosun.com',
       publishedAt: `${todayFormatted} ${shortTime} 실시간`,
       keywords: ['실시간종합', '주요뉴스'],
@@ -1657,11 +2087,14 @@ export function buildRealBriefing(
       coveredOutlets: topOutlets,
       clusterOutlets,
       consensusPoints: topStories.map((s) => `[${s.outletName}] ${s.title}`),
+      fullContent: topStories[0]?.fullContent,
+      articleBlocks: topStories[0]?.articleBlocks,
+      leadImage: topStories[0]?.leadImage,
+      leadImageCaption: topStories[0]?.leadImageCaption,
     });
   }
 
   // 3. Exclusive stories dynamically picked from real articles containing [단독] or distinct investigative stories
-  //    Prefer articles that already have verified fullBody text & official origin URLs (avoid empty-body Google redirects)
   const fullBodyCollected = allCollected.filter(
     (a) => Boolean(a.fullBody && a.fullBody.length >= 100) && !a.link.includes('news.google.com')
   );
@@ -1688,10 +2121,14 @@ export function buildRealBriefing(
       publishedAt: `${todayFormatted} ${shortTime} 실시간`,
       keywords: extractSearchKeywords(art.title).split(' ').slice(0, 3),
       topic: inferTopicFromText(art.title),
+      reporter: art.reporter || `${art.outletName} 편집국`,
       exclusiveBadge: art.title.includes('단독') ? `${art.outletName} 단독` : `${art.outletName} 심층`,
       importanceRating: 'Crucial',
       reactions: { insightful: 48, important: 96, surprising: 22 },
-      fullContent: `[${art.outletName}] ${art.title}\n\n${art.fullBody || art.snippet || baseSummary.join('\n\n')}`,
+      fullContent: (art.fullBody || art.snippet || baseSummary.join('\n\n')).trim(),
+      articleBlocks: art.articleBlocks,
+      leadImage: art.leadImage,
+      leadImageCaption: art.leadImageCaption,
     };
   });
 
@@ -1720,7 +2157,7 @@ export function buildRealBriefing(
     frontPageOutletIds: targetIds,
     overlappingOutletIds: targetIds,
     summaryNote:
-      '선택한 대한민국 주요 언론사의 최신 1면 핵심 톱기사를 실시간 수집하여 요약 2줄·시사점 1줄 인사이트 브리핑으로 정리했습니다.',
+      '선택한 대한민국 주요 언론사의 최신 1면 핵심 톱기사를 실시간 수집하여 요약 3줄(개조식)·심층 시사점 1줄(개조식) 인사이트 브리핑으로 정리했습니다.',
     frontPageStories,
     overlappingStories,
     exclusiveStories,
@@ -1728,4 +2165,131 @@ export function buildRealBriefing(
   };
 
   return transformBriefingTone(rawBriefing, tone);
+}
+
+/**
+ * Collects cross-outlet related articles (from collected press pool + live Naver News search)
+ * so Gemini can synthesize genuinely deep, multi-source [시사점] insights.
+ */
+export async function collectRelatedArticlesContext(
+  stories: Array<{ id: string; title: string; outletName: string; keywords?: string[] }>,
+  allCollected: RawRSSArticle[],
+  sectorHeadlines: SectorHeadlineItem[] = []
+): Promise<Record<string, Array<{ outletName: string; title: string; excerpt?: string }>>> {
+  const result: Record<string, Array<{ outletName: string; title: string; excerpt?: string }>> = {};
+
+  const localPool: Array<{ outletName: string; title: string; excerpt: string }> = [
+    ...allCollected.map((a) => ({
+      outletName: a.outletName,
+      title: a.title,
+      excerpt: (a.leadSentences?.[0] || a.snippet || '').slice(0, 140),
+    })),
+    ...sectorHeadlines.map((h) => ({
+      outletName: h.outletName,
+      title: h.title,
+      excerpt: (h.summary || '').slice(0, 140),
+    })),
+  ];
+
+  const needWebSearch: Array<{ id: string; query: string; title: string; outletName: string }> = [];
+
+  for (const story of stories) {
+    const tokens = extractSearchKeywords(story.title)
+      .split(' ')
+      .filter((w) => w.length >= 2);
+    const matches: Array<{ outletName: string; title: string; excerpt?: string; score: number }> = [];
+
+    for (const cand of localPool) {
+      if (cand.title === story.title) continue;
+      let score = 0;
+      for (const tok of tokens) {
+        if (cand.title.includes(tok)) score += 2;
+        else if (cand.excerpt.includes(tok)) score += 1;
+      }
+      if (score >= 2) {
+        matches.push({
+          outletName: cand.outletName,
+          title: cand.title,
+          excerpt: cand.excerpt || undefined,
+          score: cand.outletName !== story.outletName ? score + 1 : score,
+        });
+      }
+    }
+
+    matches.sort((a, b) => b.score - a.score);
+    const deduped: Array<{ outletName: string; title: string; excerpt?: string }> = [];
+    for (const m of matches) {
+      if (!deduped.some((d) => d.title === m.title)) {
+        deduped.push({ outletName: m.outletName, title: m.title, excerpt: m.excerpt });
+      }
+      if (deduped.length >= 3) break;
+    }
+
+    result[story.id] = deduped;
+
+    // Queue lightweight Naver News search for top stories with fewer than 2 local related articles
+    if (deduped.length < 2 && tokens.length >= 2 && needWebSearch.length < 8) {
+      needWebSearch.push({
+        id: story.id,
+        query: tokens.slice(0, 3).join(' '),
+        title: story.title,
+        outletName: story.outletName,
+      });
+    }
+  }
+
+  // Fetch related Naver News search headlines in parallel (strictly 2500ms timeout so briefing stays snappy)
+  if (needWebSearch.length > 0) {
+    await Promise.allSettled(
+      needWebSearch.map(async (item) => {
+        const res = await fetchHtmlFast(
+          `https://search.naver.com/search.naver?where=news&sort=0&query=${encodeURIComponent(item.query)}`,
+          2500,
+          2,
+          0
+        );
+        if (!res.ok || !res.text) return;
+
+        const html = res.text;
+        const found: Array<{ outletName: string; title: string }> = [];
+        // Extract article titles from Naver news search result anchors
+        const anchorMatches = [
+          ...html.matchAll(/<a[^>]*class=["'][^"']*news_tit[^"']*["'][^>]*title=["']([^"']+)["']/gi),
+        ];
+        for (const m of anchorMatches) {
+          const t = decodeHtmlEntities(m[1]).trim();
+          if (t && t.length >= 10 && t !== item.title && !found.some((f) => f.title === t)) {
+            found.push({ outletName: '관련보도', title: t });
+          }
+          if (found.length >= 3) break;
+        }
+        // Alternate Naver markup fallback (sds-comps / api_txt_lines)
+        if (found.length === 0) {
+          const altMatches = [
+            ...html.matchAll(/<span[^>]*class=["'][^"']*sds-comps-text-type-headline1[^"']*["'][^>]*>([\s\S]*?)<\/span>/gi),
+          ];
+          for (const m of altMatches) {
+            const t = decodeHtmlEntities(m[1].replace(/<[^>]+>/g, ' ')).trim();
+            if (t && t.length >= 10 && t !== item.title && !found.some((f) => f.title === t)) {
+              found.push({ outletName: '관련보도', title: t });
+            }
+            if (found.length >= 3) break;
+          }
+        }
+
+        if (found.length > 0) {
+          const existing = result[item.id] || [];
+          for (const f of found) {
+            if (!existing.some((e) => e.title === f.title)) {
+              existing.push(f);
+            }
+            if (existing.length >= 3) break;
+          }
+          result[item.id] = existing;
+        }
+      })
+    );
+  }
+
+  return result;
 }

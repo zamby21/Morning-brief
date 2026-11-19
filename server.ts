@@ -1,4 +1,6 @@
 import express from 'express';
+import http from 'node:http';
+import https from 'node:https';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
@@ -12,8 +14,18 @@ import {
 import type { DailyBriefing, EmailDispatchLog, WeeklyReport, BriefingTone } from './src/types/news.ts';
 import { getCurrentKoreanDateString } from './src/utils/dateUtils.ts';
 import { extractSearchKeywords, getOfficialOutletHomepage } from './src/utils/linkUtils.ts';
-import { transformBriefingTone, formatLeadSummaryByTone } from './src/utils/toneTransformer.ts';
-import { fetchRealArticlesForOutlets, fetchSectorHeadlinesReal, buildRealBriefing } from './src/services/realNewsCollector.ts';
+import {
+  transformBriefingTone,
+  formatLeadSummaryByTone,
+  toBulletKorean,
+  toBulletInsightLine,
+} from './src/utils/toneTransformer.ts';
+import {
+  fetchRealArticlesForOutlets,
+  fetchSectorHeadlinesReal,
+  buildRealBriefing,
+  collectRelatedArticlesContext,
+} from './src/services/realNewsCollector.ts';
 import { computeKeywordTrends } from './src/utils/keywordTrend.ts';
 
 dotenv.config();
@@ -22,7 +34,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
 
 // In-memory logs
 const emailLogs: EmailDispatchLog[] = [...INITIAL_EMAIL_LOGS];
@@ -35,6 +47,146 @@ app.get(['/api/health', '/health'], (_req, res) => {
     geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
     timestamp: new Date().toISOString(),
   });
+});
+
+// Safe image proxy for Korean news press photos (bypasses strict CDN hotlink/Referer blocks in iframe)
+function isDisallowedProxyHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  if (
+    h === 'localhost' ||
+    h === '0.0.0.0' ||
+    h === '::1' ||
+    h.endsWith('.local') ||
+    h.endsWith('.internal') ||
+    h.startsWith('127.') ||
+    h.startsWith('10.') ||
+    h.startsWith('192.168.') ||
+    h.startsWith('169.254.') ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(h)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function fetchImageBufferSafe(
+  targetUrl: string,
+  redirectsLeft = 3,
+  timeoutMs = 6000
+): Promise<{ status: number; contentType: string; buffer: Buffer } | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (val: { status: number; contentType: string; buffer: Buffer } | null) => {
+      if (!settled) {
+        settled = true;
+        resolve(val);
+      }
+    };
+
+    try {
+      const parsed = new URL(targetUrl);
+      if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || isDisallowedProxyHost(parsed.hostname)) {
+        finish(null);
+        return;
+      }
+
+      const referer = parsed.hostname.includes('pstatic.net')
+        ? 'https://n.news.naver.com/'
+        : `${parsed.protocol}//${parsed.hostname}/`;
+      const lib = parsed.protocol === 'https:' ? https : http;
+      const req = lib.get(
+        targetUrl,
+        {
+          family: 4,
+          timeout: timeoutMs,
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+            Referer: referer,
+          },
+        },
+        (upstream) => {
+          const status = upstream.statusCode || 0;
+          if (status >= 300 && status < 400 && upstream.headers.location && redirectsLeft > 0) {
+            upstream.resume();
+            const nextUrl = new URL(upstream.headers.location, targetUrl).toString();
+            fetchImageBufferSafe(nextUrl, redirectsLeft - 1, timeoutMs).then(finish);
+            return;
+          }
+
+          if (status < 200 || status >= 300) {
+            upstream.resume();
+            finish(null);
+            return;
+          }
+
+          const contentType = String(upstream.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+          const chunks: Buffer[] = [];
+          let totalBytes = 0;
+          const MAX_BYTES = 8 * 1024 * 1024;
+
+          upstream.on('data', (chunk) => {
+            const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            totalBytes += buf.length;
+            if (totalBytes > MAX_BYTES) {
+              req.destroy();
+              finish(null);
+              return;
+            }
+            chunks.push(buf);
+          });
+          upstream.on('end', () => {
+            const buffer = Buffer.concat(chunks);
+            if (buffer.length < 100) {
+              finish(null);
+              return;
+            }
+            // Validate image content type or magic bytes
+            const isImgType = contentType.startsWith('image/');
+            const isMagicImg =
+              (buffer[0] === 0xff && buffer[1] === 0xd8) || // JPEG
+              (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) || // PNG
+              (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) || // GIF
+              (buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP'); // WEBP
+            if (!isImgType && !isMagicImg) {
+              finish(null);
+              return;
+            }
+            finish({
+              status,
+              contentType: isImgType ? contentType : 'image/jpeg',
+              buffer,
+            });
+          });
+          upstream.on('error', () => finish(null));
+        }
+      );
+
+      req.on('timeout', () => {
+        req.destroy();
+        finish(null);
+      });
+      req.on('error', () => finish(null));
+    } catch {
+      finish(null);
+    }
+  });
+}
+
+app.get(['/api/image-proxy', '/image-proxy'], async (req, res) => {
+  const rawUrl = typeof req.query.url === 'string' ? req.query.url.trim() : '';
+  if (!rawUrl || !/^https?:\/\//i.test(rawUrl)) {
+    return res.status(400).send('Invalid image URL');
+  }
+  const result = await fetchImageBufferSafe(rawUrl);
+  if (!result) {
+    return res.status(404).send('Image unavailable');
+  }
+  res.setHeader('Content-Type', result.contentType);
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  return res.status(200).send(result.buffer);
 });
 
 // Shared Gemini AI client
@@ -118,21 +270,63 @@ async function generateWithResilientModel(
 function getToneDescription(tone: string): string {
   switch (tone) {
     case 'bullet':
-      return '개조식 드라이톤: 서술어·접속사를 극단적으로 줄이고 명사형·단답형(~함, ~임, ~됨, ~전망, ~강조)으로 팩트만 압축한 임원 보고용 메모 스타일';
+      return '개조식 드라이톤 (총 3줄): 서술어·접속사를 극단적으로 줄이고 기호(▪)와 명사형·단답형(~함, ~임, ~됨, ~전망, ~강조)으로 팩트만 압축한 임원 보고용 메모 스타일';
     case 'friendly':
-      return '친근한 설명체: "쉽게 정리하면", "여기에 더해", "앞으로는" 같은 부드러운 연결과 ~했어요/~이에요/~전망이에요 어미로 비전문가에게 풀어서 설명하는 뉴스레터 스타일';
+      return '친근한 설명체 (총 3줄): "쉽게 정리하면", "여기에 더해", "참고로" 같은 부드러운 연결과 ~했어요/~이에요/~전망이에요 어미로 비전문가에게 풀어서 설명하는 뉴스레터 스타일';
     case 'insight':
-      return '인사이트 버전(기본): 반드시 총 3줄 중 앞 2줄은 기사 핵심 사실 요약(~했습니다/~입니다)으로 작성하고, 마지막 3번째 줄은 반드시 "[시사점] "으로 시작하는 시장·산업·정책 파급 시사점 1줄로 작성';
+      return '인사이트 버전 (기본 · 총 4줄 · 개조식): 반드시 배열 길이 4로 작성. 1~3번째 줄은 원문 핵심 사실 3줄을 개조식("▪ "으로 시작, 명사형/단답형 종결 ~함/~임/~전망/~발표/~추진)으로 압축하고, 마지막 4번째 줄은 반드시 "[시사점] "으로 시작하는 개조식 심층 시사점 1줄로 작성. 특히 [시사점]은 해당 기사 본문뿐 아니라 함께 제공된 관련 타 언론사 기사 및 동향 맥락을 심층 교차 검토하여, 산업·시장·정책·사회적 파급효과와 구체적 대응 포인트를 뻔한 상투어 없이 압축 제시(~전망, ~필요, ~우려, ~관건, ~주목 등 개조식 종결)';
     case 'formal':
     default:
-      return '격식 브리핑체: 정중하고 품격 있는 공식 언론 브리핑·보고서 문어체(~했습니다, ~되었습니다, ~것으로 분석됩니다)';
+      return '격식 브리핑체 (총 3줄): 정중하고 품격 있는 공식 언론 브리핑·보고서 문어체(~했습니다, ~되었습니다, ~것으로 분석됩니다)';
   }
+}
+
+function normalizeGeminiLeadSummary(
+  rawLines: string[],
+  targetTone: string,
+  aiInsightRaw?: string
+): { leadSummary: string[]; aiInsight?: string } {
+  const cleaned = (rawLines || [])
+    .map((line) => String(line || '').replace(/^[0-9]+[.)]\s*/, '').trim())
+    .filter(Boolean);
+
+  const explicitInsightFromLines = cleaned.find((l) => l.startsWith('[시사점]'));
+  const resolvedInsightRaw =
+    (aiInsightRaw && aiInsightRaw.trim().length >= 8 ? aiInsightRaw : explicitInsightFromLines) || '';
+  const normalizedInsight = resolvedInsightRaw ? toBulletInsightLine(resolvedInsightRaw) : undefined;
+
+  if (targetTone === 'insight') {
+    const factLines = cleaned
+      .filter((l) => !l.startsWith('[시사점]'))
+      .slice(0, 3)
+      .map((l) => (l.startsWith('▪') ? l : toBulletKorean(l)));
+    if (factLines.length >= 3 && normalizedInsight) {
+      return {
+        leadSummary: [...factLines, normalizedInsight],
+        aiInsight: normalizedInsight,
+      };
+    }
+    if (cleaned.length >= 4) {
+      const f3 = cleaned.slice(0, 3).map((l) => (l.startsWith('▪') ? l : toBulletKorean(l)));
+      const ins = toBulletInsightLine(cleaned[3]);
+      return {
+        leadSummary: [...f3, ins],
+        aiInsight: ins,
+      };
+    }
+  }
+
+  const factOnly = cleaned.filter((l) => !l.startsWith('[시사점]')).slice(0, 3);
+  return {
+    leadSummary: factOnly.length > 0 ? factOnly : cleaned.slice(0, 3),
+    aiInsight: normalizedInsight,
+  };
 }
 
 // 1. API: Generate / Refresh daily briefing
 app.post(['/api/summarize', '/summarize'], async (req, res) => {
   try {
-    const { outletIds, tone = 'insight', topics = [], forceRefresh = false } = req.body;
+    const { outletIds, tone = 'insight', forceRefresh = false } = req.body;
     const selectedOutlets = PRESS_OUTLETS.filter((o) =>
       outletIds && outletIds.length > 0 ? outletIds.includes(o.id) : o.isDefaultMajor
     );
@@ -144,7 +338,7 @@ app.post(['/api/summarize', '/summarize'], async (req, res) => {
       fetchSectorHeadlinesReal(Boolean(forceRefresh)),
     ]);
 
-    // 2. Build default robust briefing with verified real articles
+    // 2. Build default robust briefing with verified real articles (full verbatim text + inline photos)
     const realBriefing = buildRealBriefing(
       realArticlesMap,
       tone as BriefingTone,
@@ -152,46 +346,114 @@ app.post(['/api/summarize', '/summarize'], async (req, res) => {
       liveSectorHeadlines
     );
 
-    // 3. If Gemini is available, enhance REAL articles (cached by headline signature to avoid redundant polling calls)
+    // 3. If Gemini is available, enhance ALL sections with deep cross-article insight synthesis
     if (apiKey) {
       try {
         const titlesSignature = realBriefing.frontPageStories
           .map((s) => `${s.outletId}:${s.title}`)
           .join('|');
-        const cacheKey = `${tone}:${targetOutletIds.join(',')}:${titlesSignature}`;
+        const cacheKey = `v2:${tone}:${targetOutletIds.join(',')}:${titlesSignature}`;
         const cached = geminiSummaryCache.get(cacheKey);
         if (cached && Date.now() < cached.expiresAt) {
           return res.json({ success: true, data: cached.data, source: 'gemini-verified-cache' });
         }
 
-        const realNewsPayload = Object.entries(realArticlesMap)
-          .filter(([id]) => targetOutletIds.includes(id))
-          .map(([id, articles]) => ({
-            outletId: id,
-            outletName: selectedOutlets.find((o) => o.id === id)?.name || id,
-            articles: (articles || []).slice(0, 2).map((a) => ({
-              title: a.title,
-              link: a.link,
-              snippet: a.snippet,
-            })),
-          }));
+        const allCollectedRaw = Object.values(realArticlesMap).flat();
+        const storiesForRelated = [
+          ...realBriefing.frontPageStories,
+          ...realBriefing.overlappingStories,
+          ...realBriefing.exclusiveStories,
+          ...(realBriefing.sectorHeadlines || []).map((h) => ({
+            id: h.id,
+            title: h.title,
+            outletName: h.outletName,
+            keywords: h.tags,
+          })),
+        ];
 
-        const prompt = `당신은 대한민국 대표 신문 뉴스 브리핑 수석 에디터입니다.
-아래에 제공된 '실제 실시간 언론사 보도자료 및 기사 데이터'를 바탕으로 당일 모닝 브리핑을 작성해주세요.
+        const relatedContextMap = await collectRelatedArticlesContext(
+          storiesForRelated,
+          allCollectedRaw,
+          realBriefing.sectorHeadlines || []
+        );
 
-[중요 제약조건]:
-1. 절대로 가짜 뉴스나 존재하지 않는 기사 제목을 지어내지 마세요.
-2. 각 기사의 제목(title)은 언론사 보도자료/기사 원문 제목을 100% 그대로 유지하고 절대 축약하거나 단어를 수정하지 마세요.
-3. 3줄 요약(leadSummary)은 '1. 2. 3.' 숫자 번호 매김을 절대 붙이지 말고 정확히 3문장으로 작성하세요.
-4. 희망 어조 지침을 철저히 반영하세요: ${getToneDescription(tone)}
-   (※ 특히 'insight' 인사이트 버전인 경우: 1~2번째 줄은 핵심 사실 요약 2줄, 3번째 줄은 반드시 '[시사점] '으로 시작하는 전략·시장·정책 시사점 1줄로 구성하세요.)
+        const buildStoryPayload = (
+          s: {
+            id: string;
+            outletName: string;
+            title: string;
+            fullContent?: string;
+            baseSummary?: string[];
+            topic?: string;
+          },
+          excerptLimit = 900
+        ) => ({
+          id: s.id,
+          outletName: s.outletName,
+          title: s.title,
+          topic: s.topic || '',
+          bodyExcerpt: (s.fullContent || (s.baseSummary || []).join(' ')).slice(0, excerptLimit),
+          relatedArticles: relatedContextMap[s.id] || [],
+        });
 
-[제공된 실제 언론사 기사 목록]:
-${JSON.stringify(realNewsPayload, null, 2)}`;
+        const geminiInputPayload = {
+          frontPageStories: realBriefing.frontPageStories.map((s) => buildStoryPayload(s, 900)),
+          overlappingStories: realBriefing.overlappingStories.map((s) => buildStoryPayload(s, 900)),
+          exclusiveStories: realBriefing.exclusiveStories.map((s) => buildStoryPayload(s, 800)),
+          sectorHeadlines: (realBriefing.sectorHeadlines || []).map((h) =>
+            buildStoryPayload(
+              {
+                id: h.id,
+                outletName: h.outletName,
+                title: h.title,
+                topic: h.sectorLabel,
+                fullContent: h.fullContent || h.summary,
+                baseSummary: h.baseSummary,
+              },
+              480
+            )
+          ),
+        };
+
+        const isInsightMode = tone === 'insight';
+
+        const prompt = `당신은 대한민국 최고 수준의 경제·정책·산업 뉴스 수석 애널리스트 겸 에디터입니다.
+아래 제공된 '실제 실시간 언론사 기사 원문 발췌(bodyExcerpt)'와 '타 언론사 관련 보도(relatedArticles)'를 심층 교차 검토하여 브리핑 요약과 시사점을 작성하세요.
+
+[필수 준수 규칙]:
+1. 절대로 기사 원문에 없는 가짜 사실이나 임의 수치를 지어내지 마세요.
+2. 입력된 frontPageStories, overlappingStories, exclusiveStories, sectorHeadlines 4개 배열의 **모든 항목을 단 1개도 누락하지 말고 100% 전수** 동일한 id로 반환하세요.
+3. leadSummary 각 문장에 '1. 2. 3.' 같은 숫자 번호를 절대 붙이지 마세요.
+4. 어조 지침을 완벽히 따르세요: ${getToneDescription(tone)}
+5. ${
+          isInsightMode
+            ? `현재 'insight' 모드입니다. 모든 항목의 leadSummary는 반드시 정확히 4줄(배열 길이 4)로 작성하세요:
+   - 1~3번째 줄: 기사 본문 핵심 사실 3줄을 개조식("▪ "으로 시작, 명사형/단답형 종결: ~함/~임/~발표/~확대/~전망)으로 작성
+   - 4번째 줄: 반드시 "[시사점] "으로 시작하는 개조식 1줄. 반드시 해당 기사 본문 + relatedArticles(관련 타 언론사 기사들)의 맥락을 종합·심층 검토하여, 단기 현상 너머의 구조적 파급효과·리스크·정책/시장 대응 포인트를 구체적 주체·키워드와 함께 압축 제시 (예: "[시사점] ...에 따른 ... 리스크 확대 우려, ... 선제 대응 필요"). 추상적·상투적 문구 금지!`
+            : `leadSummary는 정확히 3줄(배열 길이 3)로 작성하고, 별도 aiInsight 필드에 해당 기사와 relatedArticles를 심층 교차 검토한 개조식 1줄 시사점("[시사점] ...")을 함께 생성하세요.`
+        }
+6. 모든 항목에 대해 aiInsight 필드에도 개조식 심층 시사점("[시사점] ...")을 반드시 채워주세요.
+
+[실시간 기사 원문 및 관련 기사 교차 데이터]:
+${JSON.stringify(geminiInputPayload)}`;
+
+        const storyOutputSchema = {
+          type: Type.OBJECT,
+          properties: {
+            id: { type: Type.STRING },
+            leadSummary: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+            },
+            aiInsight: { type: Type.STRING },
+          },
+          required: ['id', 'leadSummary', 'aiInsight'],
+        };
 
         const response = await generateWithResilientModel(
           prompt,
           {
+            thinkingConfig: { thinkingLevel: ThinkingLevel.MEDIUM },
             responseMimeType: 'application/json',
             responseSchema: {
               type: Type.OBJECT,
@@ -203,26 +465,31 @@ ${JSON.stringify(realNewsPayload, null, 2)}`;
                 summaryNote: { type: Type.STRING },
                 frontPageStories: {
                   type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      outletName: { type: Type.STRING },
-                      title: { type: Type.STRING },
-                      leadSummary: {
-                        type: Type.ARRAY,
-                        items: { type: Type.STRING },
-                      },
-                      originalUrl: { type: Type.STRING },
-                      topic: { type: Type.STRING },
-                    },
-                    required: ['outletName', 'title', 'leadSummary', 'originalUrl'],
-                  },
+                  items: storyOutputSchema,
+                },
+                overlappingStories: {
+                  type: Type.ARRAY,
+                  items: storyOutputSchema,
+                },
+                exclusiveStories: {
+                  type: Type.ARRAY,
+                  items: storyOutputSchema,
+                },
+                sectorHeadlines: {
+                  type: Type.ARRAY,
+                  items: storyOutputSchema,
                 },
               },
-              required: ['topKeywords', 'frontPageStories'],
+              required: [
+                'topKeywords',
+                'frontPageStories',
+                'overlappingStories',
+                'exclusiveStories',
+                'sectorHeadlines',
+              ],
             },
           },
-          7000
+          28000
         );
 
         if (!response) {
@@ -231,20 +498,34 @@ ${JSON.stringify(realNewsPayload, null, 2)}`;
 
         const parsed = JSON.parse(response.text || '{}');
 
-        if (parsed.frontPageStories && parsed.frontPageStories.length > 0) {
-          // Merge Gemini enhanced summaries with real articles
-          realBriefing.topKeywords = parsed.topKeywords || realBriefing.topKeywords;
-          realBriefing.summaryNote = parsed.summaryNote || realBriefing.summaryNote;
-          parsed.frontPageStories.forEach((gStory: any) => {
-            const existing = realBriefing.frontPageStories.find(
-              (s) => s.title === gStory.title || s.outletName === gStory.outletName
-            );
-            if (existing && gStory.leadSummary && gStory.leadSummary.length > 0) {
-              existing.leadSummary = gStory.leadSummary
-                .slice(0, 3)
-                .map((line: string) => line.replace(/^[0-9]+[.)]\s*/, '').trim());
+        const mergeEnhancements = (targets: any[], generatedList?: any[]) => {
+          if (!Array.isArray(targets) || !Array.isArray(generatedList)) return;
+          generatedList.forEach((gItem: any) => {
+            const existing = targets.find((s) => s.id === gItem.id);
+            if (!existing || !Array.isArray(gItem.leadSummary) || gItem.leadSummary.length === 0) return;
+
+            const normalized = normalizeGeminiLeadSummary(gItem.leadSummary, tone, gItem.aiInsight);
+            if (normalized.leadSummary.length > 0) {
+              existing.leadSummary = normalized.leadSummary;
+            }
+            if (normalized.aiInsight) {
+              existing.aiInsight = normalized.aiInsight;
             }
           });
+        };
+
+        if (parsed.frontPageStories && parsed.frontPageStories.length > 0) {
+          realBriefing.topKeywords =
+            Array.isArray(parsed.topKeywords) && parsed.topKeywords.length > 0
+              ? parsed.topKeywords.map((k: string) => (k.startsWith('#') ? k : `#${k}`)).slice(0, 8)
+              : realBriefing.topKeywords;
+          realBriefing.summaryNote = parsed.summaryNote || realBriefing.summaryNote;
+
+          mergeEnhancements(realBriefing.frontPageStories, parsed.frontPageStories);
+          mergeEnhancements(realBriefing.overlappingStories, parsed.overlappingStories);
+          mergeEnhancements(realBriefing.exclusiveStories, parsed.exclusiveStories);
+          mergeEnhancements(realBriefing.sectorHeadlines || [], parsed.sectorHeadlines);
+
           if (parsed.topKeywords && parsed.topKeywords.length > 0) {
             realBriefing.keywordTrends = computeKeywordTrends(
               realBriefing.topKeywords,
@@ -254,10 +535,11 @@ ${JSON.stringify(realNewsPayload, null, 2)}`;
                 ...realBriefing.exclusiveStories,
               ],
               realBriefing.sectorHeadlines || [],
-              Object.values(realArticlesMap).flat(),
+              allCollectedRaw,
               Math.max(10, targetOutletIds.length)
             );
           }
+
           geminiSummaryCache.set(cacheKey, {
             expiresAt: Date.now() + GEMINI_CACHE_TTL_MS,
             data: realBriefing,
@@ -280,7 +562,7 @@ ${JSON.stringify(realNewsPayload, null, 2)}`;
   }
 });
 
-// 2. API: Rewrite briefing tone via Gemini
+// 2. API: Rewrite briefing tone via Gemini (supports 3+1 deep cross-article insight & all 4 sections)
 app.post(['/api/rewrite-tone', '/rewrite-tone'], async (req, res) => {
   const { currentBriefing, targetTone } = req.body;
   if (!currentBriefing || !targetTone) {
@@ -289,86 +571,137 @@ app.post(['/api/rewrite-tone', '/rewrite-tone'], async (req, res) => {
 
   if (!apiKey) {
     const transformed = transformBriefingTone(currentBriefing, targetTone as BriefingTone);
-    return res.json({ success: true, data: transformed });
+    return res.json({ success: true, data: transformed, source: 'local-rewrite' });
   }
 
   try {
-    const prompt = `다음 뉴스 요약 기사들의 3줄 요약 문장들을 아래 지침에 맞춰 어조와 문체를 뚜렷하게 차별화하여 재작성해주세요.
-[어조 지침]: ${getToneDescription(targetTone)}
-[필수 규칙]:
-- 원래 사실 관계는 훼손하지 말고 반드시 3줄(배열 길이 3)을 유지하세요.
-- '1. 2. 3.' 같은 숫자 번호는 절대 붙이지 마세요.
-- baseSummary가 있는 경우 원 팩트를 바탕으로 targetTone의 특징이 극명하게 드러나도록 문장을 다시 쓰세요.
-- 'insight'인 경우 반드시 앞 2줄은 사실 요약, 3번째 줄은 "[시사점] "으로 시작하는 1줄 시사점으로 작성하세요.
+    const isInsightMode = targetTone === 'insight';
+    const allHeadlinesContext = [
+      ...(currentBriefing.frontPageStories || []).map((s: any) => `[${s.outletName}] ${s.title}`),
+      ...(currentBriefing.sectorHeadlines || []).slice(0, 9).map((h: any) => `[${h.outletName}/${h.sectorLabel}] ${h.title}`),
+    ];
 
-내용:
+    const prompt = `당신은 대한민국 대표 뉴스 브리핑 수석 애널리스트입니다.
+아래 뉴스 기사들의 요약을 희망 어조에 맞춰 문체와 구조를 뚜렷하게 재작성해주세요.
+
+[희망 어조 지침]: ${getToneDescription(targetTone)}
+
+[필수 규칙]:
+- 원래 사실 관계와 수치는 훼손하지 마세요.
+- '1. 2. 3.' 같은 숫자 번호는 절대 붙이지 마세요.
+- ${
+      isInsightMode
+        ? `현재 'insight' 모드이므로 모든 항목의 summary 배열 길이는 반드시 정확히 4로 작성하세요:
+  * 1~3번째 줄: 원 팩트 3줄을 개조식("▪ "으로 시작, ~함/~임/~전망/~발표 등 명사형/단답형 종결)으로 압축
+  * 4번째 줄: 반드시 "[시사점] "으로 시작하는 개조식 1줄 — 해당 기사의 본문 요약(bodyExcerpt)과 아래 [당일 타 언론사 관련 보도 전체 목록]을 교차·심층 검토하여 구체적이고 날카로운 파급효과·대응 시사점을 도출하세요.`
+        : `모든 항목의 summary 배열 길이는 반드시 정확히 3으로 작성하세요.`
+    }
+
+[당일 타 언론사 관련 보도 전체 목록 (교차 검토용)]:
+${JSON.stringify(allHeadlinesContext)}
+
+[재작성 대상 기사 목록]:
 ${JSON.stringify({
-  frontPage: currentBriefing.frontPageStories.map((s: any) => ({ id: s.id, title: s.title, summary: s.baseSummary || s.leadSummary })),
-  overlapping: currentBriefing.overlappingStories.map((s: any) => ({ id: s.id, title: s.title, summary: s.baseSummary || s.leadSummary })),
-  exclusive: currentBriefing.exclusiveStories.map((s: any) => ({ id: s.id, title: s.title, summary: s.baseSummary || s.leadSummary })),
+  frontPage: (currentBriefing.frontPageStories || []).map((s: any) => ({
+    id: s.id,
+    title: s.title,
+    summary: s.baseSummary || s.leadSummary,
+    bodyExcerpt: (s.fullContent || '').slice(0, 600),
+  })),
+  overlapping: (currentBriefing.overlappingStories || []).map((s: any) => ({
+    id: s.id,
+    title: s.title,
+    summary: s.baseSummary || s.leadSummary,
+    bodyExcerpt: (s.fullContent || '').slice(0, 600),
+  })),
+  exclusive: (currentBriefing.exclusiveStories || []).map((s: any) => ({
+    id: s.id,
+    title: s.title,
+    summary: s.baseSummary || s.leadSummary,
+    bodyExcerpt: (s.fullContent || '').slice(0, 600),
+  })),
+  sectorHeadlines: (currentBriefing.sectorHeadlines || []).map((h: any) => ({
+    id: h.id,
+    title: h.title,
+    summary: h.baseSummary || h.leadSummary || [h.summary],
+    bodyExcerpt: (h.fullContent || '').slice(0, 420),
+  })),
 })}`;
+
+    const rewriteItemSchema = {
+      type: Type.OBJECT,
+      properties: {
+        id: { type: Type.STRING },
+        summary: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING },
+        },
+        aiInsight: { type: Type.STRING },
+      },
+      required: ['id', 'summary'],
+    };
 
     const response = await generateWithResilientModel(
       prompt,
-      { responseMimeType: 'application/json' },
-      7000
+      {
+        thinkingConfig: { thinkingLevel: isInsightMode ? ThinkingLevel.MEDIUM : ThinkingLevel.LOW },
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            frontPage: { type: Type.ARRAY, items: rewriteItemSchema },
+            overlapping: { type: Type.ARRAY, items: rewriteItemSchema },
+            exclusive: { type: Type.ARRAY, items: rewriteItemSchema },
+            sectorHeadlines: { type: Type.ARRAY, items: rewriteItemSchema },
+          },
+        },
+      },
+      22000
     );
 
     if (!response) {
-      return res.json({ success: true, data: transformBriefingTone(currentBriefing, targetTone as BriefingTone) });
+      return res.json({
+        success: true,
+        data: transformBriefingTone(currentBriefing, targetTone as BriefingTone),
+        source: 'local-rewrite',
+      });
     }
 
     const parsed = JSON.parse(response.text || '{}');
-    const updated = JSON.parse(JSON.stringify(currentBriefing));
+    const updated = transformBriefingTone(currentBriefing, targetTone as BriefingTone);
     updated.tone = targetTone;
 
-    if (parsed.frontPage) {
-      updated.frontPageStories.forEach((s: any) => {
-        const match = parsed.frontPage.find((item: any) => item.id === s.id);
-        if (match && match.summary) {
-          s.leadSummary = match.summary.slice(0, 3).map((l: string) => l.replace(/^[0-9]+[.)]\s*/, '').trim());
+    const applyRewritten = (targets: any[], rewrittenList?: any[]) => {
+      if (!Array.isArray(targets) || !Array.isArray(rewrittenList)) return;
+      targets.forEach((s: any) => {
+        const match = rewrittenList.find((item: any) => item.id === s.id);
+        if (match && Array.isArray(match.summary) && match.summary.length > 0) {
+          const normalized = normalizeGeminiLeadSummary(match.summary, targetTone, match.aiInsight || s.aiInsight);
+          if (normalized.leadSummary.length > 0) {
+            s.leadSummary = normalized.leadSummary;
+          }
+          if (normalized.aiInsight) {
+            s.aiInsight = normalized.aiInsight;
+          }
         }
       });
-    }
-    if (parsed.overlapping) {
-      updated.overlappingStories.forEach((s: any) => {
-        const match = parsed.overlapping.find((item: any) => item.id === s.id);
-        if (match && match.summary) {
-          s.leadSummary = match.summary.slice(0, 3).map((l: string) => l.replace(/^[0-9]+[.)]\s*/, '').trim());
-        }
-      });
-    }
-    if (parsed.exclusive) {
-      updated.exclusiveStories.forEach((s: any) => {
-        const match = parsed.exclusive.find((item: any) => item.id === s.id);
-        if (match && match.summary) {
-          s.leadSummary = match.summary.slice(0, 3).map((l: string) => l.replace(/^[0-9]+[.)]\s*/, '').trim());
-        }
-      });
-    }
-    if (Array.isArray(updated.sectorHeadlines)) {
-      updated.sectorHeadlines = updated.sectorHeadlines.map((h: any) => {
-        const candidateBase =
-          h.baseSummary && h.baseSummary.length >= 2
-            ? h.baseSummary
-            : [h.summary].filter(Boolean);
-        const { baseSummary, leadSummary } = formatLeadSummaryByTone(
-          h.title,
-          candidateBase,
-          targetTone as BriefingTone,
-          h.sectorLabel,
-          h.outletName
-        );
-        return { ...h, baseSummary, leadSummary };
-      });
-    }
+    };
 
-    return res.json({ success: true, data: updated });
+    applyRewritten(updated.frontPageStories, parsed.frontPage);
+    applyRewritten(updated.overlappingStories, parsed.overlapping);
+    applyRewritten(updated.exclusiveStories, parsed.exclusive);
+    applyRewritten(updated.sectorHeadlines || [], parsed.sectorHeadlines);
+
+    return res.json({ success: true, data: updated, source: 'gemini-rewrite' });
   } catch (err: any) {
     if (!isQuotaError(err)) {
       console.info('Rewrite tone fallback:', err?.message || 'unavailable');
     }
-    return res.json({ success: true, data: transformBriefingTone(currentBriefing, targetTone as BriefingTone) });
+    return res.json({
+      success: true,
+      data: transformBriefingTone(currentBriefing, targetTone as BriefingTone),
+      source: 'local-rewrite',
+    });
   }
 });
 

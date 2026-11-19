@@ -210,7 +210,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       </span>
                     </div>
                     <div className="text-[11px] text-slate-400 truncate">
-                      인사이트(2+1) / 격식 / 개조식 / 설명식
+                      인사이트(3+1) / 격식 / 개조식 / 설명식
                     </div>
                   </div>
                 )}

@@ -15,8 +15,9 @@ import {
   Bookmark,
   BookOpen,
   Type,
+  Camera,
 } from 'lucide-react';
-import { NewsStory, ClusterOutletItem } from '../types/news';
+import { NewsStory, ClusterOutletItem, ArticleContentBlock } from '../types/news';
 import { PRESS_OUTLETS } from '../data/mockNewsData';
 import {
   getNaverNewsUrl,
@@ -35,6 +36,46 @@ interface ArticleModalProps {
   isRead?: boolean;
   onToggleReadStatus?: (story: NewsStory) => void;
 }
+
+const ArticlePhoto: React.FC<{ url: string; caption?: string; alt: string }> = ({
+  url,
+  caption,
+  alt,
+}) => {
+  const [stage, setStage] = useState<'proxy' | 'direct' | 'failed'>('proxy');
+
+  useEffect(() => {
+    setStage('proxy');
+  }, [url]);
+
+  if (!url || stage === 'failed') return null;
+
+  const src =
+    stage === 'proxy' ? `/api/image-proxy?url=${encodeURIComponent(url)}` : url;
+
+  return (
+    <figure className="my-3 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60">
+      <div className="bg-slate-100/70 dark:bg-slate-950 flex items-center justify-center">
+        <img
+          src={src}
+          alt={caption || alt}
+          loading="lazy"
+          referrerPolicy={stage === 'direct' ? 'no-referrer' : undefined}
+          onError={() => {
+            setStage((prev) => (prev === 'proxy' ? 'direct' : 'failed'));
+          }}
+          className="w-full max-h-[480px] object-contain mx-auto block"
+        />
+      </div>
+      {caption && (
+        <figcaption className="px-3.5 py-2 text-[11px] sm:text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/80 border-t border-slate-200/70 dark:border-slate-800 flex items-start gap-1.5 leading-relaxed">
+          <Camera className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+          <span>{caption}</span>
+        </figcaption>
+      )}
+    </figure>
+  );
+};
 
 export const ArticleModal: React.FC<ArticleModalProps> = ({
   isOpen,
@@ -140,14 +181,36 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     candidateOriginUrl
   );
 
-  // Resolve full content text
-  const fullArticleText = story.fullContent || [
-    `[${story.outletName} 1면 종합] ${story.title}`,
-    `${story.leadSummary[0] || ''} 본 보도는 당일 ${story.outletName}의 핵심 취재 기사로, 관련 업계와 정책 당국자들의 공식 입장 및 통계 데이터를 바탕으로 종합 분석되었습니다.`,
-    `${story.leadSummary[1] || ''} 취재팀과 시장 전문가들은 이번 사안이 단기적 이슈에 그치지 않고 향후 거시경제 및 관련 산업 밸류체인 전반에 걸쳐 중대한 파급효과를 미칠 것으로 내다보고 있습니다.`,
-    `${story.leadSummary[2] || ''} 정부 관계 부처와 주요 기업들은 후속 대책 수립과 리스크 관리에 착수했으며, 세부적인 추가 협상 및 국회 입법 경과가 향후 최대 분수령이 될 전망입니다.`,
-    `현장 취재 기자들은 "정책 당국의 일관성 있는 제도 개선과 현장 피드백 수렴이 필수적"이라며 "향후 진행 상황에 대해 후속 심층 보도를 이어갈 것"이라고 밝혔습니다.`,
-  ].join('\n\n');
+  // Resolve ordered blocks, lead photo, and full verbatim text (synced with cluster tab if active)
+  const activeBlocks: ArticleContentBlock[] =
+    isCluster && currentClusterItem?.articleBlocks && currentClusterItem.articleBlocks.length > 0
+      ? currentClusterItem.articleBlocks
+      : story.articleBlocks && story.articleBlocks.length > 0
+      ? story.articleBlocks
+      : [];
+
+  const activeLeadImage =
+    (isCluster && currentClusterItem?.leadImage) || story.leadImage;
+  const activeLeadImageCaption =
+    (isCluster && currentClusterItem?.leadImageCaption) || story.leadImageCaption;
+  const activeReporter =
+    (isCluster && currentClusterItem?.reporter) || story.reporter || `${activeOutletName} 편집국`;
+  const activePublishedAt =
+    (isCluster && currentClusterItem?.publishedAt) || story.publishedAt;
+
+  const textFromBlocks = activeBlocks
+    .filter((b) => (b.type === 'text' || b.type === 'subheading') && b.text)
+    .map((b) => b.text!.trim())
+    .join('\n\n');
+
+  const fullArticleText =
+    (isCluster && currentClusterItem?.fullContent && currentClusterItem.fullContent.trim()) ||
+    (story.fullContent && story.fullContent.trim()) ||
+    textFromBlocks ||
+    story.leadSummary.join('\n\n');
+
+  const inlineImageCount = activeBlocks.filter((b) => b.type === 'image' && !!b.url).length;
+  const photoCount = inlineImageCount > 0 ? inlineImageCount : activeLeadImage ? 1 : 0;
 
   const charCount = fullArticleText.length;
   const estimatedReadingTime = Math.max(1, Math.round(charCount / 450));
@@ -171,7 +234,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   };
 
   const handleCopyFullText = async () => {
-    const formattedText = `[${story.outletName}] ${story.title}\n\n출처: ${story.outletName} (${story.publishedAt})\n기자: ${story.reporter || '특별취재팀'}\n\n${fullArticleText}\n\n신문사 홈페이지: ${officialHomepage}\n네이버 검색: ${naverUrl}`;
+    const formattedText = `[${activeOutletName}] ${activeTitle}\n\n출처: ${activeOutletName} (${activePublishedAt})\n기자: ${activeReporter}\n\n${fullArticleText}\n\n신문사 홈페이지: ${officialHomepage}\n네이버 검색: ${naverUrl}`;
     const ok = await copyToClipboardSafe(formattedText);
     if (ok) {
       setCopiedText(true);
@@ -293,7 +356,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                 <Bookmark className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                 <span>
                   {story.leadSummary.some((l) => l.trim().startsWith('[시사점]'))
-                    ? '인사이트 핵심 요약 (요약 2줄 + 시사점 1줄)'
+                    ? '인사이트 핵심 요약 (요약 3줄 + 시사점 1줄 · 개조식)'
                     : isCluster
                     ? '공통 이슈 핵심 요약 (3줄)'
                     : '핵심 3줄 요약'}
@@ -301,7 +364,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
               </span>
               <span className="text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 px-2 py-0.5 rounded font-mono text-[11px] font-bold">
                 {story.leadSummary.some((l) => l.trim().startsWith('[시사점]'))
-                  ? '2+1 Insight Briefing'
+                  ? '3+1 Deep Insight'
                   : 'Strict 3-Line Briefing'}
               </span>
             </div>
@@ -398,12 +461,28 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                         {currentClusterItem.headline}
                       </h4>
 
-                      <div className="bg-slate-50 dark:bg-slate-800/70 rounded-lg p-3 space-y-1 text-xs text-slate-700 dark:text-slate-200">
-                        {currentClusterItem.leadSummary.map((line, i) => (
-                          <p key={i} className="leading-relaxed">
-                            • {line.replace(/^[0-9]+[.)]\s*/, '').trim()}
-                          </p>
-                        ))}
+                      <div className="bg-slate-50 dark:bg-slate-800/70 rounded-lg p-3 space-y-1.5 text-xs text-slate-700 dark:text-slate-200">
+                        {currentClusterItem.leadSummary.map((line, i) => {
+                          const clean = line.replace(/^[0-9]+[.)]\s*/, '').trim();
+                          if (clean.startsWith('[시사점]')) {
+                            return (
+                              <p
+                                key={i}
+                                className="leading-relaxed text-indigo-900 dark:text-indigo-200 font-medium pt-1 border-t border-slate-200/70 dark:border-slate-700/70"
+                              >
+                                <span className="inline-block text-[10px] font-extrabold text-indigo-700 dark:text-indigo-300 bg-indigo-100/80 dark:bg-indigo-950/80 px-1.5 py-0.5 rounded mr-1.5">
+                                  시사점
+                                </span>
+                                {clean.replace(/^\[시사점\]\s*/, '')}
+                              </p>
+                            );
+                          }
+                          return (
+                            <p key={i} className="leading-relaxed">
+                              {clean.startsWith('▪') || clean.startsWith('•') ? clean : `• ${clean}`}
+                            </p>
+                          );
+                        })}
                       </div>
 
                       {/* Sync notice pointing to the unified original article section below */}
@@ -450,18 +529,22 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
           <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 border border-slate-200/90 dark:border-slate-800 space-y-4 shadow-xs">
             {/* Header with Reading Tools */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
-              <h4 className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wide flex items-center gap-2">
+              <h4 className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wide flex items-center gap-2 flex-wrap">
                 <BookOpen className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                <span>{isCluster ? '언론사 공통 심층 취재 리포트 전문' : '원기사 상세 본문 전문'}</span>
+                <span>
+                  {isCluster && currentClusterItem
+                    ? `${currentClusterItem.outletName} 보도 원문 전문`
+                    : '원기사 보도 전문'}
+                </span>
                 <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
-                  원문 검증 완료
+                  {photoCount > 0 ? `원문·사진 ${photoCount}장` : '원문 전문'}
                 </span>
               </h4>
 
               {/* Reading Stats & Action Tools */}
               <div className="flex items-center flex-wrap gap-2">
                 <span className="text-[11px] text-slate-500 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg font-mono">
-                  약 {estimatedReadingTime}분 분량 · {charCount.toLocaleString()}자
+                  {photoCount > 0 ? `사진 ${photoCount}장 · ` : ''}약 {estimatedReadingTime}분 분량 · {charCount.toLocaleString()}자
                 </span>
 
                 {/* Font Size Toggle */}
@@ -476,44 +559,109 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
               </div>
             </div>
 
-            {/* In-depth Article Body */}
+            {/* Verbatim Original Article Body with Inline Photos & Subheadings */}
             <div
               className={`text-slate-800 dark:text-slate-200 leading-relaxed space-y-4 font-normal transition-all ${
                 fontSize === 'lg' ? 'text-sm sm:text-base leading-loose' : 'text-xs sm:text-sm leading-relaxed'
               }`}
             >
-              {fullArticleText.split('\n\n').map((paragraph, i) => {
-                const trimmed = paragraph.trim();
-                // Highlight leading dateline if present (e.g., [한겨레], [워싱턴=특파원])
-                if (trimmed.startsWith('[')) {
-                  const match = trimmed.match(/^(\[.*?\])\s*(.*)/);
-                  if (match) {
+              {activeBlocks.length > 0 ? (
+                <>
+                  {inlineImageCount === 0 && activeLeadImage && (
+                    <ArticlePhoto
+                      url={activeLeadImage}
+                      caption={activeLeadImageCaption}
+                      alt={activeTitle}
+                    />
+                  )}
+                  {activeBlocks.map((block, i) => {
+                    if (block.type === 'image' && block.url) {
+                      return (
+                        <ArticlePhoto
+                          key={`img-${i}`}
+                          url={block.url}
+                          caption={block.caption}
+                          alt={activeTitle}
+                        />
+                      );
+                    }
+                    if (block.type === 'subheading' && block.text) {
+                      return (
+                        <h5
+                          key={`sub-${i}`}
+                          className="border-l-[3px] border-blue-500 pl-3 py-1 text-slate-900 dark:text-white font-bold text-[13px] sm:text-[15px] leading-snug bg-slate-50/90 dark:bg-slate-800/50 rounded-r-lg"
+                        >
+                          {block.text}
+                        </h5>
+                      );
+                    }
+                    if (block.type === 'text' && block.text) {
+                      const trimmed = block.text.trim();
+                      if (trimmed.startsWith('[')) {
+                        const match = trimmed.match(/^(\[.*?\])\s*(.*)/);
+                        if (match) {
+                          return (
+                            <p key={`txt-${i}`} className="leading-relaxed text-slate-700 dark:text-slate-200">
+                              <span className="inline-block bg-slate-100 dark:bg-slate-800 text-blue-800 dark:text-blue-300 font-bold px-2 py-0.5 rounded text-xs mr-1.5 border border-slate-200 dark:border-slate-700">
+                                {match[1]}
+                              </span>
+                              <span>{match[2]}</span>
+                            </p>
+                          );
+                        }
+                      }
+                      return (
+                        <p key={`txt-${i}`} className="text-slate-700 dark:text-slate-200 leading-relaxed">
+                          {trimmed}
+                        </p>
+                      );
+                    }
+                    return null;
+                  })}
+                </>
+              ) : (
+                <>
+                  {activeLeadImage && (
+                    <ArticlePhoto
+                      url={activeLeadImage}
+                      caption={activeLeadImageCaption}
+                      alt={activeTitle}
+                    />
+                  )}
+                  {fullArticleText.split('\n\n').map((paragraph, i) => {
+                    const trimmed = paragraph.trim();
+                    if (!trimmed) return null;
+                    if (trimmed.startsWith('[')) {
+                      const match = trimmed.match(/^(\[.*?\])\s*(.*)/);
+                      if (match) {
+                        return (
+                          <p key={i} className="leading-relaxed text-slate-700 dark:text-slate-200">
+                            <span className="inline-block bg-slate-100 dark:bg-slate-800 text-blue-800 dark:text-blue-300 font-bold px-2 py-0.5 rounded text-xs mr-1.5 border border-slate-200 dark:border-slate-700">
+                              {match[1]}
+                            </span>
+                            <span>{match[2]}</span>
+                          </p>
+                        );
+                      }
+                    }
                     return (
-                      <p key={i} className="leading-relaxed">
-                        <span className="inline-block bg-slate-100 dark:bg-slate-800 text-blue-800 dark:text-blue-300 font-bold px-2 py-0.5 rounded text-xs mr-1.5 border border-slate-200 dark:border-slate-700">
-                          {match[1]}
-                        </span>
-                        <span>{match[2]}</span>
+                      <p key={i} className="text-slate-700 dark:text-slate-200 leading-relaxed">
+                        {trimmed}
                       </p>
                     );
-                  }
-                }
-                return (
-                  <p key={i} className="text-slate-700 dark:text-slate-200">
-                    {paragraph}
-                  </p>
-                );
-              })}
+                  })}
+                </>
+              )}
             </div>
 
             {/* Article Footer & Copyright Citation */}
             <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400 bg-slate-50/60 dark:bg-slate-800/50 -mx-5 -mb-5 sm:-mx-6 sm:-mb-6 p-4 rounded-b-2xl">
               <div>
-                <span className="font-semibold text-slate-700 dark:text-slate-200">보도 출처: {story.outletName}</span>
+                <span className="font-semibold text-slate-700 dark:text-slate-200">보도 출처: {activeOutletName}</span>
                 <span className="mx-1.5">·</span>
-                <span>취재: {story.reporter || `${story.outletName} 특별취재팀`}</span>
+                <span>취재: {activeReporter}</span>
                 <span className="mx-1.5">·</span>
-                <span>발행: {story.publishedAt}</span>
+                <span>발행: {activePublishedAt}</span>
               </div>
               <button
                 onClick={handleCopyFullText}

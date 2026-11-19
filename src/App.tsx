@@ -479,7 +479,7 @@ export default function App() {
         return '격식 브리핑체';
       case 'insight':
       default:
-        return '인사이트 (요약2+시사점1)';
+        return '인사이트 (요약3+시사점1 · 개조식)';
     }
   };
 

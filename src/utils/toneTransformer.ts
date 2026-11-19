@@ -156,10 +156,16 @@ export function toBulletKorean(line: string): string {
     [/쳤(?:다|습니다)\.?$/g, '침'],
     [/졌(?:다|습니다)\.?$/g, '짐'],
     [/났(?:다|습니다)\.?$/g, '남'],
+    [/냈(?:다|습니다)\.?$/g, '냄'],
+    [/섰(?:다|습니다)\.?$/g, '섬'],
+    [/뒀(?:다|습니다)\.?$/g, '둠'],
+    [/봤(?:다|습니다)\.?$/g, '봄'],
+    [/컸(?:다|습니다)\.?$/g, '큼'],
     [/왔(?:다|습니다)\.?$/g, '옴'],
     [/갔(?:다|습니다)\.?$/g, '감'],
     [/뤘(?:다|습니다)\.?$/g, '룸'],
     [/웠(?:다|습니다)\.?$/g, '움'],
+    [/겼(?:다|습니다)\.?$/g, '김'],
     [/([가-힣]+)한다\.?$/g, '$1함'],
     [/([가-힣]+)합니다\.?$/g, '$1함'],
     [/([가-힣]+)된다\.?$/g, '$1됨'],
@@ -167,7 +173,7 @@ export function toBulletKorean(line: string): string {
     [/([가-힣]+)이다\.?$/g, '$1임'],
     [/([가-힣]+)입니다\.?$/g, '$1임'],
     [/([가-힣]*(?:었|았|였))(?:다|습니다)\.?$/g, '$1음'],
-    [/([가-힣]+)다\.?$/g, '$1임'],
+    [/([가-힣]+)다\.?$/g, '$1음'],
     [/([가-힣]+)습니다\.?$/g, '$1음'],
   ];
 
@@ -268,8 +274,18 @@ export function toFriendlyKorean(line: string, idx: number): string {
 }
 
 /**
- * Synthesizes a sharp, article-specific 1-line strategic/market/policy implication ([시사점])
- * from the story's headline, topic, keywords, and 3rd factual point.
+ * Formats a raw implication sentence cleanly into a concise bullet-style (개조식) "[시사점] ..." line
+ */
+export function toBulletInsightLine(rawInsight: string): string {
+  const cleanBody = stripSummaryDecorations(rawInsight);
+  if (!cleanBody) return '';
+  const bulletized = toBulletKorean(cleanBody).replace(/^▪\s*/, '').trim();
+  return `[시사점] ${bulletized}`;
+}
+
+/**
+ * Synthesizes a sharp, article-specific 1-line strategic/market/policy implication ([시사점]) in concise bullet style (개조식)
+ * as a deterministic fallback when Gemini cross-article insight is not yet attached.
  */
 export function buildArticleSpecificInsight(
   title: string,
@@ -285,55 +301,53 @@ export function buildArticleSpecificInsight(
     .replace(/“|”|"|'/g, '')
     .trim();
 
-  // If 3rd fact already captures a concrete forward-looking consequence or risk, anchor the insight on it cleanly
+  // If 3rd fact already captures a concrete forward-looking consequence or risk, anchor the bullet insight on it
   const hasForecastCue = /(전망|우려|파장|영향|변동|확대|기대|대비|분수령|관건|과제|위기|기회|효과|촉각)/.test(thirdFact);
-  if (hasForecastCue && thirdFact.length >= 20 && !thirdFact.includes('점에')) {
-    let formalThird = toFormalKorean(thirdFact).replace(/\.$/, '');
-    if (formalThird.endsWith('입니다')) {
-      formalThird = formalThird.replace(/입니다$/, '이라는 점에서');
-    } else if (formalThird.endsWith('습니다')) {
-      formalThird = formalThird.replace(/습니다$/, '다는 점에서');
-    } else {
-      formalThird = `${formalThird}는 점에서`;
-    }
-    return `[시사점] ${formalThird} 관련 산업과 정책 대응의 선제적 점검이 요구됩니다.`;
+  if (hasForecastCue && thirdFact.length >= 20 && thirdFact.length <= 130 && !thirdFact.includes('점에')) {
+    const bulletBody = toBulletKorean(thirdFact).replace(/^▪\s*/, '').trim();
+    return `[시사점] ${bulletBody} — 관련 업계·정책 당국의 선제적 리스크 점검 필요`;
   }
 
   if (/수능|시험|부정행위|수험생|교육부|세무사|커닝/.test(combinedText)) {
-    return `[시사점] 시험 공정성 훼손 시도에 대한 무관용 원칙과 첨단 부정행위 방지 시스템 구축이 제도 신뢰 회복의 관건입니다.`;
+    return `[시사점] 시험 공정성 훼손 차단 및 첨단 부정행위 방지 체계 고도화가 제도 신뢰 회복의 핵심 관건`;
   }
   if (/비타민|건강|의료|질병|병원|영양제|방역/.test(combinedText)) {
-    return `[시사점] 계절·생활 환경 변화에 맞춘 근거 기반 건강 관리와 예방 중심 보건 정보의 중요성이 커지고 있습니다.`;
+    return `[시사점] 계절·생활 환경 변화에 맞춘 근거 기반 예방 보건 및 공중위생 대응 체계 강화 필요`;
   }
   if (/트럼프|시진핑|푸틴|APEC|한한령|FTA|중국|미국|관세|외교|공급망/.test(combinedText)) {
-    return `[시사점] 강대국 간 통상·안보 협의 구도 변화가 국내 수출 기업과 글로벌 공급망 전략의 직접적인 리스크이자 기회 요인으로 작용할 전망입니다.`;
+    return `[시사점] 주요국 통상·안보 협의 구도 재편에 따른 수출·공급망 리스크 및 신시장 기회 동시 대비 필요`;
   }
   if (/법원|판결|무죄|구형|특검|재판|계엄|대법|구속|수사|경찰/.test(combinedText)) {
-    return `[시사점] 제도적 신뢰와 사법·행정 판단의 향방이 향후 정책 추진 동력과 사회적 기준 재정비에 중대한 분수령이 될 것으로 보입니다.`;
+    return `[시사점] 사법 판단과 수사 향방이 향후 정책 추진 동력 및 제도적 기준 재정비의 중대 분수령 전망`;
   }
   if (/반도체|HBM|엔비디아|삼성전자|SK하이닉스|하이닉스|희토류/.test(combinedText)) {
-    return `[시사점] 첨단 기술 패권과 AI 인프라 경쟁이 가속화되는 가운데, 핵심 밸류체인 내 기술 자립도와 수익성 방어 여부가 기업 가치를 좌우할 것입니다.`;
+    return `[시사점] AI 인프라·첨단 기술 패권 경쟁 심화 속 핵심 밸류체인 자립도 및 수익성 방어 역량 주목`;
   }
   if (/부동산|아파트|전세|분양|집값|주택|건설|PF|재건축|신안|대전|지역/.test(combinedText)) {
-    return `[시사점] 입지·수급 여건 및 정주 패턴 변화에 따라 시장 양극화가 심화될 수 있어, 실수요와 자금 조달 리스크에 대한 정밀한 관리가 필요합니다.`;
+    return `[시사점] 입지·수급 여건별 시장 양극화 심화 우려 속 실수요 대응 및 자금조달·PF 리스크 정밀 관리 필요`;
   }
   if (/증시|코스피|코스닥|주가|성장률|금리|환율|GDP|KDI|수출/.test(combinedText)) {
-    return `[시사점] '${cleanTitle.slice(0, 26)}${cleanTitle.length > 26 ? '…' : ''}' 흐름은 거시 지표와 자본시장 수급의 변곡점이 될 수 있어 업종별 실적 차별화에 대비해야 합니다.`;
+    return `[시사점] '${cleanTitle.slice(0, 26)}${cleanTitle.length > 26 ? '…' : ''}' 흐름이 거시·수급 변곡점으로 작용하며 업종별 실적 차별화 확대 전망`;
   }
 
-  const label = outletName ? `${outletName} 주요 보도 맥락상 ` : '';
-  return `[시사점] ${label}이번 사안의 후속 조치와 이해관계자 대응 속도가 향후 정책·시장 전반의 파급 폭을 결정짓는 핵심 변수가 될 것입니다.`;
+  const label = outletName ? `${outletName} 보도 사안 관련 ` : '';
+  return `[시사점] ${label}후속 조치 및 이해관계자 대응 속도가 향후 정책·시장 파급 폭을 좌우할 핵심 변수 전망`;
 }
 
 /**
  * Formats 3 factual summary lines into the requested BriefingTone consistently across all sections.
+ * - insight: 3 lines in bullet style (개조식) + 1 line of [시사점] in bullet style (개조식) => total 4 lines
+ * - bullet: 3 lines in bullet style (개조식)
+ * - formal: 3 lines in formal briefing style (~습니다/~입니다)
+ * - friendly: 3 lines in conversational explanatory style (~했어요/~이에요)
  */
 export function formatLeadSummaryByTone(
   title: string,
   candidateLines: string[],
   targetTone: BriefingTone,
   topic: string = '',
-  outletName: string = ''
+  outletName: string = '',
+  aiInsight?: string
 ): { baseSummary: string[]; leadSummary: string[] } {
   const cleanBase = (candidateLines || []).map(stripSummaryDecorations).filter(Boolean);
   while (cleanBase.length < 3) {
@@ -349,10 +363,12 @@ export function formatLeadSummaryByTone(
 
   let nextSummary: string[];
   if (targetTone === 'insight') {
-    const line1 = toFormalKorean(preservedBase[0]);
-    const line2 = toFormalKorean(preservedBase[1]);
-    const insightLine = buildArticleSpecificInsight(title, preservedBase, topic, outletName);
-    nextSummary = [line1, line2, insightLine];
+    const bulletLines = preservedBase.map((line) => toBulletKorean(line));
+    const insightLine =
+      aiInsight && aiInsight.trim().length >= 8
+        ? toBulletInsightLine(aiInsight)
+        : buildArticleSpecificInsight(title, preservedBase, topic, outletName);
+    nextSummary = [...bulletLines, insightLine];
   } else if (targetTone === 'bullet') {
     nextSummary = preservedBase.map((line) => toBulletKorean(line));
   } else if (targetTone === 'friendly') {
@@ -368,8 +384,8 @@ export function formatLeadSummaryByTone(
 }
 
 /**
- * Transforms a DailyBriefing cleanly into the requested tone while preserving factual baseSummary.
- * - insight (default): 2 lines of factual summary + 1 line of [시사점] (total 3 lines, no numbering)
+ * Transforms a DailyBriefing cleanly into the requested tone while preserving factual baseSummary and Gemini aiInsight.
+ * - insight (default): 3 lines of bullet factual summary (개조식) + 1 line of bullet [시사점] (총 4줄)
  * - formal: 3 lines in dignified formal briefing Korean (~했습니다 / ~입니다)
  * - bullet: 3 lines in ultra-concise executive bullet format (▪ ~함 / ~임 / ~전망)
  * - friendly: 3 lines in approachable explanatory newsletter Korean (~했어요 / ~이에요)
@@ -381,8 +397,12 @@ export function transformBriefingTone(briefing: DailyBriefing, targetTone: Brief
 
   const processStories = (stories: NewsStory[]) =>
     (stories || []).map((s) => {
+      const existingInsightLine =
+        s.aiInsight ||
+        (s.leadSummary || []).find((l) => l.trim().startsWith('[시사점]'));
+
       const candidateBase =
-        s.baseSummary && s.baseSummary.length >= 2
+        s.baseSummary && s.baseSummary.length >= 3
           ? s.baseSummary
           : (s.leadSummary || []).filter((l) => !l.trim().startsWith('[시사점]'));
 
@@ -391,13 +411,15 @@ export function transformBriefingTone(briefing: DailyBriefing, targetTone: Brief
         candidateBase,
         targetTone,
         s.topic,
-        s.outletName
+        s.outletName,
+        existingInsightLine
       );
 
       return {
         ...s,
         baseSummary,
         leadSummary,
+        aiInsight: existingInsightLine ? toBulletInsightLine(existingInsightLine) : s.aiInsight,
       };
     });
 
@@ -407,6 +429,10 @@ export function transformBriefingTone(briefing: DailyBriefing, targetTone: Brief
 
   if (Array.isArray(deepCopy.sectorHeadlines) && deepCopy.sectorHeadlines.length > 0) {
     deepCopy.sectorHeadlines = deepCopy.sectorHeadlines.map((h) => {
+      const existingInsightLine =
+        h.aiInsight ||
+        (h.leadSummary || []).find((l) => l.trim().startsWith('[시사점]'));
+
       const bodyParas = (h.fullContent || '')
         .split(/\n\n+/)
         .map((p) => p.replace(/^\[[^\]]+\]\s*/g, '').trim())
@@ -418,7 +444,7 @@ export function transformBriefingTone(briefing: DailyBriefing, targetTone: Brief
       ].filter(Boolean);
 
       const candidateBase =
-        h.baseSummary && h.baseSummary.length >= 2
+        h.baseSummary && h.baseSummary.length >= 3
           ? h.baseSummary
           : h.leadSummary && h.leadSummary.filter((l) => !l.trim().startsWith('[시사점]')).length >= 2
           ? h.leadSummary.filter((l) => !l.trim().startsWith('[시사점]'))
@@ -429,13 +455,15 @@ export function transformBriefingTone(briefing: DailyBriefing, targetTone: Brief
         candidateBase,
         targetTone,
         h.sectorLabel,
-        h.outletName
+        h.outletName,
+        existingInsightLine
       );
 
       return {
         ...h,
         baseSummary,
         leadSummary,
+        aiInsight: existingInsightLine ? toBulletInsightLine(existingInsightLine) : h.aiInsight,
       };
     });
   }

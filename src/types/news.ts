@@ -15,6 +15,13 @@ export interface PressOutlet {
 
 export type BriefingTone = 'formal' | 'bullet' | 'friendly' | 'insight';
 
+export interface ArticleContentBlock {
+  type: 'text' | 'subheading' | 'image';
+  text?: string;
+  url?: string;
+  caption?: string;
+}
+
 export interface ClusterOutletItem {
   outletName: string;
   outletId: string;
@@ -25,6 +32,10 @@ export interface ClusterOutletItem {
   originalUrl: string;
   reporter?: string;
   publishedAt?: string;
+  fullContent?: string;
+  articleBlocks?: ArticleContentBlock[];
+  leadImage?: string;
+  leadImageCaption?: string;
 }
 
 export interface NewsStory {
@@ -33,8 +44,9 @@ export interface NewsStory {
   outletName: string;
   category: 'frontpage' | 'overlapping' | 'exclusive';
   title: string;
-  leadSummary: string[]; // Strictly up to 3 lines
+  leadSummary: string[]; // 3 lines (formal/bullet/friendly) or 4 lines (insight: 3 bullet summary + 1 bullet [시사점])
   baseSummary?: string[]; // Raw factual 3-line summary preserved for lossless tone switching
+  aiInsight?: string; // Gemini deep cross-article [시사점] preserved across tone switches
   originalUrl: string;
   naverUrl?: string;
   publishedAt: string;
@@ -54,8 +66,9 @@ export interface NewsStory {
   exclusiveBadge?: string;
   importanceRating?: 'High' | 'Crucial' | 'Medium';
 
-  // Full article body & metadata for verified reading
+  // Full article body & ordered verbatim content blocks (text + subheadings + photos)
   fullContent?: string;
+  articleBlocks?: ArticleContentBlock[];
   reporter?: string;
   pressSection?: string;
 
@@ -141,8 +154,9 @@ export interface SectorHeadlineItem {
   outletName: string;
   title: string;
   summary: string; // 1~2줄 핵심 요약 및 시장 파급 효과
-  leadSummary?: string[]; // Section 1과 동일한 3줄 핵심 요약 (어조 반영)
+  leadSummary?: string[]; // Section 1과 동일한 핵심 요약 (어조 반영, insight는 3+1줄)
   baseSummary?: string[]; // 어조 전환용 원 팩트 3줄 요약
+  aiInsight?: string; // Gemini 심층 교차 검토 [시사점]
   publishedAt: string;
   originalUrl: string;
   naverUrl?: string;
@@ -151,6 +165,9 @@ export interface SectorHeadlineItem {
   highlightBadge?: string; // e.g. "수주 3.2조", "청약 350:1", "금리 0.25%p↓"
   keyFigure?: string;
   fullContent?: string;
+  articleBlocks?: ArticleContentBlock[];
+  leadImage?: string;
+  leadImageCaption?: string;
   reporter?: string;
   pressSection?: string;
 }

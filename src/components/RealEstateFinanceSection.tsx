@@ -292,15 +292,16 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
 
   const getSectorLeadLines = (item: SectorHeadlineItem): string[] => {
     const existing = item.leadSummary;
-    if (existing && existing.length >= 3) {
+    const expectedCount = tone === 'insight' ? 4 : 3;
+    if (existing && existing.length >= expectedCount) {
       const matchesTone =
         tone === 'insight'
-          ? existing.some((l) => l.trim().startsWith('[시사점]'))
+          ? existing.length >= 4 && existing.some((l) => l.trim().startsWith('[시사점]'))
           : tone === 'bullet'
           ? existing[0]?.trim().startsWith('▪')
-          : true;
+          : !existing.some((l) => l.trim().startsWith('[시사점]'));
       if (matchesTone) {
-        return existing.slice(0, 3);
+        return existing.slice(0, expectedCount);
       }
     }
 
@@ -324,7 +325,8 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
       candidateLines,
       tone,
       item.sectorLabel,
-      item.outletName
+      item.outletName,
+      item.aiInsight
     ).leadSummary;
   };
 
@@ -368,6 +370,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
       title: item.title,
       leadSummary: leadLines,
       baseSummary: item.baseSummary,
+      aiInsight: item.aiInsight,
       originalUrl: item.originalUrl || '',
       naverUrl: item.naverUrl || getNaverNewsUrl(item.title, item.outletName, item.tags),
       publishedAt: item.publishedAt,
@@ -378,6 +381,9 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
       exclusiveBadge: item.sectorLabel,
       importanceRating: item.impactRating || 'High',
       fullContent: getSectorFullContent(item),
+      articleBlocks: item.articleBlocks,
+      leadImage: item.leadImage,
+      leadImageCaption: item.leadImageCaption,
       reactions: { insightful: 32, important: 75, surprising: 12 },
     };
   };
@@ -1154,9 +1160,9 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                           {item.title}
                         </h3>
 
-                        {/* 3-line Core Summary Box (Exact Section 1 Style) */}
+                        {/* 3+1 / 3-line Core Summary Box (Exact Section 1 Style) */}
                         <div className="bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 rounded-xl p-3 sm:p-3.5 space-y-1.5 mb-3">
-                          {leadLines.slice(0, 3).map((line, idx) => {
+                          {leadLines.slice(0, 4).map((line, idx) => {
                             const cleanLine = line.replace(/^[0-9]+[.)]\s*/, '').trim();
                             const isInsightLine = cleanLine.startsWith('[시사점]');
                             if (isInsightLine) {
@@ -1164,7 +1170,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                               return (
                                 <p
                                   key={idx}
-                                  className="text-xs sm:text-[13px] text-indigo-950 dark:text-indigo-200 leading-relaxed font-medium pt-1 border-t border-slate-200/70 dark:border-slate-800"
+                                  className="text-xs sm:text-[13px] text-indigo-950 dark:text-indigo-200 leading-relaxed font-medium pt-1.5 border-t border-slate-200/70 dark:border-slate-800"
                                 >
                                   <span className="inline-block text-[10px] font-extrabold text-indigo-700 dark:text-indigo-300 bg-indigo-100/80 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 px-1.5 py-0.5 rounded mr-1.5 align-middle">
                                     시사점
