@@ -88,7 +88,7 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
           </div>
         </div>
 
-        {/* Section Actions: Section Audio, Outlet settings, Collapse/Expand, Scroll to Top */}
+        {/* Section Actions: Section Audio, Collapse/Expand, Scroll to Top */}
         <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
           <SectionAudioButton
             sectionId="frontpage"
@@ -96,16 +96,6 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
             items={speechItems}
             accent="blue"
           />
-
-          {onOpenOutletSettings && (
-            <button
-              onClick={onOpenOutletSettings}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-50 dark:bg-blue-950/70 hover:bg-blue-100 dark:hover:bg-blue-900/70 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 shadow-2xs transition active:scale-95 cursor-pointer"
-              title="1면 핵심 수집 언론사 맞춤 변경"
-            >
-              <span>1면 언론사 ({stories.length}사)</span>
-            </button>
-          )}
 
           {onToggleCollapse && (
             <button

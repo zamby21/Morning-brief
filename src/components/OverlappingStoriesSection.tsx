@@ -216,16 +216,6 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
             <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${isAdjustPanelOpen ? 'rotate-180' : ''}`} />
           </button>
 
-          {onOpenOutletSettings && (
-            <button
-              onClick={onOpenOutletSettings}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-50 dark:bg-purple-950/70 hover:bg-purple-100 dark:hover:bg-purple-900/70 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shadow-2xs transition active:scale-95 cursor-pointer"
-              title="공통 이슈 수집 언론사 맞춤 변경"
-            >
-              <span>언론사 설정</span>
-            </button>
-          )}
-
           {onToggleCollapse && (
             <button
               onClick={onToggleCollapse}
