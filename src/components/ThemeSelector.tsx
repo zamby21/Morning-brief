@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Sun, Moon, Monitor, Check, ChevronDown } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Sun, Moon, Monitor, Sunrise, Check, ChevronDown } from 'lucide-react';
 import { ThemeMode } from '../types/news';
+import { getSunSchedule } from '../utils/theme';
 
 interface ThemeOption {
   id: ThemeMode;
@@ -11,6 +12,13 @@ interface ThemeOption {
 }
 
 const THEME_OPTIONS: ThemeOption[] = [
+  {
+    id: 'sun',
+    label: '일출·일몰 자동',
+    shortLabel: '일출·몰',
+    description: '일출 시 라이트, 일몰 시 다크 자동 전환',
+    icon: Sunrise,
+  },
   {
     id: 'light',
     label: '라이트 모드',
@@ -70,18 +78,19 @@ export const ThemeSelector: React.FC<ThemeSelectorProps> = ({
     };
   }, [isDropdownOpen]);
 
-  const currentOption = THEME_OPTIONS.find((opt) => opt.id === themeMode) || THEME_OPTIONS[2];
+  const sunSchedule = useMemo(() => getSunSchedule(), [themeMode, resolvedTheme, isDropdownOpen]);
+  const currentOption = THEME_OPTIONS.find((opt) => opt.id === themeMode) || THEME_OPTIONS[0];
   const CurrentIcon = currentOption.icon;
 
   const cycleTheme = () => {
-    const order: ThemeMode[] = ['light', 'dark', 'system'];
+    const order: ThemeMode[] = ['sun', 'light', 'dark', 'system'];
     const nextIdx = (order.indexOf(themeMode) + 1) % order.length;
     onChangeTheme(order[nextIdx]);
   };
 
   if (variant === 'panel') {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
         {THEME_OPTIONS.map((opt) => {
           const Icon = opt.icon;
           const isSelected = themeMode === opt.id;
@@ -112,7 +121,9 @@ export const ThemeSelector: React.FC<ThemeSelectorProps> = ({
                     <span>{opt.label}</span>
                   </div>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
-                    {opt.id === 'system'
+                    {opt.id === 'sun'
+                      ? `일출 ${sunSchedule.sunriseText} · 일몰 ${sunSchedule.sunsetText} (${sunSchedule.resolvedTheme === 'dark' ? '현재 다크' : '현재 라이트'})`
+                      : opt.id === 'system'
                       ? `OS 연동 (${resolvedTheme === 'dark' ? '현재 다크' : '현재 라이트'})`
                       : opt.description}
                   </p>
@@ -158,7 +169,7 @@ export const ThemeSelector: React.FC<ThemeSelectorProps> = ({
             {currentOption.label}
           </span>
         </div>
-        <div className="grid grid-cols-3 gap-1 bg-slate-200/70 dark:bg-slate-900 p-1 rounded-xl">
+        <div className="grid grid-cols-2 gap-1 bg-slate-200/70 dark:bg-slate-900 p-1 rounded-xl">
           {THEME_OPTIONS.map((opt) => {
             const Icon = opt.icon;
             const isSelected = themeMode === opt.id;
@@ -259,7 +270,9 @@ export const ThemeSelector: React.FC<ThemeSelectorProps> = ({
                     <div className="min-w-0">
                       <div className="text-xs font-bold leading-tight">{opt.label}</div>
                       <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                        {opt.id === 'system'
+                        {opt.id === 'sun'
+                          ? `일출 ${sunSchedule.sunriseText} · 일몰 ${sunSchedule.sunsetText}`
+                          : opt.id === 'system'
                           ? `시스템 (${resolvedTheme === 'dark' ? '다크' : '라이트'} 적용 중)`
                           : opt.description}
                       </div>

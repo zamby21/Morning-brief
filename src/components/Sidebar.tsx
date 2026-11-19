@@ -338,11 +338,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <div className="flex items-center justify-between text-xs font-bold text-slate-800 dark:text-slate-100 group-hover:text-amber-700 dark:group-hover:text-amber-300">
                       <span>화면 테마 설정</span>
                       <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 shrink-0">
-                        {themeMode === 'light' ? '라이트' : themeMode === 'dark' ? '다크' : `시스템 (${resolvedTheme === 'dark' ? '다크' : '라이트'})`}
+                        {themeMode === 'sun'
+                          ? `일출·몰 (${resolvedTheme === 'dark' ? '다크' : '라이트'})`
+                          : themeMode === 'light'
+                          ? '라이트'
+                          : themeMode === 'dark'
+                          ? '다크'
+                          : `시스템 (${resolvedTheme === 'dark' ? '다크' : '라이트'})`}
                       </span>
                     </div>
                     <div className="text-[11px] text-slate-400 truncate">
-                      라이트 / 다크 / 시스템 설정
+                      일출·몰 자동 / 라이트 / 다크 / 시스템
                     </div>
                   </div>
                 )}

@@ -1987,6 +1987,51 @@ export function buildRealBriefing(
     },
   ];
 
+  const buildClusterIntegratedOneLineSummary = (
+    rawTitle: string,
+    outlets: string[],
+    clusterHeadlines: string[]
+  ): string => {
+    const cleanTopicTitle = rawTitle
+      .replace(/^\[[^\]]+\]\s*/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const cleanedHeadlines = clusterHeadlines
+      .map((h) =>
+        h
+          .replace(/^\[[^\]]+\]\s*/, '')
+          .replace(/^['"‘“]|['"’”]$/g, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+      )
+      .filter((h) => h.length >= 6);
+
+    const uniqueAngles: string[] = [];
+    for (const hl of cleanedHeadlines) {
+      const compact = hl.length > 34 ? `${hl.slice(0, 34).trim()}…` : hl;
+      if (!uniqueAngles.some((u) => u.slice(0, 12) === compact.slice(0, 12))) {
+        uniqueAngles.push(compact);
+      }
+      if (uniqueAngles.length >= 2) break;
+    }
+
+    const outletPreview = outlets.slice(0, 3).join('·');
+    const extraCount = Math.max(0, outlets.length - 3);
+    const outletGroupLabel =
+      extraCount > 0 ? `${outletPreview} 등 ${outlets.length}개사` : `${outletPreview} ${outlets.length}개사`;
+
+    if (cleanTopicTitle && !cleanTopicTitle.includes('당일 주요 언론사 첫화면')) {
+      const angleSuffix =
+        uniqueAngles.length > 0 ? `(${uniqueAngles[0]})` : '';
+      return `${outletGroupLabel}가 '${cleanTopicTitle}' 현안을 집중 보도하며${angleSuffix ? ` ${angleSuffix} 등` : ''} 핵심 쟁점과 파급 효과를 동시 조명하고 있습니다.`;
+    }
+
+    if (uniqueAngles.length >= 2) {
+      return `${outletGroupLabel}가 ‘${uniqueAngles[0]}’ 및 ‘${uniqueAngles[1]}’ 등 당일 핵심 현안을 1면 주요 의제로 일제히 부각했습니다.`;
+    }
+    return `${outletGroupLabel}가 ${cleanTopicTitle || '당일 핵심 공동 이슈'}를 중심으로 주요 쟁점과 후속 파장을 집중 보도하고 있습니다.`;
+  };
+
   for (const bucket of topicBuckets) {
     const matched = allCollected.filter((a) => bucket.match.test(a.title));
     const uniqueByOutlet = matched.filter(
@@ -2025,6 +2070,14 @@ export function buildRealBriefing(
       });
 
       const primaryWithBody = uniqueByOutlet.find((m) => m.fullBody && m.fullBody.length >= 120) || uniqueByOutlet[0];
+      const integratedOneLineSummary =
+        uniqueOutlets.length >= 3
+          ? buildClusterIntegratedOneLineSummary(
+              bucket.title,
+              uniqueOutlets,
+              uniqueByOutlet.map((m) => m.title)
+            )
+          : undefined;
       overlappingStories.push({
         id: `ol-${bucket.id}-${Date.now().toString(36)}`,
         outletId: 'multiple',
@@ -2038,6 +2091,7 @@ export function buildRealBriefing(
         keywords: bucket.keywords,
         topic: bucket.topic,
         similarityScore: Math.min(95, 72 + uniqueOutlets.length * 5),
+        integratedOneLineSummary,
         coveredOutlets: uniqueOutlets,
         clusterOutlets,
         consensusPoints: uniqueByOutlet.slice(0, 3).map((m) => `[${m.outletName}] ${m.title}`),
@@ -2071,12 +2125,13 @@ export function buildRealBriefing(
         leadImageCaption: s.leadImageCaption,
       };
     });
+    const fallbackTitle = '[실시간 종합] 당일 주요 언론사 첫화면 중앙 톱뉴스 핵심 현안 모음';
     overlappingStories.push({
       id: `ol-realtime-${Date.now().toString(36)}`,
       outletId: 'multiple',
       outletName: `${topOutlets.length}개 언론사 주요 동향 (${topOutlets.join(', ')})`,
       category: 'overlapping',
-      title: '[실시간 종합] 당일 주요 언론사 첫화면 중앙 톱뉴스 핵심 현안 모음',
+      title: fallbackTitle,
       leadSummary: topStories.map((s) => `${s.outletName}: ${s.title}`),
       baseSummary: topStories.map((s) => `${s.outletName}: ${s.title}`),
       originalUrl: clusterOutlets[0]?.originalUrl || 'https://www.chosun.com',
@@ -2084,6 +2139,14 @@ export function buildRealBriefing(
       keywords: ['실시간종합', '주요뉴스'],
       topic: '종합·경제',
       similarityScore: 78,
+      integratedOneLineSummary:
+        topOutlets.length >= 3
+          ? buildClusterIntegratedOneLineSummary(
+              fallbackTitle,
+              topOutlets,
+              topStories.map((s) => s.title)
+            )
+          : undefined,
       coveredOutlets: topOutlets,
       clusterOutlets,
       consensusPoints: topStories.map((s) => `[${s.outletName}] ${s.title}`),

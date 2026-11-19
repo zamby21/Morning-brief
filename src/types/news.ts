@@ -62,6 +62,7 @@ export interface NewsStory {
   consensusPoints?: string[];
   clusterOutlets?: ClusterOutletItem[]; // 언론사별 원문 클러스터 세부 정보
   similarityScore?: number; // 기사 유사도 점수 (0~100%, 70% 이상 엄선 기준)
+  integratedOneLineSummary?: string; // 유사 기사 3개 이상 묶일 때 핵심 내용을 통합한 종합 1줄 요약
   // Specific to exclusive stories
   exclusiveBadge?: string;
   importanceRating?: 'High' | 'Crucial' | 'Medium';
@@ -186,7 +187,7 @@ export const DEFAULT_SECTOR_PREFERENCES: SectorPreferences = {
   onlyCrucialOrHigh: false,
 };
 
-export type ThemeMode = 'light' | 'dark' | 'system';
+export type ThemeMode = 'light' | 'dark' | 'system' | 'sun';
 
 export interface UserPreferences {
   recipientEmail: string;

@@ -34,6 +34,66 @@ interface OverlappingStoriesSectionProps {
   readArticleKeys?: ReadonlySet<string>;
 }
 
+const getBundledArticleCount = (story: NewsStory): number =>
+  Math.max(story.clusterOutlets?.length || 0, story.coveredOutlets?.length || 0);
+
+const resolveIntegratedOneLineSummary = (story: NewsStory): string => {
+  if (story.integratedOneLineSummary && story.integratedOneLineSummary.trim().length >= 8) {
+    return story.integratedOneLineSummary
+      .replace(/^(\[?\s*종합\s*1줄\s*요약\s*\]?\s*[:\-·]?\s*|▪\s*|[-•]\s*|[0-9]+[.)]\s*)/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  const factualLines = (story.baseSummary && story.baseSummary.length > 0 ? story.baseSummary : story.leadSummary || [])
+    .map((line) =>
+      line
+        .replace(/^[0-9]+[.)]\s*/, '')
+        .replace(/^▪\s*/, '')
+        .replace(/^[-•]\s*/, '')
+        .trim()
+    )
+    .filter((line) => line.length > 0 && !line.startsWith('[시사점]'));
+
+  const primaryLine = factualLines.find(
+    (line) =>
+      !line.includes('보도를 통해 핵심 쟁점과 현황을 비중 있게 다뤘습니다') &&
+      !line.includes('복수 주요 언론사가 동일 현안을') &&
+      !/^[^:]{2,12}:\s/.test(line)
+  );
+  if (primaryLine && primaryLine.length >= 18) {
+    return primaryLine.length > 110 ? `${primaryLine.slice(0, 108).trim()}…` : primaryLine;
+  }
+
+  const cleanTitle = (story.title || '')
+    .replace(/^\[[^\]]+\]\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const bundledCount = getBundledArticleCount(story);
+  const outlets = story.coveredOutlets || (story.clusterOutlets || []).map((c) => c.outletName);
+  const outletPreview = outlets.slice(0, 3).join('·');
+  const outletLabel =
+    outlets.length > 3
+      ? `${outletPreview} 등 ${bundledCount}개사`
+      : outlets.length > 0
+      ? `${outletPreview} ${bundledCount}개사`
+      : `${bundledCount}개 언론사`;
+
+  const clusterAngles = (story.clusterOutlets || [])
+    .map((c) => c.headline.replace(/^\[[^\]]+\]\s*/, '').trim())
+    .filter((h) => h.length >= 6);
+
+  if (cleanTitle && !cleanTitle.includes('당일 주요 언론사 첫화면')) {
+    return `${outletLabel}가 ‘${cleanTitle}’ 핵심 쟁점과 후속 파장을 일제히 집중 보도하고 있습니다.`;
+  }
+  if (clusterAngles.length >= 2) {
+    const first = clusterAngles[0].length > 30 ? `${clusterAngles[0].slice(0, 30).trim()}…` : clusterAngles[0];
+    const second = clusterAngles[1].length > 30 ? `${clusterAngles[1].slice(0, 30).trim()}…` : clusterAngles[1];
+    return `${outletLabel}가 ‘${first}’와 ‘${second}’ 등 핵심 현안을 주요 의제로 동시 조명했습니다.`;
+  }
+  return `${outletLabel}가 동일 핵심 이슈를 집중 보도하며 주요 쟁점과 파급 효과를 동시 조명하고 있습니다.`;
+};
+
 export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps> = ({
   stories,
   onOpenShareModal,
@@ -430,6 +490,11 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
         <div className={isMobileView ? 'grid grid-cols-1 gap-4' : 'grid grid-cols-1 lg:grid-cols-2 gap-4'}>
           {stories.map((story) => {
             const isRead = isArticleRead(readArticleKeys, story);
+            const bundledCount = getBundledArticleCount(story);
+            const showIntegratedSummary = bundledCount >= 3;
+            const integratedSummaryText = showIntegratedSummary
+              ? resolveIntegratedOneLineSummary(story)
+              : '';
             return (
               <div
                 key={story.id}
@@ -440,6 +505,49 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
                 }`}
               >
                 <div>
+                  {/* Integrated 1-Line Summary Banner (only when 3+ similar articles are bundled) */}
+                  {showIntegratedSummary && integratedSummaryText && (
+                    <div
+                      onClick={() => onOpenArticleModal(story)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onOpenArticleModal(story);
+                        }
+                      }}
+                      className={`mb-3 rounded-xl px-3.5 py-2.5 border transition-colors cursor-pointer ${
+                        isRead
+                          ? 'bg-slate-100/80 dark:bg-slate-800/60 border-slate-200/80 dark:border-slate-700/70 hover:border-slate-300 dark:hover:border-slate-600'
+                          : 'bg-purple-50/75 dark:bg-purple-950/40 border-purple-200/80 dark:border-purple-800/70 hover:border-purple-300 dark:hover:border-purple-700'
+                      }`}
+                      title="클릭하여 묶인 유사 기사 원문 비교 확인"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <Sparkles className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
+                          <span className="text-[11px] font-extrabold tracking-tight text-purple-700 dark:text-purple-300">
+                            종합 1줄 요약
+                          </span>
+                          <span className="text-[11px] text-slate-300 dark:text-slate-600">·</span>
+                          <span className="text-[11px] font-medium font-mono tabular-nums text-slate-500 dark:text-slate-400 truncate">
+                            유사 기사 {bundledCount}건 통합
+                          </span>
+                        </div>
+                      </div>
+                      <p
+                        className={`mt-1 text-xs sm:text-[13px] font-semibold leading-snug ${
+                          isRead
+                            ? 'text-slate-600 dark:text-slate-400'
+                            : 'text-slate-900 dark:text-slate-100'
+                        }`}
+                      >
+                        {integratedSummaryText}
+                      </p>
+                    </div>
+                  )}
+
                   {/* Topic & Covered Outlets */}
                   <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5 pb-2 border-b border-slate-100 dark:border-slate-800">
                     <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">

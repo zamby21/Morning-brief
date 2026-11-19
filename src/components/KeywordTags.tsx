@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Flame,
   Minus,
@@ -34,8 +34,21 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
   const [popoverAlign, setPopoverAlign] = useState<'left' | 'center' | 'right'>('left');
   const [anchorLeftPx, setAnchorLeftPx] = useState<number>(0);
   const [rankSortBy, setRankSortBy] = useState<'surge' | 'coverage'>('surge');
+  const [adaptiveLayout, setAdaptiveLayout] = useState<{
+    isSideBySide: boolean;
+    leftWidth: number | null;
+    reportWidth: number;
+    keywordRows: number;
+  }>({
+    isSideBySide: false,
+    leftWidth: null,
+    reportWidth: 320,
+    keywordRows: 2,
+  });
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLOListElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
   const trendMap = useMemo<Record<string, KeywordTrendData>>(() => {
@@ -88,6 +101,83 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
       })
       .join(' ');
   };
+
+  useLayoutEffect(() => {
+    const computeLayout = () => {
+      const rowEl = rowRef.current;
+      if (!rowEl) return;
+
+      const outerWidth = rowEl.clientWidth;
+      const canSideBySide = !isMobileView && Boolean(onOpenWeeklyReport) && outerWidth >= 820;
+
+      if (!canSideBySide) {
+        setAdaptiveLayout((prev) =>
+          !prev.isSideBySide && prev.leftWidth === null
+            ? prev
+            : { isSideBySide: false, leftWidth: null, reportWidth: outerWidth, keywordRows: 2 }
+        );
+        return;
+      }
+
+      const GAP = 12;
+      const MIN_REPORT_W = 248;
+      const MIN_HEADER_W = selectedKeyword ? 380 : 320;
+      const maxLeftW = Math.max(MIN_HEADER_W, outerWidth - MIN_REPORT_W - GAP);
+
+      const listEl = listRef.current;
+      const chipWidths: number[] = listEl
+        ? Array.from(listEl.children).map((el) => Math.ceil((el as HTMLElement).offsetWidth))
+        : [];
+
+      let curRowW = 0;
+      let maxRowW = 0;
+      let rows = chipWidths.length > 0 ? 1 : 0;
+      const CHIP_GAP = 6;
+
+      for (const w of chipWidths) {
+        if (curRowW === 0) {
+          curRowW = w;
+        } else if (curRowW + CHIP_GAP + w <= maxLeftW) {
+          curRowW += CHIP_GAP + w;
+        } else {
+          maxRowW = Math.max(maxRowW, curRowW);
+          curRowW = w;
+          rows += 1;
+        }
+      }
+      maxRowW = Math.max(maxRowW, curRowW);
+
+      const exactLeftW =
+        chipWidths.length > 0
+          ? Math.min(maxLeftW, Math.max(MIN_HEADER_W, maxRowW + 2))
+          : Math.min(maxLeftW, MIN_HEADER_W);
+      const reportWidth = Math.max(MIN_REPORT_W, outerWidth - exactLeftW - GAP);
+
+      setAdaptiveLayout((prev) => {
+        if (
+          prev.isSideBySide === true &&
+          prev.leftWidth === exactLeftW &&
+          prev.reportWidth === reportWidth &&
+          prev.keywordRows === Math.max(1, rows)
+        ) {
+          return prev;
+        }
+        return {
+          isSideBySide: true,
+          leftWidth: exactLeftW,
+          reportWidth,
+          keywordRows: Math.max(1, rows),
+        };
+      });
+    };
+
+    computeLayout();
+
+    if (typeof ResizeObserver === 'undefined' || !rowRef.current) return;
+    const observer = new ResizeObserver(() => computeLayout());
+    observer.observe(rowRef.current);
+    return () => observer.disconnect();
+  }, [rankedKeywords, selectedKeyword, isMobileView, onOpenWeeklyReport]);
 
   useEffect(() => {
     if (openTrendKeyword && !keywords.includes(openTrendKeyword)) {
@@ -268,29 +358,40 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
       className="relative bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 sm:p-3.5 shadow-xs transition-colors"
     >
       <div
+        ref={rowRef}
         className={`flex gap-3 ${
-          isMobileView
-            ? 'flex-col'
-            : 'flex-col lg:flex-row lg:items-center lg:justify-between'
+          adaptiveLayout.isSideBySide
+            ? 'flex-row items-stretch'
+            : 'flex-col'
         }`}
       >
-        {/* Left: Unified Core + Real-Time Rising Keyword Ranking */}
-        <div className="flex-1 min-w-0">
+        {/* Left: Unified Core + Real-Time Rising Keyword Ranking (hugs exact wrapped keyword width) */}
+        <div
+          style={
+            adaptiveLayout.isSideBySide && adaptiveLayout.leftWidth
+              ? { width: `${adaptiveLayout.leftWidth}px` }
+              : undefined
+          }
+          className={adaptiveLayout.isSideBySide ? 'shrink-0 min-w-0 flex flex-col justify-center' : 'w-full min-w-0'}
+        >
+          {/* Header Row: strictly matched to the keyword area width so sort controls stay directly above keywords */}
           <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
               <div className="p-1 rounded-lg bg-orange-50 dark:bg-orange-950/70 text-orange-600 dark:text-orange-400 border border-orange-200/60 dark:border-orange-800/70 shrink-0">
                 <Flame className="w-3.5 h-3.5" aria-hidden="true" />
               </div>
               <h3 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5 min-w-0">
                 <span className="whitespace-nowrap shrink-0">오늘의 급상승 핵심 키워드</span>
-                <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400 truncate hidden xl:inline">
-                  · 클릭 시 기사 필터 · 수치 클릭 시 24시간 추이
-                </span>
+                {(!adaptiveLayout.isSideBySide || (adaptiveLayout.leftWidth ?? 0) >= 560) && (
+                  <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400 truncate hidden sm:inline">
+                    · 클릭 시 기사 필터 · 수치 클릭 시 24시간 추이
+                  </span>
+                )}
               </h3>
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              {/* Segmented Sort Control */}
+              {/* Segmented Sort Control — aligned directly above the keywords */}
               <div
                 role="group"
                 aria-label="키워드 순위 정렬 기준"
@@ -342,6 +443,7 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
             </p>
           ) : (
             <ol
+              ref={listRef}
               aria-label="오늘의 급상승 핵심 키워드 랭킹"
               className="flex flex-wrap items-center gap-1.5"
             >
@@ -365,7 +467,7 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
                 return (
                   <li
                     key={item.keyword}
-                    className={`inline-flex items-stretch rounded-xl border transition-all duration-150 overflow-hidden ${
+                    className={`inline-flex items-stretch rounded-xl border transition-all duration-150 overflow-hidden whitespace-nowrap shrink-0 ${
                       isSelected
                         ? 'border-blue-600 ring-2 ring-blue-300/70 dark:ring-blue-500/40 shadow-xs'
                         : isPopoverOpen
@@ -444,42 +546,50 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
           )}
         </div>
 
-        {/* Right: Compact Weekly Comprehensive Report Card */}
-        {onOpenWeeklyReport && (
-          <div
-            className={`shrink-0 rounded-xl bg-gradient-to-r from-purple-50 via-indigo-50/60 to-white dark:from-purple-950/50 dark:via-indigo-950/40 dark:to-slate-900/90 border border-purple-200/90 dark:border-purple-800/70 px-3 py-2.5 flex items-center justify-between gap-2.5 ${
-              isMobileView
-                ? 'w-full'
-                : 'w-full lg:w-[260px] xl:w-[300px]'
-            }`}
-          >
-            <div className="min-w-0 space-y-0.5">
-              <div className="flex items-center gap-1.5 text-[10px] whitespace-nowrap">
-                <span className="font-bold text-purple-700 dark:text-purple-300">
-                  주간 종합 리포트
-                </span>
-                <span className="text-slate-400 dark:text-slate-500">·</span>
-                <span className="text-slate-500 dark:text-slate-400 font-medium">
-                  7일간 분석
-                </span>
-              </div>
-              <p className="text-xs font-extrabold text-slate-900 dark:text-white leading-snug truncate">
-                주간 주요 이슈 &amp; 논조 비교
-              </p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight truncate">
-                타임라인·시각 차이를 한눈에
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onOpenWeeklyReport}
-              className="px-2.5 py-2 rounded-xl text-[11px] font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-xs transition active:scale-95 whitespace-nowrap flex items-center gap-1 cursor-pointer shrink-0"
+        {/* Right: Adaptive Weekly Comprehensive Report Card (dynamically scales width, height & position with keyword layout) */}
+        {onOpenWeeklyReport && (() => {
+          const isWideReport = !adaptiveLayout.isSideBySide || adaptiveLayout.reportWidth >= 340;
+          const isSingleRow = adaptiveLayout.isSideBySide && adaptiveLayout.keywordRows <= 1;
+          return (
+            <div
+              className={`rounded-xl bg-gradient-to-r from-purple-50 via-indigo-50/60 to-white dark:from-purple-950/50 dark:via-indigo-950/40 dark:to-slate-900/90 border border-purple-200/90 dark:border-purple-800/70 flex items-center justify-between gap-3 transition-all duration-150 ${
+                adaptiveLayout.isSideBySide
+                  ? 'flex-1 min-w-[240px] self-stretch'
+                  : 'w-full'
+              } ${isSingleRow ? 'px-3 py-2' : 'px-3.5 py-2.5'}`}
             >
-              <Sparkles className="w-3.5 h-3.5 text-amber-300 shrink-0" aria-hidden="true" />
-              <span>열기</span>
-            </button>
-          </div>
-        )}
+              <div className="min-w-0 space-y-0.5">
+                <div className="flex items-center gap-1.5 text-[10px] whitespace-nowrap">
+                  <span className="font-bold text-purple-700 dark:text-purple-300">
+                    주간 종합 리포트
+                  </span>
+                  <span className="text-slate-400 dark:text-slate-500">·</span>
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">
+                    7일간 분석
+                  </span>
+                </div>
+                <p className="text-xs font-extrabold text-slate-900 dark:text-white leading-snug truncate">
+                  {isWideReport ? '주간 주요 이슈 & 언론사 논조 비교' : '주간 주요 이슈 & 논조 비교'}
+                </p>
+                {!isSingleRow && (
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight truncate">
+                    {isWideReport
+                      ? '7일간 이슈 전개 타임라인과 언론사 시각 차이를 한눈에'
+                      : '타임라인·시각 차이를 한눈에'}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={onOpenWeeklyReport}
+                className="px-3 py-2 rounded-xl text-[11px] font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-xs transition active:scale-95 whitespace-nowrap flex items-center gap-1.5 cursor-pointer shrink-0"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-300 shrink-0" aria-hidden="true" />
+                <span>{isWideReport ? '리포트 열기' : '열기'}</span>
+              </button>
+            </div>
+          );
+        })()}
       </div>
 
       {/* 24-Hour Outlet Coverage Trend Popover */}

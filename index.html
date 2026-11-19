@@ -23,12 +23,37 @@
               if (parsed && parsed.theme) stored = parsed.theme;
             }
           }
-          var mode = stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
-          var isDark =
-            mode === 'dark' ||
-            (mode === 'system' &&
+          var mode =
+            stored === 'light' || stored === 'dark' || stored === 'system' || stored === 'sun'
+              ? stored
+              : 'sun';
+          var isDark = false;
+          if (mode === 'dark') {
+            isDark = true;
+          } else if (mode === 'sun') {
+            var now = new Date();
+            var nowMs = now.getTime();
+            var usedCache = false;
+            try {
+              var rawSun = localStorage.getItem('morning_brief_sun_cache_v1');
+              if (rawSun) {
+                var sc = JSON.parse(rawSun);
+                var todayKey = now.getFullYear() + '-' + (now.getMonth() + 1) + '-' + now.getDate();
+                if (sc && sc.dateKey === todayKey && sc.sunriseMs && sc.sunsetMs) {
+                  isDark = !(nowMs >= sc.sunriseMs && nowMs < sc.sunsetMs);
+                  usedCache = true;
+                }
+              }
+            } catch (e2) {}
+            if (!usedCache) {
+              var mins = now.getHours() * 60 + now.getMinutes();
+              isDark = mins < 390 || mins >= 1080;
+            }
+          } else if (mode === 'system') {
+            isDark =
               window.matchMedia &&
-              window.matchMedia('(prefers-color-scheme: dark)').matches);
+              window.matchMedia('(prefers-color-scheme: dark)').matches;
+          }
           var root = document.documentElement;
           root.classList.toggle('dark', isDark);
           root.style.colorScheme = isDark ? 'dark' : 'light';

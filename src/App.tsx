@@ -41,7 +41,9 @@ import {
 } from './types/news';
 import {
   applyThemeToDocument,
+  formatTimeHHMM,
   getStoredThemeMode,
+  getSunSchedule,
   getThemeLabel,
   isValidThemeMode,
   persistThemeMode,
@@ -229,6 +231,7 @@ export default function App() {
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() =>
     resolveTheme(getStoredThemeMode())
   );
+  const [sunLocationVersion, setSunLocationVersion] = useState(0);
 
   // Scroll to top listener
   useEffect(() => {
@@ -239,20 +242,75 @@ export default function App() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Apply theme to <html>, persist in localStorage, and subscribe to OS color-scheme changes
+  // Apply theme to <html>, persist in localStorage, subscribe to OS changes & sunrise/sunset transitions
   useEffect(() => {
-    const applyCurrent = () => {
-      const resolved = applyThemeToDocument(themeMode);
-      setResolvedTheme(resolved);
-    };
-    applyCurrent();
+    let lastApplied = applyThemeToDocument(themeMode);
+    setResolvedTheme(lastApplied);
     persistThemeMode(themeMode);
 
-    if (typeof window === 'undefined' || !window.matchMedia) return;
+    if (typeof window === 'undefined') return;
+
+    if (themeMode === 'sun') {
+      let transitionTimer: ReturnType<typeof setTimeout> | null = null;
+
+      const syncSunTheme = (notifyOnFlip: boolean) => {
+        const schedule = getSunSchedule();
+        const nextResolved = applyThemeToDocument('sun');
+        if (nextResolved !== lastApplied) {
+          lastApplied = nextResolved;
+          setResolvedTheme(nextResolved);
+          if (notifyOnFlip) {
+            const eventLabel = nextResolved === 'dark' ? `일몰(${schedule.sunsetText})` : `일출(${schedule.sunriseText})`;
+            const targetLabel = nextResolved === 'dark' ? '다크 모드' : '라이트 모드';
+            setStatusNotification(`${eventLabel} 시간에 맞춰 ${targetLabel}로 자동 전환되었습니다.`);
+            setTimeout(() => setStatusNotification(null), 3600);
+          }
+        }
+        return schedule;
+      };
+
+      const scheduleNextBoundary = () => {
+        if (transitionTimer) clearTimeout(transitionTimer);
+        const schedule = getSunSchedule();
+        const delayMs = Math.max(
+          1000,
+          Math.min(24 * 60 * 60 * 1000, schedule.nextTransitionTime.getTime() - Date.now() + 1000)
+        );
+        transitionTimer = setTimeout(() => {
+          syncSunTheme(true);
+          scheduleNextBoundary();
+        }, delayMs);
+      };
+
+      scheduleNextBoundary();
+
+      // Safety heartbeat every 60s + visibility sync for sleeping tabs/devices
+      const intervalId = window.setInterval(() => {
+        syncSunTheme(true);
+      }, 60 * 1000);
+
+      const handleVisibility = () => {
+        if (document.visibilityState === 'visible') {
+          syncSunTheme(false);
+          scheduleNextBoundary();
+        }
+      };
+      document.addEventListener('visibilitychange', handleVisibility);
+
+      return () => {
+        if (transitionTimer) clearTimeout(transitionTimer);
+        window.clearInterval(intervalId);
+        document.removeEventListener('visibilitychange', handleVisibility);
+      };
+    }
+
+    if (!window.matchMedia) return;
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handleMediaChange = () => {
       if (themeMode === 'system') {
-        applyCurrent();
+        const nextResolved = applyThemeToDocument('system');
+        lastApplied = nextResolved;
+        setResolvedTheme(nextResolved);
       }
     };
     if (typeof mediaQuery.addEventListener === 'function') {
@@ -261,7 +319,7 @@ export default function App() {
     }
     mediaQuery.addListener(handleMediaChange);
     return () => mediaQuery.removeListener(handleMediaChange);
-  }, [themeMode]);
+  }, [themeMode, sunLocationVersion]);
 
   // Save preferences to localStorage automatically whenever updated
   useEffect(() => {
@@ -402,7 +460,16 @@ export default function App() {
     const resolved = applyThemeToDocument(mode);
     setResolvedTheme(resolved);
     setPreferences((prev) => ({ ...prev, theme: mode }));
-    triggerNotification(`화면 테마가 '${getThemeLabel(mode)}'으로 변경되었습니다.`);
+    if (mode === 'sun') {
+      const s = getSunSchedule();
+      triggerNotification(
+        `일출(${s.sunriseText})·일몰(${s.sunsetText}) 자동 테마 적용 · 현재 ${
+          resolved === 'dark' ? '다크' : '라이트'
+        } 모드 (다음 전환 ${formatTimeHHMM(s.nextTransitionTime)})`
+      );
+    } else {
+      triggerNotification(`화면 테마가 '${getThemeLabel(mode)}'으로 변경되었습니다.`);
+    }
   };
 
   const handleOpenPressModal = (section: 'frontPage' | 'overlapping' = 'frontPage') => {
@@ -1189,6 +1256,7 @@ export default function App() {
         themeMode={themeMode}
         resolvedTheme={resolvedTheme}
         onChangeTheme={handleChangeTheme}
+        onRefreshSunTheme={() => setSunLocationVersion((v) => v + 1)}
       />
 
       <WeeklyReportModal

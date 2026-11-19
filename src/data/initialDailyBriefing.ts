@@ -293,6 +293,8 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
       keywords: ['엔비디아', '젠슨황', '이사회'],
       topic: '반도체·AI',
       similarityScore: 92,
+      integratedOneLineSummary:
+        '엔비디아 이사회가 사내 윤리 의혹에 따른 젠슨 황 CEO 해임을 긴급 논의하면서, 글로벌 AI 반도체 지배구조 리스크와 기술주 변동성이 동시 확대되고 있습니다.',
       coveredOutlets: ['매일경제', '중앙일보', '한겨레', '경향신문'],
       consensusPoints: [
         '엔비디아 이사회의 긴급 소집 및 내부 조사 진행 사실에 대해 복수 언론 일치 보도',
@@ -363,6 +365,8 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
       keywords: ['코스피', 'AI랠리', 'SP500'],
       topic: '금융·거시경제',
       similarityScore: 86,
+      integratedOneLineSummary:
+        '글로벌 AI 칩 랠리로 반도체 기대감이 커졌지만, 국내 증시 옵션 만기 경계감과 월가의 미국 증시 차익 실현 경고가 맞물리며 선별 대응이 요구됩니다.',
       coveredOutlets: ['한국경제', '서울경제', '아시아경제'],
       consensusPoints: [
         '글로벌 AI 반도체 호재와 옵션 만기일 수급 부담의 팽팽한 힘겨루기',
@@ -416,6 +420,8 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
       keywords: ['정상외교', 'APEC', '정기국회'],
       topic: '정치·정책',
       similarityScore: 80,
+      integratedOneLineSummary:
+        '아세안·APEC 다자 정상외교 순방이 본격화되는 가운데, 정기국회 특검법·세제 개편 대치가 격화되며 민생 경제 입법의 초당적 처리가 핵심 과제로 떠올랐습니다.',
       coveredOutlets: ['한겨레', '동아일보', '경향신문'],
       consensusPoints: [
         '다자 정상외교를 통한 실용적 국익 확보의 중요성 강조',

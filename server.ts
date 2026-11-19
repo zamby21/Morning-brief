@@ -398,7 +398,15 @@ app.post(['/api/summarize', '/summarize'], async (req, res) => {
 
         const geminiInputPayload = {
           frontPageStories: realBriefing.frontPageStories.map((s) => buildStoryPayload(s, 900)),
-          overlappingStories: realBriefing.overlappingStories.map((s) => buildStoryPayload(s, 900)),
+          overlappingStories: realBriefing.overlappingStories.map((s) => ({
+            ...buildStoryPayload(s, 900),
+            bundledCount: Math.max(s.clusterOutlets?.length || 0, s.coveredOutlets?.length || 0),
+            clusterArticles: (s.clusterOutlets || []).map((c) => ({
+              outletName: c.outletName,
+              headline: c.headline,
+              summary: (c.leadSummary || []).slice(0, 2).join(' ').slice(0, 240),
+            })),
+          })),
           exclusiveStories: realBriefing.exclusiveStories.map((s) => buildStoryPayload(s, 800)),
           sectorHeadlines: (realBriefing.sectorHeadlines || []).map((h) =>
             buildStoryPayload(
@@ -433,6 +441,7 @@ app.post(['/api/summarize', '/summarize'], async (req, res) => {
             : `leadSummary는 정확히 3줄(배열 길이 3)로 작성하고, 별도 aiInsight 필드에 해당 기사와 relatedArticles를 심층 교차 검토한 개조식 1줄 시사점("[시사점] ...")을 함께 생성하세요.`
         }
 6. 모든 항목에 대해 aiInsight 필드에도 개조식 심층 시사점("[시사점] ...")을 반드시 채워주세요.
+7. overlappingStories 중 bundledCount가 3 이상(유사 기사 3개 이상 묶임)인 항목은 clusterArticles에 묶인 모든 기사의 핵심 내용을 통합해 한눈에 이해되는 '종합 1줄 요약'을 integratedOneLineSummary 필드에 작성하세요 (자연스러운 한국어 1문장, 45~95자, 번호·불릿·접두어 금지). bundledCount가 3 미만이면 빈 문자열("")을 반환하세요.
 
 [실시간 기사 원문 및 관련 기사 교차 데이터]:
 ${JSON.stringify(geminiInputPayload)}`;
@@ -448,6 +457,20 @@ ${JSON.stringify(geminiInputPayload)}`;
             aiInsight: { type: Type.STRING },
           },
           required: ['id', 'leadSummary', 'aiInsight'],
+        };
+
+        const overlappingOutputSchema = {
+          type: Type.OBJECT,
+          properties: {
+            id: { type: Type.STRING },
+            leadSummary: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+            },
+            aiInsight: { type: Type.STRING },
+            integratedOneLineSummary: { type: Type.STRING },
+          },
+          required: ['id', 'leadSummary', 'aiInsight', 'integratedOneLineSummary'],
         };
 
         const response = await generateWithResilientModel(
@@ -469,7 +492,7 @@ ${JSON.stringify(geminiInputPayload)}`;
                 },
                 overlappingStories: {
                   type: Type.ARRAY,
-                  items: storyOutputSchema,
+                  items: overlappingOutputSchema,
                 },
                 exclusiveStories: {
                   type: Type.ARRAY,
@@ -510,6 +533,19 @@ ${JSON.stringify(geminiInputPayload)}`;
             }
             if (normalized.aiInsight) {
               existing.aiInsight = normalized.aiInsight;
+            }
+            if (typeof gItem.integratedOneLineSummary === 'string') {
+              const cleanedOneLine = gItem.integratedOneLineSummary
+                .replace(/^(\[?\s*종합\s*1줄\s*요약\s*\]?\s*[:\-·]?\s*|▪\s*|[-•]\s*|[0-9]+[.)]\s*)/, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+              const bundledCount = Math.max(
+                existing.clusterOutlets?.length || 0,
+                existing.coveredOutlets?.length || 0
+              );
+              if (bundledCount >= 3 && cleanedOneLine.length >= 12) {
+                existing.integratedOneLineSummary = cleanedOneLine;
+              }
             }
           });
         };
