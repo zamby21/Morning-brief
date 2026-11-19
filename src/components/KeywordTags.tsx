@@ -546,17 +546,104 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
           )}
         </div>
 
-        {/* Right: Adaptive Weekly Comprehensive Report Card (dynamically scales width, height & position with keyword layout) */}
+        {/* Right: Adaptive Weekly Comprehensive Report Card (dynamically adjusts internal layout & height to eliminate vertical voids) */}
         {onOpenWeeklyReport && (() => {
-          const isWideReport = !adaptiveLayout.isSideBySide || adaptiveLayout.reportWidth >= 340;
-          const isSingleRow = adaptiveLayout.isSideBySide && adaptiveLayout.keywordRows <= 1;
+          const isSide = adaptiveLayout.isSideBySide;
+          const rows = adaptiveLayout.keywordRows;
+          const isWideReport = !isSide || adaptiveLayout.reportWidth >= 340;
+          const showFooterMeta = adaptiveLayout.reportWidth >= 310;
+
+          // 3+ rows side-by-side: balanced 2-part vertical card (Header+Summary top, Hairline+Meta+CTA bottom)
+          if (isSide && rows >= 3) {
+            return (
+              <div
+                className={`rounded-xl bg-gradient-to-br from-purple-50/90 via-indigo-50/45 to-white dark:from-purple-950/50 dark:via-indigo-950/35 dark:to-slate-900/95 border border-purple-200/90 dark:border-purple-800/70 flex flex-col justify-between gap-2.5 p-3.5 flex-1 min-w-[240px] transition-all duration-150 ${
+                  rows === 3 ? 'self-stretch' : 'self-start'
+                }`}
+              >
+                <div className="min-w-0 space-y-1">
+                  <div className="flex items-center gap-1.5 text-[11px] whitespace-nowrap">
+                    <span className="font-bold text-purple-700 dark:text-purple-300">
+                      주간 종합 리포트
+                    </span>
+                    <span className="text-slate-400 dark:text-slate-500">·</span>
+                    <span className="text-slate-500 dark:text-slate-400 font-medium">
+                      7일간 분석
+                    </span>
+                  </div>
+                  <p className="text-[13px] font-extrabold text-slate-900 dark:text-white leading-snug">
+                    주간 주요 이슈 &amp; 언론사 논조 비교
+                  </p>
+                  <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                    7일간 이슈 전개 타임라인과 언론사 시각 차이를 한눈에 확인하세요.
+                  </p>
+                </div>
+
+                <div className="pt-2.5 border-t border-purple-200/70 dark:border-purple-800/60 flex items-center justify-between gap-2">
+                  {showFooterMeta && (
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium truncate">
+                      타임라인 · 논조 비교 · 다음 주 전망
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={onOpenWeeklyReport}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-xs transition active:scale-95 whitespace-nowrap inline-flex items-center justify-center gap-1.5 cursor-pointer shrink-0 ${
+                      showFooterMeta ? '' : 'w-full'
+                    }`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300 shrink-0" aria-hidden="true" />
+                    <span>리포트 열기</span>
+                  </button>
+                </div>
+              </div>
+            );
+          }
+
+          // 2 rows side-by-side: compact 2-tier vertical card (Kicker+CTA top, Title+Description bottom)
+          if (isSide && rows === 2) {
+            return (
+              <div className="rounded-xl bg-gradient-to-br from-purple-50/90 via-indigo-50/45 to-white dark:from-purple-950/50 dark:via-indigo-950/35 dark:to-slate-900/95 border border-purple-200/90 dark:border-purple-800/70 flex flex-col justify-between gap-2 px-3.5 py-2.5 flex-1 min-w-[240px] self-stretch transition-all duration-150">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 text-[11px] whitespace-nowrap min-w-0">
+                    <span className="font-bold text-purple-700 dark:text-purple-300">
+                      주간 종합 리포트
+                    </span>
+                    <span className="text-slate-400 dark:text-slate-500">·</span>
+                    <span className="text-slate-500 dark:text-slate-400 font-medium truncate">
+                      7일간 분석
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onOpenWeeklyReport}
+                    className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-xs transition active:scale-95 whitespace-nowrap inline-flex items-center gap-1 cursor-pointer shrink-0"
+                  >
+                    <Sparkles className="w-3 h-3 text-amber-300 shrink-0" aria-hidden="true" />
+                    <span>{isWideReport ? '리포트 열기' : '열기'}</span>
+                  </button>
+                </div>
+
+                <div className="pt-2 border-t border-purple-200/60 dark:border-purple-800/50 min-w-0 space-y-0.5">
+                  <p className="text-xs font-extrabold text-slate-900 dark:text-white leading-snug truncate">
+                    {isWideReport ? '주간 주요 이슈 & 언론사 논조 비교' : '주간 주요 이슈 & 논조 비교'}
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight truncate">
+                    {isWideReport
+                      ? '7일간 이슈 전개 타임라인과 언론사 시각 차이를 한눈에'
+                      : '타임라인·시각 차이를 한눈에'}
+                  </p>
+                </div>
+              </div>
+            );
+          }
+
+          // 1 row side-by-side or stacked mobile view: sleek single-tier horizontal strip
           return (
             <div
               className={`rounded-xl bg-gradient-to-r from-purple-50 via-indigo-50/60 to-white dark:from-purple-950/50 dark:via-indigo-950/40 dark:to-slate-900/90 border border-purple-200/90 dark:border-purple-800/70 flex items-center justify-between gap-3 transition-all duration-150 ${
-                adaptiveLayout.isSideBySide
-                  ? 'flex-1 min-w-[240px] self-stretch'
-                  : 'w-full'
-              } ${isSingleRow ? 'px-3 py-2' : 'px-3.5 py-2.5'}`}
+                isSide ? 'flex-1 min-w-[240px] self-center px-3 py-2' : 'w-full px-3.5 py-2.5'
+              }`}
             >
               <div className="min-w-0 space-y-0.5">
                 <div className="flex items-center gap-1.5 text-[10px] whitespace-nowrap">
@@ -571,11 +658,9 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
                 <p className="text-xs font-extrabold text-slate-900 dark:text-white leading-snug truncate">
                   {isWideReport ? '주간 주요 이슈 & 언론사 논조 비교' : '주간 주요 이슈 & 논조 비교'}
                 </p>
-                {!isSingleRow && (
+                {!isSide && (
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight truncate">
-                    {isWideReport
-                      ? '7일간 이슈 전개 타임라인과 언론사 시각 차이를 한눈에'
-                      : '타임라인·시각 차이를 한눈에'}
+                    7일간 이슈 전개 타임라인과 언론사 시각 차이를 한눈에
                   </p>
                 )}
               </div>

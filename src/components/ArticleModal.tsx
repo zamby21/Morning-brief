@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   ExternalLink,
@@ -16,6 +16,10 @@ import {
   BookOpen,
   Type,
   Camera,
+  Volume2,
+  Pause,
+  Play,
+  Square,
 } from 'lucide-react';
 import { NewsStory, ClusterOutletItem, ArticleContentBlock } from '../types/news';
 import { PRESS_OUTLETS } from '../data/mockNewsData';
@@ -27,6 +31,7 @@ import {
   copyToClipboardSafe,
   openExternalSafe,
 } from '../utils/linkUtils';
+import { stopSectionSpeech } from '../utils/sectionSpeechPlayer';
 
 interface ArticleModalProps {
   isOpen: boolean;
@@ -90,10 +95,64 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   const [fontSize, setFontSize] = useState<'base' | 'lg'>('base');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [selectedOutletIdx, setSelectedOutletIdx] = useState(0);
+  const [speechStatus, setSpeechStatus] = useState<'idle' | 'playing' | 'paused'>('idle');
+  const [activeSpeechLineIdx, setActiveSpeechLineIdx] = useState<number | null>(null);
+  const [speechRate, setSpeechRate] = useState<number>(1);
+
+  const speechSessionRef = useRef(0);
+  const speechRateRef = useRef(1);
+
+  const isSpeechSupported =
+    typeof window !== 'undefined' &&
+    'speechSynthesis' in window &&
+    typeof SpeechSynthesisUtterance !== 'undefined';
+
+  const stopSpeech = () => {
+    speechSessionRef.current += 1;
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // Ignore cancellation errors in restricted browsers
+      }
+    }
+    setSpeechStatus('idle');
+    setActiveSpeechLineIdx(null);
+  };
+
+  useEffect(() => {
+    speechRateRef.current = speechRate;
+  }, [speechRate]);
+
+  useEffect(() => {
+    if (!isSpeechSupported) return;
+    const warmVoices = () => {
+      try {
+        window.speechSynthesis.getVoices();
+      } catch {
+        // Ignore voice lookup errors
+      }
+    };
+    warmVoices();
+    window.speechSynthesis.addEventListener?.('voiceschanged', warmVoices);
+    return () => {
+      window.speechSynthesis.removeEventListener?.('voiceschanged', warmVoices);
+    };
+  }, [isSpeechSupported]);
 
   useEffect(() => {
     setSelectedOutletIdx(0);
+    stopSpeech();
   }, [story?.id]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      stopSpeech();
+    }
+    return () => {
+      stopSpeech();
+    };
+  }, [isOpen]);
 
   if (!isOpen || !story) return null;
 
@@ -220,6 +279,157 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     setTimeout(() => {
       setToastMessage(null);
     }, 2800);
+  };
+
+  const getSpeechTextForLine = (line: string): string => {
+    const stripped = line
+      .replace(/^[0-9]+[.)]\s*/, '')
+      .replace(/^[▪•·\-–—]+\s*/, '')
+      .trim();
+    if (stripped.startsWith('[시사점]')) {
+      return `시사점. ${stripped.replace(/^\[시사점\]\s*/, '').trim()}`;
+    }
+    return stripped;
+  };
+
+  const pickKoreanVoice = (): SpeechSynthesisVoice | null => {
+    if (!isSpeechSupported) return null;
+    try {
+      const voices = window.speechSynthesis.getVoices();
+      if (!voices || voices.length === 0) return null;
+      return (
+        voices.find(
+          (v) =>
+            v.lang.toLowerCase() === 'ko-kr' &&
+            /google|yuna|sora|heami|sunhi|seoyeon/i.test(v.name)
+        ) ||
+        voices.find((v) => v.lang.toLowerCase() === 'ko-kr') ||
+        voices.find((v) => v.lang.toLowerCase().startsWith('ko')) ||
+        null
+      );
+    } catch {
+      return null;
+    }
+  };
+
+  const speakSummaryFromLine = (startIdx: number, rateOverride?: number) => {
+    if (!isSpeechSupported) {
+      showToast('이 브라우저에서는 음성으로 듣기 기능을 지원하지 않습니다.');
+      return;
+    }
+
+    const preparedLines = (story.leadSummary || []).map(getSpeechTextForLine);
+    const hasReadable = preparedLines.some((text) => text.length > 0);
+    if (!hasReadable) {
+      showToast('읽어드릴 요약 내용이 없습니다.');
+      return;
+    }
+
+    const sessionId = ++speechSessionRef.current;
+    stopSectionSpeech();
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      // Ignore cancel errors
+    }
+
+    const effectiveRate = rateOverride ?? speechRateRef.current;
+    const koreanVoice = pickKoreanVoice();
+    setSpeechStatus('playing');
+
+    const speakNext = (idx: number) => {
+      if (sessionId !== speechSessionRef.current) return;
+
+      let nextIdx = idx;
+      while (nextIdx < preparedLines.length && !preparedLines[nextIdx]) {
+        nextIdx += 1;
+      }
+
+      if (nextIdx >= preparedLines.length) {
+        setSpeechStatus('idle');
+        setActiveSpeechLineIdx(null);
+        return;
+      }
+
+      const utterance = new SpeechSynthesisUtterance(preparedLines[nextIdx]);
+      utterance.lang = 'ko-KR';
+      utterance.rate = effectiveRate;
+      utterance.pitch = 1;
+      if (koreanVoice) {
+        utterance.voice = koreanVoice;
+      }
+
+      utterance.onstart = () => {
+        if (sessionId !== speechSessionRef.current) return;
+        setActiveSpeechLineIdx(nextIdx);
+        setSpeechStatus('playing');
+      };
+
+      utterance.onend = () => {
+        if (sessionId !== speechSessionRef.current) return;
+        speakNext(nextIdx + 1);
+      };
+
+      utterance.onerror = (event) => {
+        if (sessionId !== speechSessionRef.current) return;
+        if (event.error === 'canceled' || event.error === 'interrupted') return;
+        setSpeechStatus('idle');
+        setActiveSpeechLineIdx(null);
+        showToast('음성 재생 중 오류가 발생했습니다. 다시 시도해주세요.');
+      };
+
+      setActiveSpeechLineIdx(nextIdx);
+      window.speechSynthesis.speak(utterance);
+    };
+
+    speakNext(startIdx);
+  };
+
+  const handleToggleSpeech = () => {
+    if (!isSpeechSupported) {
+      showToast('이 브라우저에서는 음성으로 듣기 기능을 지원하지 않습니다.');
+      return;
+    }
+
+    if (speechStatus === 'idle') {
+      speakSummaryFromLine(0);
+      return;
+    }
+
+    if (speechStatus === 'playing') {
+      try {
+        window.speechSynthesis.pause();
+      } catch {
+        // Ignore pause errors
+      }
+      setSpeechStatus('paused');
+      return;
+    }
+
+    if (speechStatus === 'paused') {
+      try {
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+          setSpeechStatus('playing');
+          return;
+        }
+      } catch {
+        // Fall through to clean restart from current line
+      }
+      speakSummaryFromLine(activeSpeechLineIdx ?? 0);
+    }
+  };
+
+  const handleCycleSpeechRate = () => {
+    const rateOrder = [1, 1.2, 1.4, 0.9];
+    const currentIndex = rateOrder.indexOf(speechRate);
+    const nextRate = rateOrder[(currentIndex + 1) % rateOrder.length];
+    setSpeechRate(nextRate);
+    speechRateRef.current = nextRate;
+
+    if (speechStatus === 'playing') {
+      speakSummaryFromLine(activeSpeechLineIdx ?? 0, nextRate);
+    }
   };
 
   const handleCopyNaverQuery = async () => {
@@ -351,28 +561,92 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
 
           {/* 3-line Core Summary Box */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-2 shadow-xs">
-            <div className="text-xs font-bold text-blue-600 dark:text-blue-400 flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2 mb-2">
-              <span className="flex items-center gap-1.5">
-                <Bookmark className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                <span>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5 mb-2">
+              <div className="flex items-center gap-1.5 min-w-0 text-xs font-bold text-blue-600 dark:text-blue-400">
+                <Bookmark className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                <span className="truncate">
                   {story.leadSummary.some((l) => l.trim().startsWith('[시사점]'))
                     ? '인사이트 핵심 요약 (요약 3줄 + 시사점 1줄 · 개조식)'
                     : isCluster
                     ? '공통 이슈 핵심 요약 (3줄)'
                     : '핵심 3줄 요약'}
                 </span>
-              </span>
-              <span className="text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 px-2 py-0.5 rounded font-mono text-[11px] font-bold">
-                {story.leadSummary.some((l) => l.trim().startsWith('[시사점]'))
-                  ? '3+1 Deep Insight'
-                  : 'Strict 3-Line Briefing'}
-              </span>
+              </div>
+
+              {/* Web Speech API TTS Controls */}
+              <div className="flex items-center gap-1.5 shrink-0">
+                {speechStatus === 'idle' ? (
+                  <button
+                    type="button"
+                    onClick={handleToggleSpeech}
+                    aria-label="기사 요약본 음성으로 듣기"
+                    title={
+                      isSpeechSupported
+                        ? '기사 요약 내용 전체를 한국어 음성으로 읽어줍니다'
+                        : '현재 브라우저에서 음성 읽기를 지원하지 않습니다'
+                    }
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-50 dark:bg-blue-950/70 hover:bg-blue-100 dark:hover:bg-blue-900/70 text-blue-700 dark:text-blue-300 border border-blue-200/90 dark:border-blue-800 transition cursor-pointer active:scale-95 whitespace-nowrap shrink-0"
+                  >
+                    <Volume2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    <span>음성으로 듣기</span>
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleToggleSpeech}
+                      aria-label={speechStatus === 'playing' ? '음성 읽기 일시정지' : '음성 읽기 이어듣기'}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-600 hover:bg-blue-700 text-white transition cursor-pointer active:scale-95 whitespace-nowrap shrink-0 shadow-2xs"
+                    >
+                      {speechStatus === 'playing' ? (
+                        <>
+                          <Pause className="w-3 h-3 shrink-0" aria-hidden="true" />
+                          <span>일시정지</span>
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-3 h-3 shrink-0" aria-hidden="true" />
+                          <span>이어듣기</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCycleSpeechRate}
+                      title="읽기 속도 조절 (0.9x ~ 1.4x)"
+                      aria-label={`읽기 속도 ${speechRate.toFixed(1)}배속`}
+                      className="px-2 py-1 rounded-lg text-[11px] font-mono tabular-nums font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition cursor-pointer whitespace-nowrap shrink-0"
+                    >
+                      {speechRate.toFixed(1)}x
+                    </button>
+                    <button
+                      type="button"
+                      onClick={stopSpeech}
+                      aria-label="음성 읽기 정지"
+                      title="음성 읽기 정지"
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/60 text-slate-600 dark:text-slate-300 hover:text-rose-700 dark:hover:text-rose-300 border border-slate-200 dark:border-slate-700 hover:border-rose-200 dark:hover:border-rose-800 transition cursor-pointer whitespace-nowrap shrink-0"
+                    >
+                      <Square className="w-2.5 h-2.5 fill-current shrink-0" aria-hidden="true" />
+                      <span>정지</span>
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
+
             {story.leadSummary.map((line, idx) => {
               const cleanLine = line.replace(/^[0-9]+[.)]\s*/, '').trim();
+              const isBeingSpoken = speechStatus !== 'idle' && activeSpeechLineIdx === idx;
               if (cleanLine.startsWith('[시사점]')) {
                 return (
-                  <p key={idx} className="text-xs sm:text-sm text-indigo-950 dark:text-indigo-200 leading-relaxed pl-1 font-medium pt-1.5 border-t border-slate-100 dark:border-slate-800">
+                  <p
+                    key={idx}
+                    className={`text-xs sm:text-sm text-indigo-950 dark:text-indigo-200 leading-relaxed font-medium pt-1.5 border-t border-slate-100 dark:border-slate-800 transition-colors ${
+                      isBeingSpoken
+                        ? 'bg-blue-50/90 dark:bg-blue-950/45 rounded-lg px-2 py-1 -mx-1'
+                        : 'pl-1'
+                    }`}
+                  >
                     <span className="inline-block text-[11px] font-extrabold text-indigo-700 dark:text-indigo-300 bg-indigo-100/80 dark:bg-indigo-950/80 border border-indigo-200 dark:border-indigo-800 px-1.5 py-0.5 rounded mr-1.5 align-middle">
                       시사점
                     </span>
@@ -381,7 +655,14 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                 );
               }
               return (
-                <p key={idx} className="text-xs sm:text-sm text-slate-700 dark:text-slate-200 leading-relaxed pl-1 font-normal">
+                <p
+                  key={idx}
+                  className={`text-xs sm:text-sm leading-relaxed transition-colors ${
+                    isBeingSpoken
+                      ? 'bg-blue-50/90 dark:bg-blue-950/45 text-slate-900 dark:text-white font-medium rounded-lg px-2 py-1 -mx-1'
+                      : 'text-slate-700 dark:text-slate-200 pl-1 font-normal'
+                  }`}
+                >
                   {cleanLine}
                 </p>
               );

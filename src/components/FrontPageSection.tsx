@@ -1,14 +1,17 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Newspaper,
   ChevronDown,
   ChevronUp,
   ArrowUp,
   Check,
+  Volume2,
 } from 'lucide-react';
 import { NewsStory } from '../types/news';
 import { PRESS_OUTLETS } from '../data/mockNewsData';
 import { isArticleRead } from '../utils/readArticles';
+import { SectionAudioButton, useActiveSectionSpeechItemId } from './SectionAudioButton';
+import type { SpeechBriefingItem } from '../utils/sectionSpeechPlayer';
 
 interface FrontPageSectionProps {
   stories: NewsStory[];
@@ -38,6 +41,19 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
   readArticleKeys,
 }) => {
   const readCount = stories.filter((story) => isArticleRead(readArticleKeys, story)).length;
+  const activeSpeechItemId = useActiveSectionSpeechItemId('frontpage');
+
+  const speechItems = useMemo<SpeechBriefingItem[]>(
+    () =>
+      stories.map((story) => ({
+        id: story.id,
+        outletLabel: story.outletName,
+        title: story.title,
+        summaryLines: story.leadSummary.slice(0, 4),
+        aiInsight: story.aiInsight,
+      })),
+    [stories]
+  );
 
   return (
     <section id="section-frontpage" className="bg-gradient-to-b from-blue-50/80 via-blue-50/40 to-white/90 dark:from-blue-950/35 dark:via-slate-900/90 dark:to-slate-900 border border-blue-200/80 dark:border-blue-900/60 rounded-3xl p-4 sm:p-6 space-y-4 scroll-mt-24 shadow-2xs transition-colors">
@@ -72,8 +88,15 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
           </div>
         </div>
 
-        {/* Section Actions: Outlet settings, Collapse/Expand, Scroll to Top */}
+        {/* Section Actions: Section Audio, Outlet settings, Collapse/Expand, Scroll to Top */}
         <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+          <SectionAudioButton
+            sectionId="frontpage"
+            sectionLabel="1면 핵심 보도"
+            items={speechItems}
+            accent="blue"
+          />
+
           {onOpenOutletSettings && (
             <button
               onClick={onOpenOutletSettings}
@@ -140,12 +163,15 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
           {stories.map((story) => {
             const outletMeta = PRESS_OUTLETS.find((p) => p.name === story.outletName || p.id === story.outletId);
             const isRead = isArticleRead(readArticleKeys, story);
+            const isSpeaking = activeSpeechItemId === story.id;
 
             return (
               <div
                 key={story.id}
                 className={`rounded-2xl p-4 sm:p-5 flex flex-col justify-between transition-all duration-200 hover:shadow-md group shadow-xs border ${
-                  isRead
+                  isSpeaking
+                    ? 'bg-blue-50/50 dark:bg-blue-950/30 border-blue-400 dark:border-blue-500 ring-2 ring-blue-300/70 dark:ring-blue-500/40'
+                    : isRead
                     ? 'bg-slate-50/75 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700'
                     : 'bg-white dark:bg-slate-900/90 border-blue-100 dark:border-slate-800 hover:border-blue-300 dark:hover:border-blue-600'
                 }`}
@@ -167,6 +193,12 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
                       {story.topic && (
                         <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
                           {story.topic}
+                        </span>
+                      )}
+                      {isSpeaking && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-600 text-white">
+                          <Volume2 className="w-2.5 h-2.5" aria-hidden="true" />
+                          <span>읽는 중</span>
                         </span>
                       )}
                       {isRead && (

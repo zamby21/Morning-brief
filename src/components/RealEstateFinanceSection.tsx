@@ -20,6 +20,7 @@ import {
   Tag,
   CheckCircle2,
   BookmarkCheck,
+  Volume2,
 } from 'lucide-react';
 import {
   SectorHeadlineItem,
@@ -33,6 +34,8 @@ import { PRESS_OUTLETS } from '../data/mockNewsData';
 import { getNaverNewsUrl } from '../utils/linkUtils';
 import { formatLeadSummaryByTone } from '../utils/toneTransformer';
 import { isArticleRead, ReadableArticleRef } from '../utils/readArticles';
+import { SectionAudioButton, useActiveSectionSpeechItemId } from './SectionAudioButton';
+import type { SpeechBriefingItem } from '../utils/sectionSpeechPlayer';
 
 const STORAGE_KEY_SECTOR_PREFS = 'morning_brief_sector_preferences_v1';
 
@@ -395,6 +398,19 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
     prefs.defaultSector !== 'all';
 
   const readCount = headlines.filter((item) => isArticleRead(readArticleKeys, item)).length;
+  const activeSpeechItemId = useActiveSectionSpeechItemId('realestate-finance');
+
+  const speechItems = useMemo<SpeechBriefingItem[]>(
+    () =>
+      filteredHeadlines.map((item) => ({
+        id: item.id,
+        outletLabel: `${item.outletName} ${item.sectorLabel}`,
+        title: item.title,
+        summaryLines: getSectorLeadLines(item).slice(0, 4),
+        aiInsight: item.aiInsight,
+      })),
+    [filteredHeadlines, tone]
+  );
 
   return (
     <section id="section-realestate-finance" className="space-y-4 pt-2">
@@ -440,6 +456,13 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
 
           {/* Section Action Controls */}
           <div className="flex items-center gap-2 self-start sm:self-center shrink-0 flex-wrap">
+            <SectionAudioButton
+              sectionId="realestate-finance"
+              sectionLabel="건설·부동산·금융 헤드라인"
+              items={speechItems}
+              accent="amber"
+            />
+
             {/* Personalization Setting Button */}
             <button
               type="button"
@@ -1088,6 +1111,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                     : 'bg-indigo-100 dark:bg-indigo-950/70 text-indigo-900 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800';
 
                   const isRead = isArticleRead(readArticleKeys, item);
+                  const isSpeaking = activeSpeechItemId === item.id;
                   const isFavoriteMatch = doesItemMatchFavorites(
                     item,
                     prefs.favoriteKeywords
@@ -1102,11 +1126,13 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                       key={item.id}
                       onClick={() => onOpenArticleModal(adaptToNewsStory(item))}
                       className={`border rounded-2xl p-4 sm:p-5 border-l-4 ${borderColor} shadow-xs hover:shadow-md transition-all duration-200 flex flex-col justify-between gap-3 cursor-pointer group ${
-                        isRead
+                        isSpeaking
+                          ? 'bg-amber-50/50 dark:bg-amber-950/30 border-amber-400 dark:border-amber-500 ring-2 ring-amber-300/70 dark:ring-amber-500/40'
+                          : isRead
                           ? 'bg-slate-50/75 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700'
                           : 'bg-white dark:bg-slate-900/95 border-slate-200/90 dark:border-slate-800 hover:border-blue-300 dark:hover:border-blue-600'
                       } ${
-                        isFavoriteMatch && !isRead ? 'ring-1 ring-amber-300/80 dark:ring-amber-600/60 bg-amber-50/20 dark:bg-amber-950/20' : ''
+                        !isSpeaking && isFavoriteMatch && !isRead ? 'ring-1 ring-amber-300/80 dark:ring-amber-600/60 bg-amber-50/20 dark:bg-amber-950/20' : ''
                       }`}
                     >
                       {/* Card Top: Outlet & Meta info (Section 1 parity) */}
@@ -1128,6 +1154,12 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                             {item.highlightBadge && (
                               <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
                                 {item.highlightBadge}
+                              </span>
+                            )}
+                            {isSpeaking && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-600 text-white">
+                                <Volume2 className="w-2.5 h-2.5" aria-hidden="true" />
+                                <span>읽는 중</span>
                               </span>
                             )}
                             {isFavoriteMatch && (

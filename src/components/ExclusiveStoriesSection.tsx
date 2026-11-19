@@ -1,14 +1,17 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Zap,
   ChevronDown,
   ChevronUp,
   ArrowUp,
   Check,
+  Volume2,
 } from 'lucide-react';
 import { NewsStory } from '../types/news';
 import { PRESS_OUTLETS } from '../data/mockNewsData';
 import { isArticleRead } from '../utils/readArticles';
+import { SectionAudioButton, useActiveSectionSpeechItemId } from './SectionAudioButton';
+import type { SpeechBriefingItem } from '../utils/sectionSpeechPlayer';
 
 interface ExclusiveStoriesSectionProps {
   stories: NewsStory[];
@@ -34,6 +37,19 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
   readArticleKeys,
 }) => {
   const readCount = stories.filter((story) => isArticleRead(readArticleKeys, story)).length;
+  const activeSpeechItemId = useActiveSectionSpeechItemId('exclusive');
+
+  const speechItems = useMemo<SpeechBriefingItem[]>(
+    () =>
+      stories.map((story) => ({
+        id: story.id,
+        outletLabel: `${story.outletName} 단독 보도`,
+        title: story.title,
+        summaryLines: story.leadSummary.slice(0, 4),
+        aiInsight: story.aiInsight,
+      })),
+    [stories]
+  );
 
   return (
     <section id="section-exclusive" className="bg-gradient-to-b from-rose-50/80 via-rose-50/40 to-white/90 dark:from-rose-950/35 dark:via-slate-900/90 dark:to-slate-900 border border-rose-200/80 dark:border-rose-900/60 rounded-3xl p-4 sm:p-6 space-y-4 scroll-mt-24 shadow-2xs transition-colors">
@@ -62,8 +78,15 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
           </div>
         </div>
 
-        {/* Section Actions: Collapse/Expand and Scroll to Top */}
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        {/* Section Actions: Section Audio, Collapse/Expand and Scroll to Top */}
+        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+          <SectionAudioButton
+            sectionId="exclusive"
+            sectionLabel="언론사 단독 특별 보도"
+            items={speechItems}
+            accent="rose"
+          />
+
           {onToggleCollapse && (
             <button
               onClick={onToggleCollapse}
@@ -120,12 +143,15 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
           {stories.map((story) => {
             const outletMeta = PRESS_OUTLETS.find((p) => p.name === story.outletName || p.id === story.outletId);
             const isRead = isArticleRead(readArticleKeys, story);
+            const isSpeaking = activeSpeechItemId === story.id;
 
             return (
               <div
                 key={story.id}
                 className={`rounded-2xl p-4 sm:p-5 flex flex-col justify-between transition-all duration-200 hover:shadow-md shadow-xs group border ${
-                  isRead
+                  isSpeaking
+                    ? 'bg-rose-50/50 dark:bg-rose-950/30 border-rose-400 dark:border-rose-500 ring-2 ring-rose-300/70 dark:ring-rose-500/40'
+                    : isRead
                     ? 'bg-slate-50/75 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700'
                     : 'bg-white dark:bg-slate-900/90 border-rose-100 dark:border-slate-800 hover:border-rose-300 dark:hover:border-rose-600'
                 }`}
@@ -147,6 +173,12 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
                       {story.topic && (
                         <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
                           {story.topic}
+                        </span>
+                      )}
+                      {isSpeaking && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-600 text-white">
+                          <Volume2 className="w-2.5 h-2.5" aria-hidden="true" />
+                          <span>읽는 중</span>
                         </span>
                       )}
                       {isRead && (

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Layers,
   CheckCircle2,
@@ -11,9 +11,12 @@ import {
   Save,
   Check,
   ShieldCheck,
+  Volume2,
 } from 'lucide-react';
 import { NewsStory } from '../types/news';
 import { isArticleRead } from '../utils/readArticles';
+import { SectionAudioButton, useActiveSectionSpeechItemId } from './SectionAudioButton';
+import type { SpeechBriefingItem } from '../utils/sectionSpeechPlayer';
 
 interface OverlappingStoriesSectionProps {
   stories: NewsStory[];
@@ -115,6 +118,28 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
   const [isAdjustPanelOpen, setIsAdjustPanelOpen] = useState(false);
   const [savedBadge, setSavedBadge] = useState(false);
   const readCount = stories.filter((story) => isArticleRead(readArticleKeys, story)).length;
+  const activeSpeechItemId = useActiveSectionSpeechItemId('overlapping');
+
+  const speechItems = useMemo<SpeechBriefingItem[]>(
+    () =>
+      stories.map((story) => {
+        const outlets = story.coveredOutlets || [];
+        const outletLabel =
+          outlets.length > 0
+            ? outlets.length > 4
+              ? `${outlets.slice(0, 4).join(', ')} 등 ${outlets.length}개 언론사 공통 보도`
+              : `${outlets.join(', ')} ${outlets.length}개 언론사 공통 보도`
+            : story.outletName;
+        return {
+          id: story.id,
+          outletLabel,
+          title: story.title,
+          summaryLines: story.leadSummary.slice(0, 4),
+          aiInsight: story.aiInsight,
+        };
+      }),
+    [stories]
+  );
 
   const handleSaveSettings = () => {
     if (onSaveThresholds) {
@@ -167,8 +192,15 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
           </div>
         </div>
 
-        {/* Section Actions: Adjust Thresholds, Outlet Settings, Collapse/Expand and Scroll to Top */}
+        {/* Section Actions: Section Audio, Adjust Thresholds, Outlet Settings, Collapse/Expand and Scroll to Top */}
         <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+          <SectionAudioButton
+            sectionId="overlapping"
+            sectionLabel="언론사 공통 핵심 이슈"
+            items={speechItems}
+            accent="purple"
+          />
+
           {/* Threshold Adjust Button */}
           <button
             onClick={() => setIsAdjustPanelOpen((prev) => !prev)}
@@ -490,6 +522,7 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
         <div className={isMobileView ? 'grid grid-cols-1 gap-4' : 'grid grid-cols-1 lg:grid-cols-2 gap-4'}>
           {stories.map((story) => {
             const isRead = isArticleRead(readArticleKeys, story);
+            const isSpeaking = activeSpeechItemId === story.id;
             const bundledCount = getBundledArticleCount(story);
             const showIntegratedSummary = bundledCount >= 3;
             const integratedSummaryText = showIntegratedSummary
@@ -499,7 +532,9 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
               <div
                 key={story.id}
                 className={`rounded-2xl p-4 sm:p-5 flex flex-col justify-between transition-all duration-200 hover:shadow-md shadow-xs group border ${
-                  isRead
+                  isSpeaking
+                    ? 'bg-purple-50/50 dark:bg-purple-950/30 border-purple-400 dark:border-purple-500 ring-2 ring-purple-300/70 dark:ring-purple-500/40'
+                    : isRead
                     ? 'bg-slate-50/75 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700'
                     : 'bg-white dark:bg-slate-900/90 border-purple-100 dark:border-slate-800 hover:border-purple-300 dark:hover:border-purple-600'
                 }`}
@@ -562,6 +597,12 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
                         <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
                           <Sparkles className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
                           유사도 {story.similarityScore}%
+                        </span>
+                      )}
+                      {isSpeaking && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-600 text-white">
+                          <Volume2 className="w-2.5 h-2.5" aria-hidden="true" />
+                          <span>읽는 중</span>
                         </span>
                       )}
                       {isRead && (
