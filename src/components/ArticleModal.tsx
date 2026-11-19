@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   ExternalLink,
@@ -50,6 +50,10 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [selectedOutletIdx, setSelectedOutletIdx] = useState(0);
 
+  useEffect(() => {
+    setSelectedOutletIdx(0);
+  }, [story?.id]);
+
   if (!isOpen || !story) return null;
 
   const outletMeta = PRESS_OUTLETS.find(
@@ -60,25 +64,69 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     story.category === 'overlapping' ||
     (story.coveredOutlets && story.coveredOutlets.length > 0);
 
-  const clusterItems: ClusterOutletItem[] = story.clusterOutlets || [];
+  const clusterItems: ClusterOutletItem[] =
+    story.clusterOutlets && story.clusterOutlets.length > 0
+      ? story.clusterOutlets
+      : isCluster && story.coveredOutlets && story.coveredOutlets.length > 0
+      ? story.coveredOutlets.map((outletName) => {
+          const meta = PRESS_OUTLETS.find(
+            (p) =>
+              p.name === outletName ||
+              p.logoText === outletName ||
+              outletName.includes(p.name) ||
+              p.name.includes(outletName)
+          );
+          const matchedPoint = story.consensusPoints?.find((pt) => pt.includes(`[${outletName}]`));
+          const extractedHeadline = matchedPoint
+            ? matchedPoint.replace(/^\[[^\]]+\]\s*/, '').trim()
+            : story.title.replace(/^\[[^\]]+\]\s*/, '').trim();
+          return {
+            outletId: meta?.id || outletName,
+            outletName: meta?.name || outletName,
+            category: meta?.category === 'economy' ? '경제지' : '종합지',
+            headline: extractedHeadline,
+            leadSummary: story.leadSummary,
+            stance: '주요 집중 보도',
+            originalUrl: meta?.homepageUrl || getOfficialOutletHomepage(meta?.id, outletName),
+            publishedAt: story.publishedAt,
+            reporter: `${meta?.name || outletName} 편집국`,
+          };
+        })
+      : [];
+
   const currentClusterItem: ClusterOutletItem | undefined =
     clusterItems[selectedOutletIdx] || clusterItems[0];
 
   // Dynamically adapt active outlet and title based on selected tab for clusters
-  const activeOutletName = isCluster && currentClusterItem ? currentClusterItem.outletName : story.outletName;
-  const activeOutletId = isCluster && currentClusterItem ? currentClusterItem.outletId : (story.outletId || outletMeta?.id);
-  const activeTitle = isCluster && currentClusterItem ? (currentClusterItem.headline || story.title) : story.title;
-  const activeOriginalUrl = isCluster && currentClusterItem ? currentClusterItem.originalUrl : story.originalUrl;
+  const activeOutletName =
+    isCluster && currentClusterItem ? currentClusterItem.outletName : story.outletName;
+  const activeOutletMeta = PRESS_OUTLETS.find(
+    (p) => p.name === activeOutletName || p.id === (isCluster && currentClusterItem ? currentClusterItem.outletId : story.outletId)
+  );
+  const activeOutletId =
+    isCluster && currentClusterItem
+      ? currentClusterItem.outletId || activeOutletMeta?.id
+      : story.outletId || activeOutletMeta?.id || outletMeta?.id;
+  const activeTitle =
+    isCluster && currentClusterItem ? currentClusterItem.headline || story.title : story.title;
+  const activeOriginalUrl =
+    isCluster && currentClusterItem ? currentClusterItem.originalUrl : story.originalUrl;
 
   const cleanSearchQuery = getCleanNaverQuery(activeTitle, activeOutletName, story.keywords);
   const naverUrl =
     !isCluster && story.naverUrl
       ? story.naverUrl
       : getNaverNewsUrl(activeTitle, activeOutletName, story.keywords);
+  const isPortalOrAggregatorUrl =
+    !!activeOriginalUrl &&
+    (activeOriginalUrl.includes('naver.com') ||
+      activeOriginalUrl.includes('news.google.com') ||
+      activeOriginalUrl.includes('google.com') ||
+      activeOriginalUrl.includes('daum.net'));
   const candidateOriginUrl =
-    !isCluster && activeOriginalUrl && activeOriginalUrl.includes('n.news.naver.com')
-      ? undefined
-      : activeOriginalUrl || outletMeta?.homepageUrl;
+    !isPortalOrAggregatorUrl && activeOriginalUrl
+      ? activeOriginalUrl
+      : activeOutletMeta?.homepageUrl || outletMeta?.homepageUrl;
   const officialArticleUrl = getArticleOrOutletUrl(
     activeOutletId,
     activeOutletName,
@@ -175,7 +223,9 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                   }`}
                 >
                   {story.category === 'frontpage'
-                    ? '첫화면 중앙 1면 톱'
+                    ? story.pressSection && story.pressSection !== '첫화면 중앙 톱'
+                      ? story.exclusiveBadge || story.pressSection
+                      : '첫화면 중앙 1면 톱'
                     : isCluster
                     ? `${story.coveredOutlets?.length || '다수'}개 언론사 교차 클러스터`
                     : story.exclusiveBadge || '단독 특종'}
@@ -356,26 +406,9 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                         ))}
                       </div>
 
-                      {/* Direct Link to Selected Outlet Article */}
-                      <div className="pt-2 flex items-center justify-between">
-                        <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                          {currentClusterItem.outletName} 포털 공식 보도 전문
-                        </span>
-                        <a
-                          href={getArticleOrOutletUrl(
-                            currentClusterItem.outletId,
-                            currentClusterItem.outletName,
-                            currentClusterItem.headline,
-                            story.keywords,
-                            currentClusterItem.originalUrl
-                          )}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs transition active:scale-95 shadow-xs cursor-pointer"
-                        >
-                          <span>{currentClusterItem.outletName} 공식 홈페이지 바로가기</span>
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </a>
+                      {/* Sync notice pointing to the unified original article section below */}
+                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400">
+                        선택하신 <strong className="text-slate-700 dark:text-slate-200">{currentClusterItem.outletName}</strong> 기준으로 하단 <strong className="text-blue-600 dark:text-blue-400">기사 원문 바로가기 및 대안 검색</strong>이 자동 연동됩니다.
                       </div>
                     </div>
                   )}

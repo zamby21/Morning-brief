@@ -34,6 +34,24 @@ export const OUTLET_CANONICAL_HOMEPAGES: Record<string, string> = {
   mbc: 'https://imnews.imbc.com',
   ytn: 'https://www.ytn.co.kr',
   jtbc: 'https://news.jtbc.co.kr',
+  chosunbiz: 'https://biz.chosun.com',
+  ajunews: 'https://www.ajunews.com',
+  newspim: 'https://www.newspim.com',
+  dnews: 'https://www.dnews.co.kr',
+  etoday: 'https://www.etoday.co.kr',
+  bizwatch: 'https://news.bizwatch.co.kr',
+  nocut: 'https://www.nocutnews.co.kr',
+  dailian: 'https://www.dailian.co.kr',
+  newstomato: 'https://www.newstomato.com',
+  dealsite: 'https://dealsite.co.kr',
+  mbn: 'https://www.mbn.co.kr',
+  channela: 'https://www.ichannela.com',
+  tvchosun: 'https://news.tvchosun.com',
+  asiatoday: 'https://www.asiatoday.co.kr',
+  viva100: 'https://www.viva100.com',
+  ekn: 'https://www.ekn.kr',
+  wowtv: 'https://www.wowtv.co.kr',
+  sbsbiz: 'https://biz.sbs.co.kr',
 };
 
 // Name to canonical homepage mapping
@@ -61,6 +79,25 @@ export const OUTLET_NAME_HOMEPAGES: Record<string, string> = {
   '파이낸셜뉴스': 'https://www.fnnews.com',
   '디지털타임스': 'https://www.dt.co.kr',
   '전자신문': 'https://www.etnews.com',
+  '조선비즈': 'https://biz.chosun.com',
+  '아주경제': 'https://www.ajunews.com',
+  '뉴스핌': 'https://www.newspim.com',
+  '대한경제': 'https://www.dnews.co.kr',
+  '이투데이': 'https://www.etoday.co.kr',
+  '비즈워치': 'https://news.bizwatch.co.kr',
+  '노컷뉴스': 'https://www.nocutnews.co.kr',
+  '데일리안': 'https://www.dailian.co.kr',
+  '뉴스토마토': 'https://www.newstomato.com',
+  '딜사이트': 'https://dealsite.co.kr',
+  '아시아투데이': 'https://www.asiatoday.co.kr',
+  '브릿지경제': 'https://www.viva100.com',
+  '에너지경제': 'https://www.ekn.kr',
+  '한국경제TV': 'https://www.wowtv.co.kr',
+  'SBS Biz': 'https://biz.sbs.co.kr',
+  'MBN': 'https://www.mbn.co.kr',
+  '매일방송': 'https://www.mbn.co.kr',
+  '채널A': 'https://www.ichannela.com',
+  'TV조선': 'https://news.tvchosun.com',
   'SBS': 'https://news.sbs.co.kr',
   'KBS': 'https://news.kbs.co.kr',
   'MBC': 'https://imnews.imbc.com',
@@ -387,7 +424,11 @@ export function getOfficialOutletSearchUrl(
   title?: string,
   keywords?: string[]
 ): string {
-  const query = extractSearchKeywords(title || '', keywords).split(' ')[0] || '';
+  const titleWords = extractTitleSearchWords(title || '', keywords, undefined, 3, 2);
+  const query =
+    titleWords.length > 0
+      ? titleWords.join(' ')
+      : extractSearchKeywords(title || '', keywords).split(' ')[0] || '';
   const encodedQuery = encodeURIComponent(query);
   const id = (outletId || '').toLowerCase().trim();
   const name = (outletName || '').trim();
@@ -440,8 +481,20 @@ export function getOfficialOutletSearchUrl(
   if (id === 'newspim' || name.includes('뉴스핌')) {
     return `https://www.newspim.com/search?search=${encodedQuery}`;
   }
+  if (id === 'etoday' || name.includes('이투데이')) {
+    return `https://www.etoday.co.kr/search/?kwd=${encodedQuery}`;
+  }
+  if (id === 'dnews' || name.includes('대한경제')) {
+    return `https://www.dnews.co.kr/uhtml/autosearch/index.jsp?search_word=${encodedQuery}`;
+  }
+  if (id === 'bizwatch' || name.includes('비즈워치')) {
+    return `https://news.bizwatch.co.kr/search?search_text=${encodedQuery}`;
+  }
   if (id === 'yonhap' || name.includes('연합뉴스')) {
     return `https://www.yna.co.kr/search/index?query=${encodedQuery}`;
+  }
+  if (id === 'news1' || name.includes('뉴스1')) {
+    return `https://www.news1.kr/search?query=${encodedQuery}`;
   }
   if (id === 'newsis' || name.includes('뉴시스')) {
     return `https://www.newsis.com/search/?val=${encodedQuery}`;
@@ -449,11 +502,23 @@ export function getOfficialOutletSearchUrl(
   if (id === 'hankookilbo' || name.includes('한국일보')) {
     return `https://www.hankookilbo.com/search?query=${encodedQuery}`;
   }
+  if (id === 'kmib' || name.includes('국민일보')) {
+    return `https://www.kmib.co.kr/search/searchResult.asp?searchWord=${encodedQuery}`;
+  }
+  if (id === 'seoul' || name.includes('서울신문')) {
+    return `https://search.seoul.co.kr/index.php?keyword=${encodedQuery}`;
+  }
   if (id === 'segye' || name.includes('세계일보')) {
     return `https://www.segye.com/search?query=${encodedQuery}`;
   }
   if (id === 'munhwa' || name.includes('문화일보')) {
     return `https://www.munhwa.com/search?query=${encodedQuery}`;
+  }
+  if (id === 'dt' || name.includes('디지털타임스')) {
+    return `https://www.dt.co.kr/search?query=${encodedQuery}`;
+  }
+  if (id === 'etnews' || name.includes('전자신문')) {
+    return `https://search.etnews.com/etnews/search.html?kwd=${encodedQuery}`;
   }
   if (id === 'sbs' || name === 'SBS') {
     return `https://news.sbs.co.kr/news/search/result.do?query=${encodedQuery}`;
@@ -479,6 +544,7 @@ const BARE_HOMEPAGE_SET = new Set([
 
 /**
  * Returns the best direct article URL or official in-site search URL on the press outlet's own portal.
+ * Never returns third-party portal/aggregator redirect URLs (Google News, Naver, Daum).
  */
 export function getArticleOrOutletUrl(
   outletId?: string,
@@ -488,10 +554,20 @@ export function getArticleOrOutletUrl(
   providedUrl?: string
 ): string {
   const normalizedProvided = (providedUrl || '').trim().replace(/\/+$/, '');
+  const isPortalOrAggregator =
+    normalizedProvided.includes('news.google.com') ||
+    normalizedProvided.includes('google.com') ||
+    normalizedProvided.includes('naver.com') ||
+    normalizedProvided.includes('daum.net') ||
+    normalizedProvided.includes('/search?') ||
+    normalizedProvided.includes('/search/') ||
+    normalizedProvided.includes('where=news');
+
   if (
     normalizedProvided &&
     (normalizedProvided.startsWith('http://') || normalizedProvided.startsWith('https://')) &&
     !normalizedProvided.includes('localhost') &&
+    !isPortalOrAggregator &&
     !BARE_HOMEPAGE_SET.has(normalizedProvided)
   ) {
     return providedUrl!.trim();

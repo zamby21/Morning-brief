@@ -6,16 +6,12 @@ import {
   ChevronDown,
   ChevronUp,
   Search,
-  ExternalLink,
-  Copy,
   Check,
-  Share2,
   Sparkles,
   ArrowUp,
   BadgeAlert,
   SlidersHorizontal,
   X,
-  FileText,
   Save,
   RotateCcw,
   Star,
@@ -34,11 +30,7 @@ import {
   DEFAULT_SECTOR_PREFERENCES,
 } from '../types/news';
 import { PRESS_OUTLETS } from '../data/mockNewsData';
-import {
-  getArticleOrOutletUrl,
-  getNaverNewsUrl,
-  copyToClipboardSafe,
-} from '../utils/linkUtils';
+import { getNaverNewsUrl } from '../utils/linkUtils';
 import { formatLeadSummaryByTone } from '../utils/toneTransformer';
 import { isArticleRead, ReadableArticleRef } from '../utils/readArticles';
 
@@ -143,7 +135,6 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
   const [saveSuccessBadge, setSaveSuccessBadge] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'latest' | 'impact'>('latest');
-  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Helper: check if an item matches user's favorite keywords
   const doesItemMatchFavorites = (
@@ -299,15 +290,6 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
     setOnlyMyKeywordsActive(false);
   };
 
-  const getResolvedSectorUrl = (item: SectorHeadlineItem): string =>
-    getArticleOrOutletUrl(
-      item.outletId,
-      item.outletName,
-      item.title,
-      item.tags,
-      item.originalUrl
-    );
-
   const getSectorLeadLines = (item: SectorHeadlineItem): string[] => {
     const existing = item.leadSummary;
     if (existing && existing.length >= 3) {
@@ -368,20 +350,8 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
     ].join('\n\n');
   };
 
-  // Copy article link helper
-  const handleCopyLink = async (item: SectorHeadlineItem, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const resolvedUrl = getResolvedSectorUrl(item);
-    const ok = await copyToClipboardSafe(resolvedUrl);
-    if (ok) {
-      setCopiedId(item.id);
-      setTimeout(() => setCopiedId(null), 2500);
-    }
-  };
-
   // Adapter to convert SectorHeadlineItem to NewsStory for modals (matching Section 1 structure)
   const adaptToNewsStory = (item: SectorHeadlineItem): NewsStory => {
-    const resolvedUrl = getResolvedSectorUrl(item);
     const leadLines = getSectorLeadLines(item);
     const defaultDept =
       item.sector === 'construction'
@@ -398,14 +368,14 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
       title: item.title,
       leadSummary: leadLines,
       baseSummary: item.baseSummary,
-      originalUrl: resolvedUrl,
+      originalUrl: item.originalUrl || '',
       naverUrl: item.naverUrl || getNaverNewsUrl(item.title, item.outletName, item.tags),
       publishedAt: item.publishedAt,
       keywords: item.tags,
       topic: item.sectorLabel,
       reporter: item.reporter || `${item.outletName} ${defaultDept}`,
       pressSection: item.pressSection || `${item.sectorLabel} 주요 보도`,
-      exclusiveBadge: item.highlightBadge || item.sectorLabel,
+      exclusiveBadge: item.sectorLabel,
       importanceRating: item.impactRating || 'High',
       fullContent: getSectorFullContent(item),
       reactions: { insightful: 32, important: 75, surprising: 12 },
@@ -1098,7 +1068,6 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                     (p) => p.id === item.outletId || p.name === item.outletName
                   );
                   const leadLines = getSectorLeadLines(item);
-                  const resolvedUrl = getResolvedSectorUrl(item);
 
                   const borderColor = isConstruction
                     ? 'border-l-amber-500'
@@ -1112,7 +1081,6 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                     ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-900 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
                     : 'bg-indigo-100 dark:bg-indigo-950/70 text-indigo-900 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800';
 
-                  const isCopied = copiedId === item.id;
                   const isRead = isArticleRead(readArticleKeys, item);
                   const isFavoriteMatch = doesItemMatchFavorites(
                     item,
@@ -1242,70 +1210,6 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                             })}
                           </div>
                         )}
-                      </div>
-
-                      {/* Card Bottom: Action buttons */}
-                      <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 text-xs">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenArticleModal(adaptToNewsStory(item));
-                          }}
-                          className="text-[11px] font-bold text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1 cursor-pointer"
-                        >
-                          <FileText className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
-                          <span>원기사 상세 전문 보기</span>
-                        </button>
-
-                        <div className="flex items-center gap-1.5">
-                          <a
-                            href={resolvedUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onMarkArticleRead?.(item);
-                            }}
-                            className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition flex items-center gap-1"
-                            title={`${item.outletName} 원문 기사 연결`}
-                          >
-                            <span>원문</span>
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
-
-                          <button
-                            onClick={(e) => handleCopyLink(item, e)}
-                            className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition flex items-center gap-1 cursor-pointer ${
-                              isCopied
-                                ? 'bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
-                                : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700'
-                            }`}
-                            title="원문 기사 링크 복사"
-                          >
-                            {isCopied ? (
-                              <>
-                                <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                                <span>복사됨</span>
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="w-3 h-3 text-slate-500 dark:text-slate-400" />
-                                <span>링크 복사</span>
-                              </>
-                            )}
-                          </button>
-
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onOpenShareModal(adaptToNewsStory(item));
-                            }}
-                            className="p-1 rounded-lg text-slate-400 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-                            title="친구에게 공유하기"
-                          >
-                            <Share2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
                       </div>
                     </article>
                   );

@@ -1187,14 +1187,36 @@ export function buildRealBriefing(
 
   for (const bucket of topicBuckets) {
     const matched = allCollected.filter((a) => bucket.match.test(a.title));
-    const uniqueOutlets = Array.from(new Set(matched.map((m) => m.outletName)));
+    const uniqueByOutlet = matched.filter(
+      (art, idx, arr) => arr.findIndex((x) => x.outletName === art.outletName) === idx
+    );
+    const uniqueOutlets = uniqueByOutlet.map((m) => m.outletName);
     if (uniqueOutlets.length >= 2) {
-      const sampleSummaries = matched
+      const sampleSummaries = uniqueByOutlet
         .slice(0, 3)
         .map((m) => `${m.outletName}은 '${m.title}' 보도를 통해 핵심 쟁점과 현황을 비중 있게 다뤘습니다.`);
       while (sampleSummaries.length < 3) {
         sampleSummaries.push('복수 주요 언론사가 동일 현안을 첫화면 및 주요 지면에 동시 배치하며 사회적 파급력을 집중 조명하고 있습니다.');
       }
+
+      const clusterOutlets = uniqueByOutlet.map((m) => {
+        const meta = PRESS_OUTLETS.find((p) => p.id === m.outletId || p.name === m.outletName);
+        const cleanUrl =
+          m.link && !m.link.includes('news.google.com') && !m.link.includes('naver.com')
+            ? m.link
+            : getOfficialOutletHomepage(m.outletId, m.outletName);
+        return {
+          outletId: m.outletId,
+          outletName: m.outletName,
+          category: meta?.category === 'economy' ? '경제지' : '종합지',
+          headline: m.title,
+          leadSummary: generate3LineSummaryFromSnippet(m.title, m.snippet, m.outletName, m.leadSentences),
+          stance: '실시간 집중 보도',
+          originalUrl: cleanUrl,
+          publishedAt: `${todayFormatted} ${shortTime} 실시간`,
+          reporter: `${m.outletName} 편집국`,
+        };
+      });
 
       overlappingStories.push({
         id: `ol-${bucket.id}-${Date.now().toString(36)}`,
@@ -1203,34 +1225,51 @@ export function buildRealBriefing(
         category: 'overlapping',
         title: bucket.title,
         leadSummary: sampleSummaries.slice(0, 3),
-        originalUrl: `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(bucket.keywords.join(' '))}`,
+        originalUrl: clusterOutlets[0]?.originalUrl || getOfficialOutletHomepage(uniqueByOutlet[0]?.outletId, uniqueByOutlet[0]?.outletName),
         publishedAt: `${todayFormatted} ${shortTime} 실시간`,
         keywords: bucket.keywords,
         topic: bucket.topic,
         similarityScore: Math.min(95, 72 + uniqueOutlets.length * 5),
         coveredOutlets: uniqueOutlets,
-        consensusPoints: matched.slice(0, 3).map((m) => `[${m.outletName}] ${m.title}`),
+        clusterOutlets,
+        consensusPoints: uniqueByOutlet.slice(0, 3).map((m) => `[${m.outletName}] ${m.title}`),
       });
     }
   }
 
   // Fallback overlapping story if fewer than 2 matched dynamically
   if (overlappingStories.length === 0 && frontPageStories.length >= 2) {
-    const topOutlets = frontPageStories.slice(0, 3).map((s) => s.outletName);
+    const topStories = frontPageStories.slice(0, 3);
+    const topOutlets = topStories.map((s) => s.outletName);
+    const clusterOutlets = topStories.map((s) => {
+      const meta = PRESS_OUTLETS.find((p) => p.id === s.outletId || p.name === s.outletName);
+      return {
+        outletId: s.outletId,
+        outletName: s.outletName,
+        category: meta?.category === 'economy' ? '경제지' : '종합지',
+        headline: s.title,
+        leadSummary: s.leadSummary,
+        stance: '첫화면 중앙 톱 보도',
+        originalUrl: s.originalUrl,
+        publishedAt: s.publishedAt,
+        reporter: s.reporter || `${s.outletName} 편집국`,
+      };
+    });
     overlappingStories.push({
       id: `ol-realtime-${Date.now().toString(36)}`,
       outletId: 'multiple',
       outletName: `${topOutlets.length}개 언론사 주요 동향 (${topOutlets.join(', ')})`,
       category: 'overlapping',
       title: '[실시간 종합] 당일 주요 언론사 첫화면 중앙 톱뉴스 핵심 현안 모음',
-      leadSummary: frontPageStories.slice(0, 3).map((s) => `${s.outletName}: ${s.title}`),
-      originalUrl: 'https://news.naver.com',
+      leadSummary: topStories.map((s) => `${s.outletName}: ${s.title}`),
+      originalUrl: clusterOutlets[0]?.originalUrl || 'https://www.chosun.com',
       publishedAt: `${todayFormatted} ${shortTime} 실시간`,
       keywords: ['실시간종합', '주요뉴스'],
       topic: '종합·경제',
       similarityScore: 78,
       coveredOutlets: topOutlets,
-      consensusPoints: frontPageStories.slice(0, 3).map((s) => `[${s.outletName}] ${s.title}`),
+      clusterOutlets,
+      consensusPoints: topStories.map((s) => `[${s.outletName}] ${s.title}`),
     });
   }
 
