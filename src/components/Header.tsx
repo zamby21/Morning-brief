@@ -127,7 +127,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="min-w-0">
               <div className="flex items-center gap-1 sm:gap-1.5 flex-nowrap whitespace-nowrap">
                 <h1 className="text-sm sm:text-lg font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-0.5">
-                  모닝브리프 <span className="text-blue-600 dark:text-blue-400">AI</span>
+                  모닝브리프
                 </h1>
                 {/* Desktop Full Date Badge */}
                 <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border border-blue-200/90 dark:border-blue-800 shadow-2xs">

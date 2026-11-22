@@ -1203,7 +1203,7 @@ export default function App() {
           {/* Footer */}
           <footer className="mt-12 pt-8 border-t border-slate-200 dark:border-slate-800 text-center text-xs text-slate-500 dark:text-slate-400 space-y-2">
             <p>
-              <strong className="text-slate-800 dark:text-slate-200">모닝브리프 AI</strong> | 대한민국 주요 언론사 1면 톱기사·공통 핵심이슈·단독 보도 및 건설·부동산·금융 실시간 헤드라인 AI 3줄 요약 브리핑 플랫폼
+              <strong className="text-slate-800 dark:text-slate-200">모닝브리프</strong> | 대한민국 주요 언론사 1면 톱기사·공통 핵심이슈·단독 보도 및 건설·부동산·금융 실시간 헤드라인 AI 3줄 요약 브리핑 플랫폼
             </p>
             <p className="text-[11px] text-slate-400 dark:text-slate-500">
               모든 보도의 지적재산권은 해당 언론사에 있으며, 공식 원문 링크를 통해 전문을 확인하실 수 있습니다. 맞춤형 언론사 실시간 수집 · AI 인사이트 요약 · 예약 이메일 발송 지원.

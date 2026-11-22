@@ -22,7 +22,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
   overlappingOutletIds: DEFAULT_10_OUTLETS,
   sectorHeadlines: MOCK_SECTOR_HEADLINES,
   summaryNote:
-    '대한민국 10대 주요 언론사(경향, 조선, 중앙, 동아, 한겨레, 매경, 한경, 서경, 헤럴드, 아경)의 실제 보도 기사를 100% 실시간 수집하여 핵심 3줄로 검증 요약한 공식 모닝 브리핑입니다.',
+    '대한민국 주요 언론사의 실제 보도 기사를 100% 실시간 수집하여 핵심 3줄로 검증 요약한 공식 모닝 브리핑입니다.',
 
   // 1. 각 언론사 신문 첫페이지 (1면) 실제 핵심 보도
   frontPageStories: [

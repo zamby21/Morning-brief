@@ -41,7 +41,7 @@ function generateClientHtmlNewsletter(
     <div class="container">
       <div class="header">
         <span class="badge">매일 오전 ${scheduledTime} 자동 발송</span>
-        <div class="title">모닝브리프 AI - 대한민국 주요 언론사 뉴스 요약</div>
+        <div class="title">모닝브리프 - 대한민국 주요 언론사 뉴스 요약</div>
         <div class="meta">${briefing?.briefingDate || '오늘'} | 수신: ${targetEmail}</div>
       </div>
       <div class="section">
@@ -65,7 +65,7 @@ function generateClientHtmlNewsletter(
           .join('')}
       </div>
       <div class="footer">
-        본 메일은 모닝브리프 AI 서비스 구독 설정에 따라 매일 오전 ${scheduledTime}에 발송됩니다.<br>
+        본 메일은 모닝브리프 서비스 구독 설정에 따라 매일 오전 ${scheduledTime}에 발송됩니다.<br>
         수신 시간 변경 및 언론사 선택은 모닝브리프 웹 대시보드에서 관리하실 수 있습니다.
       </div>
     </div>
@@ -180,7 +180,7 @@ export async function sendEmailBriefing(
     sentAt: new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),
     recipient: targetEmail,
     status: 'success',
-    headline: `[모닝브리프 AI] ${briefing?.briefingDate || '오늘'} 대한민국 10대 언론사 1면 및 공통이슈 3줄 요약`,
+    headline: `[모닝브리프] ${briefing?.briefingDate || '오늘'} 대한민국 주요 언론사 1면 및 공통이슈 3줄 요약`,
     storiesCount:
       (briefing?.frontPageStories?.length || 0) +
       (briefing?.overlappingStories?.length || 0) +
