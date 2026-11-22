@@ -1744,46 +1744,30 @@ export async function fetchSectorHeadlinesReal(forceRefresh = false): Promise<Se
           summary: baseSummary[0] || title,
           baseSummary,
           leadSummary: baseSummary,
-          publishedAt: `${todayFormatted} ${timePart} 실시간`,
+          publishedAt: `${todayFormatted} ${timePart} 수집`,
           originalUrl: directOriginUrl || naverUrl,
           naverUrl,
           tags,
           impactRating,
           highlightBadge,
           keyFigure,
-          fullContent: bodyText,
-          articleBlocks: extracted.articleBlocks.length > 0 ? extracted.articleBlocks : undefined,
+          fullContent: trimCitationExcerpt(bodyText),
+          articleBlocks: trimCitationBlocks(extracted.articleBlocks),
           leadImage: extracted.leadImage,
           leadImageCaption: extracted.leadImageCaption,
           reporter: reporterClean || extracted.reporter || `${outletName} 취재기자`,
           pressSection: cfg.pressSection,
+          sourceType: 'live',
         });
       }
     })
   );
 
-  // Backfill any sector with fewer than 3 live items using curated fallback items so all 3 sectors stay complete
-  const finalSectorItems: SectorHeadlineItem[] = [...collected];
-  for (const cfg of SECTOR_CONFIGS) {
-    const count = finalSectorItems.filter((item) => item.sector === cfg.sector).length;
-    if (count < 3) {
-      const needed = 3 - count;
-      const fallbackPool = MOCK_SECTOR_HEADLINES.filter(
-        (m) => m.sector === cfg.sector && !seenTitles.has(m.title)
-      ).slice(0, needed);
-      for (const fb of fallbackPool) {
-        seenTitles.add(fb.title);
-        finalSectorItems.push({
-          ...fb,
-          naverUrl: fb.naverUrl || getNaverNewsUrl(fb.title, fb.outletName, fb.tags),
-        });
-      }
-    }
-  }
-
-  if (finalSectorItems.length > 0) {
-    cachedSectorHeadlines = finalSectorItems;
+  // Do NOT silently mix MOCK_SECTOR_HEADLINES into live sector collection.
+  if (collected.length > 0) {
+    cachedSectorHeadlines = collected;
     lastSectorFetchedTime = now;
+    return collected;
   }
 
   return cachedSectorHeadlines;
@@ -1888,8 +1872,159 @@ function inferTopicFromText(title: string): string {
   return '종합·1면 톱';
 }
 
+const MAX_CITATION_EXCERPT_CHARS = 700;
+const EXPLICIT_EXCLUSIVE_TITLE_REGEX = /(?:^|\s)(?:\[단독\]|【단독】|\(단독\)|<단독>|단독[\s:·\-])/;
+
+const CLUSTERING_STOPWORDS = new Set([
+  '단독', '속보', '종합', '포토', '영상', '기자', '언론', '보도', '기사', '뉴스',
+  '오늘', '내일', '어제', '최근', '올해', '내년', '지난', '이번', '관련', '대한',
+  '위해', '통해', '따른', '대해', '에서', '으로', '까지', '부터', '하고', '하는',
+  '했다', '한다', '됐다', '된다', '있다', '없다', '이다', '하며', '라며', '라고',
+  '밝혀', '강조', '주장', '전망', '예정', '가능', '우려', '논란', '확대', '추진',
+  '발표', '공개', '진행', '시작', '결정', '합의', '검토', '요구', '비판', '반발',
+  '정부', '한국', '국내', '세계', '글로벌', '시장', '업계', '기업', '대표', '회장',
+  '의원', '장관', '대통령', '국회', '서울', '전국', '가운데', '것으로', '이어',
+]);
+
+function trimCitationExcerpt(raw?: string, maxChars = MAX_CITATION_EXCERPT_CHARS): string {
+  const cleaned = (raw || '').replace(/\r\n/g, '\n').trim();
+  if (!cleaned) return '';
+  if (cleaned.length <= maxChars) return cleaned;
+  const sliced = cleaned.slice(0, maxChars);
+  const lastPeriod = Math.max(sliced.lastIndexOf('. '), sliced.lastIndexOf('다.'), sliced.lastIndexOf('\n'));
+  const cut = lastPeriod > maxChars * 0.55 ? sliced.slice(0, lastPeriod + 1) : sliced;
+  return `${cut.trim()}…`;
+}
+
+function trimCitationBlocks(blocks?: ArticleContentBlock[]): ArticleContentBlock[] | undefined {
+  if (!blocks || blocks.length === 0) return undefined;
+  const result: ArticleContentBlock[] = [];
+  let textChars = 0;
+  let textBlocks = 0;
+  let images = 0;
+
+  for (const blk of blocks) {
+    if (blk.type === 'image') {
+      if (images < 1 && blk.url) {
+        result.push(blk);
+        images += 1;
+      }
+      continue;
+    }
+    const text = (blk.text || '').trim();
+    if (!text) continue;
+    if (textBlocks >= 3 || textChars >= MAX_CITATION_EXCERPT_CHARS) break;
+    const remaining = MAX_CITATION_EXCERPT_CHARS - textChars;
+    const clipped = text.length > remaining ? `${text.slice(0, remaining).trim()}…` : text;
+    result.push({ ...blk, text: clipped });
+    textChars += clipped.length;
+    textBlocks += 1;
+  }
+
+  return result.length > 0 ? result : undefined;
+}
+
+function formatPublishedAtFromRaw(
+  rawPubDate: string | undefined,
+  fallbackDateLabel: string,
+  fallbackShortTime: string
+): string {
+  if (rawPubDate) {
+    const parsed = new Date(rawPubDate);
+    if (!Number.isNaN(parsed.getTime())) {
+      const monthDay = parsed.toLocaleDateString('ko-KR', {
+        timeZone: 'Asia/Seoul',
+        month: 'long',
+        day: 'numeric',
+      });
+      const hhmm = parsed.toLocaleTimeString('ko-KR', {
+        timeZone: 'Asia/Seoul',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+      return `${monthDay} ${hhmm}`;
+    }
+  }
+  return `${fallbackDateLabel} ${fallbackShortTime} 수집`;
+}
+
+function extractClusterTokens(text: string): string[] {
+  const normalized = (text || '')
+    .replace(/\[[^\]]*\]|【[^】]*】|\([^)]*\)/g, ' ')
+    .replace(/[‘’“”"'`·…—–\-.,?!:;()[\]{}<>\/\\|@#$%^&*+=~]/g, ' ')
+    .toLowerCase();
+
+  const rawWords = normalized.split(/\s+/).filter(Boolean);
+  const tokens: string[] = [];
+
+  for (const w of rawWords) {
+    // Strip common Korean trailing particles (조사) for better entity matching
+    const stem = w.replace(/(은|는|이|가|을|를|의|에|서|로|으로|와|과|도|만|까지|부터|에서|에게|한테|보다|처럼)$/, '');
+    const candidate = stem.length >= 2 ? stem : w;
+    if (candidate.length < 2) continue;
+    if (/^\d+$/.test(candidate)) continue;
+    if (CLUSTERING_STOPWORDS.has(candidate)) continue;
+    tokens.push(candidate);
+  }
+
+  return Array.from(new Set(tokens));
+}
+
+function computeArticlePairSimilarity(
+  aTitleTokens: Set<string>,
+  aBodyTokens: Set<string>,
+  bTitleTokens: Set<string>,
+  bBodyTokens: Set<string>
+): { score: number; sharedKeywords: string[] } {
+  if (aTitleTokens.size === 0 || bTitleTokens.size === 0) {
+    return { score: 0, sharedKeywords: [] };
+  }
+
+  const sharedTitle: string[] = [];
+  for (const t of aTitleTokens) {
+    if (bTitleTokens.has(t)) sharedTitle.push(t);
+  }
+
+  const sharedCross: string[] = [];
+  for (const t of aTitleTokens) {
+    if (!bTitleTokens.has(t) && bBodyTokens.has(t)) sharedCross.push(t);
+  }
+  for (const t of bTitleTokens) {
+    if (!aTitleTokens.has(t) && aBodyTokens.has(t)) sharedCross.push(t);
+  }
+
+  const sharedKeywords = Array.from(new Set([...sharedTitle, ...sharedCross]));
+
+  // Require at least 2 concrete shared title tokens, or 1 shared title token + >=2 cross-context tokens
+  if (sharedTitle.length < 2 && !(sharedTitle.length >= 1 && sharedCross.length >= 2)) {
+    return { score: 0, sharedKeywords };
+  }
+
+  const titleUnionSize = new Set([...aTitleTokens, ...bTitleTokens]).size;
+  const titleMinSize = Math.min(aTitleTokens.size, bTitleTokens.size);
+  const titleJaccard = titleUnionSize > 0 ? sharedTitle.length / titleUnionSize : 0;
+  const titleOverlap = titleMinSize > 0 ? sharedTitle.length / titleMinSize : 0;
+
+  const aAll = new Set([...aTitleTokens, ...aBodyTokens]);
+  const bAll = new Set([...bTitleTokens, ...bBodyTokens]);
+  let allInter = 0;
+  for (const t of aAll) {
+    if (bAll.has(t)) allInter += 1;
+  }
+  const allUnion = new Set([...aAll, ...bAll]).size;
+  const bodyJaccard = allUnion > 0 ? allInter / allUnion : 0;
+
+  // Weighted similarity in [0, 1]
+  const combined = titleOverlap * 0.55 + titleJaccard * 0.3 + bodyJaccard * 0.15;
+  return {
+    score: Math.min(1, combined),
+    sharedKeywords,
+  };
+}
+
 /**
- * Builds a verified DailyBriefing strictly reflecting real-time homepage center stories
+ * Builds a verified DailyBriefing strictly reflecting real-time homepage & feed stories
  */
 export function buildRealBriefing(
   articlesByOutlet: Record<string, RawRSSArticle[]>,
@@ -1898,6 +2033,7 @@ export function buildRealBriefing(
   sectorHeadlinesInput?: SectorHeadlineItem[]
 ): DailyBriefing {
   const todayFormatted = getCurrentKoreanDateString();
+  const collectedAtIso = new Date().toISOString();
   const nowKstTime = new Date().toLocaleTimeString('ko-KR', {
     timeZone: 'Asia/Seoul',
     hour: '2-digit',
@@ -1939,240 +2075,268 @@ export function buildRealBriefing(
       baseSummary,
       originalUrl: art.link || getOfficialOutletHomepage(outletId, art.outletName),
       naverUrl: art.naverUrl || undefined,
-      publishedAt: `${todayFormatted} ${shortTime} 실시간`,
-      keywords: keywords.length > 0 ? keywords : ['첫화면톱', '실시간'],
+      publishedAt: formatPublishedAtFromRaw(art.pubDate, todayFormatted, shortTime),
+      keywords: keywords.length > 0 ? keywords : ['첫화면톱'],
       topic: inferTopicFromText(art.title),
       reporter: art.reporter || `${art.outletName} 편집국`,
       pressSection: '첫화면 중앙 톱',
       newspaperPage: '홈페이지 첫화면 중앙',
-      reactions: { insightful: 45, important: 110, surprising: 18 },
-      fullContent: (art.fullBody || art.snippet || baseSummary.join('\n\n')).trim(),
-      articleBlocks: art.articleBlocks,
+      reactions: { insightful: 0, important: 0, surprising: 0 },
+      fullContent: trimCitationExcerpt(art.fullBody || art.snippet || baseSummary.join('\n\n')),
+      articleBlocks: trimCitationBlocks(art.articleBlocks),
       leadImage: art.leadImage,
       leadImageCaption: art.leadImageCaption,
     });
   }
 
-  // 2. Dynamically aggregate Overlapping Stories from live frontPageStories & secondary articles
+  // 2. Real Cross-Outlet Similarity Clustering (NO hardcoded regex buckets, NO unrelated front-page fallback)
   const allCollected = Object.values(articlesByOutlet).flat();
   const overlappingStories: NewsStory[] = [];
 
-  const topicBuckets: {
-    id: string;
-    match: RegExp;
-    title: string;
-    topic: string;
-    keywords: string[];
-  }[] = [
-    {
-      id: 'exam-cheating',
-      match: /수능|수험|부정행위|커닝|필기구|교사|감독|세무사/,
-      title: '[실시간 공통] 수능 하루 앞둔 방역·부정행위 초비상 대책 및 AI 커닝 파장',
-      topic: '사회·교육',
-      keywords: ['수능대책', 'AI부정행위', '수험생'],
-    },
-    {
-      id: 'apec-china',
-      match: /시진핑|트럼프|푸틴|APEC|한한령|FTA|중국|선전|공급망/,
-      title: '[실시간 공통] APEC 미·중·러 정상외교 및 한중 FTA 타결·한한령 해제 기대감',
-      topic: '외교·경제',
-      keywords: ['APEC', '한한령해제', '정상외교'],
-    },
-    {
-      id: 'court-politics',
-      match: /추경호|계엄|무죄|특검|구형|법원|내란/,
-      title: '[실시간 공통] ‘계엄 해제 표결 방해’ 혐의 추경호 1심 무죄 판결 및 정치권 파장',
-      topic: '정치·사법',
-      keywords: ['추경호무죄', '계엄재판', '법원판결'],
-    },
-  ];
-
   const buildClusterIntegratedOneLineSummary = (
-    rawTitle: string,
+    sharedTerms: string[],
     outlets: string[],
-    clusterHeadlines: string[]
+    representativeTitle: string
   ): string => {
-    const cleanTopicTitle = rawTitle
+    const cleanRep = representativeTitle
       .replace(/^\[[^\]]+\]\s*/, '')
       .replace(/\s+/g, ' ')
       .trim();
-    const cleanedHeadlines = clusterHeadlines
-      .map((h) =>
-        h
-          .replace(/^\[[^\]]+\]\s*/, '')
-          .replace(/^['"‘“]|['"’”]$/g, '')
-          .replace(/\s+/g, ' ')
-          .trim()
-      )
-      .filter((h) => h.length >= 6);
-
-    const uniqueAngles: string[] = [];
-    for (const hl of cleanedHeadlines) {
-      const compact = hl.length > 34 ? `${hl.slice(0, 34).trim()}…` : hl;
-      if (!uniqueAngles.some((u) => u.slice(0, 12) === compact.slice(0, 12))) {
-        uniqueAngles.push(compact);
-      }
-      if (uniqueAngles.length >= 2) break;
-    }
-
     const outletPreview = outlets.slice(0, 3).join('·');
     const extraCount = Math.max(0, outlets.length - 3);
     const outletGroupLabel =
       extraCount > 0 ? `${outletPreview} 등 ${outlets.length}개사` : `${outletPreview} ${outlets.length}개사`;
-
-    if (cleanTopicTitle && !cleanTopicTitle.includes('당일 주요 언론사 첫화면')) {
-      const angleSuffix =
-        uniqueAngles.length > 0 ? `(${uniqueAngles[0]})` : '';
-      return `${outletGroupLabel}가 '${cleanTopicTitle}' 현안을 집중 보도하며${angleSuffix ? ` ${angleSuffix} 등` : ''} 핵심 쟁점과 파급 효과를 동시 조명하고 있습니다.`;
+    const termsHint = sharedTerms.slice(0, 3).join('·');
+    if (termsHint) {
+      return `${outletGroupLabel}가 '${termsHint}' 관련 현안(${cleanRep.slice(0, 38)}${cleanRep.length > 38 ? '…' : ''})을 공통 보도하고 있습니다.`;
     }
-
-    if (uniqueAngles.length >= 2) {
-      return `${outletGroupLabel}가 ‘${uniqueAngles[0]}’ 및 ‘${uniqueAngles[1]}’ 등 당일 핵심 현안을 1면 주요 의제로 일제히 부각했습니다.`;
-    }
-    return `${outletGroupLabel}가 ${cleanTopicTitle || '당일 핵심 공동 이슈'}를 중심으로 주요 쟁점과 후속 파장을 집중 보도하고 있습니다.`;
+    return `${outletGroupLabel}가 '${cleanRep}' 현안을 동시 보도하고 있습니다.`;
   };
 
-  for (const bucket of topicBuckets) {
-    const matched = allCollected.filter((a) => bucket.match.test(a.title));
-    const uniqueByOutlet = matched.filter(
-      (art, idx, arr) => arr.findIndex((x) => x.outletName === art.outletName) === idx
-    );
-    const uniqueOutlets = uniqueByOutlet.map((m) => m.outletName);
-    if (uniqueOutlets.length >= 2) {
-      const sampleSummaries = uniqueByOutlet
-        .slice(0, 3)
-        .map((m) => `${m.outletName}은 '${m.title}' 보도를 통해 핵심 쟁점과 현황을 비중 있게 다뤘습니다.`);
-      while (sampleSummaries.length < 3) {
-        sampleSummaries.push('복수 주요 언론사가 동일 현안을 첫화면 및 주요 지면에 동시 배치하며 사회적 파급력을 집중 조명하고 있습니다.');
+  interface IndexedArticle {
+    idx: number;
+    art: RawRSSArticle;
+    titleTokens: Set<string>;
+    bodyTokens: Set<string>;
+    timestampMs: number | null;
+  }
+
+  const indexed: IndexedArticle[] = allCollected.map((art, idx) => {
+    const parsedTime = art.pubDate ? Date.parse(art.pubDate) : Number.NaN;
+    return {
+      idx,
+      art,
+      titleTokens: new Set(extractClusterTokens(art.title)),
+      bodyTokens: new Set(
+        extractClusterTokens(`${(art.leadSentences || []).slice(0, 2).join(' ')} ${art.snippet || ''}`)
+      ),
+      timestampMs: Number.isNaN(parsedTime) ? null : parsedTime,
+    };
+  });
+
+  const PAIR_SIMILARITY_THRESHOLD = 0.36;
+  const MAX_TIME_WINDOW_MS = 36 * 60 * 60 * 1000;
+
+  interface PairEdge {
+    i: number;
+    j: number;
+    score: number;
+    sharedKeywords: string[];
+  }
+
+  const edges: PairEdge[] = [];
+  for (let i = 0; i < indexed.length; i += 1) {
+    for (let j = i + 1; j < indexed.length; j += 1) {
+      if (indexed[i].art.outletId === indexed[j].art.outletId) continue;
+      if (
+        indexed[i].timestampMs !== null &&
+        indexed[j].timestampMs !== null &&
+        Math.abs((indexed[i].timestampMs as number) - (indexed[j].timestampMs as number)) > MAX_TIME_WINDOW_MS
+      ) {
+        continue;
       }
 
-      const clusterOutlets = uniqueByOutlet.map((m) => {
-        const meta = PRESS_OUTLETS.find((p) => p.id === m.outletId || p.name === m.outletName);
-        const cleanUrl =
-          m.link && !m.link.includes('news.google.com') && !m.link.includes('naver.com')
-            ? m.link
-            : getOfficialOutletHomepage(m.outletId, m.outletName);
-        return {
-          outletId: m.outletId,
-          outletName: m.outletName,
-          category: meta?.category === 'economy' ? '경제지' : '종합지',
-          headline: m.title,
-          leadSummary: generate3LineSummaryFromSnippet(m.title, m.snippet, m.outletName, m.leadSentences),
-          stance: '실시간 집중 보도',
-          originalUrl: cleanUrl,
-          publishedAt: `${todayFormatted} ${shortTime} 실시간`,
-          reporter: m.reporter || `${m.outletName} 편집국`,
-          fullContent: m.fullBody,
-          articleBlocks: m.articleBlocks,
-          leadImage: m.leadImage,
-          leadImageCaption: m.leadImageCaption,
-        };
-      });
-
-      const primaryWithBody = uniqueByOutlet.find((m) => m.fullBody && m.fullBody.length >= 120) || uniqueByOutlet[0];
-      const integratedOneLineSummary =
-        uniqueOutlets.length >= 3
-          ? buildClusterIntegratedOneLineSummary(
-              bucket.title,
-              uniqueOutlets,
-              uniqueByOutlet.map((m) => m.title)
-            )
-          : undefined;
-      overlappingStories.push({
-        id: `ol-${bucket.id}-${Date.now().toString(36)}`,
-        outletId: 'multiple',
-        outletName: `${uniqueOutlets.length}개 언론사 공통 보도 (${uniqueOutlets.join(', ')})`,
-        category: 'overlapping',
-        title: bucket.title,
-        leadSummary: sampleSummaries.slice(0, 3),
-        baseSummary: sampleSummaries.slice(0, 3),
-        originalUrl: clusterOutlets[0]?.originalUrl || getOfficialOutletHomepage(uniqueByOutlet[0]?.outletId, uniqueByOutlet[0]?.outletName),
-        publishedAt: `${todayFormatted} ${shortTime} 실시간`,
-        keywords: bucket.keywords,
-        topic: bucket.topic,
-        similarityScore: Math.min(95, 72 + uniqueOutlets.length * 5),
-        integratedOneLineSummary,
-        coveredOutlets: uniqueOutlets,
-        clusterOutlets,
-        consensusPoints: uniqueByOutlet.slice(0, 3).map((m) => `[${m.outletName}] ${m.title}`),
-        fullContent: primaryWithBody?.fullBody,
-        articleBlocks: primaryWithBody?.articleBlocks,
-        leadImage: primaryWithBody?.leadImage,
-        leadImageCaption: primaryWithBody?.leadImageCaption,
-      });
+      const sim = computeArticlePairSimilarity(
+        indexed[i].titleTokens,
+        indexed[i].bodyTokens,
+        indexed[j].titleTokens,
+        indexed[j].bodyTokens
+      );
+      if (sim.score >= PAIR_SIMILARITY_THRESHOLD) {
+        edges.push({ i, j, score: sim.score, sharedKeywords: sim.sharedKeywords });
+      }
     }
   }
 
-  // Fallback overlapping story if fewer than 2 matched dynamically
-  if (overlappingStories.length === 0 && frontPageStories.length >= 2) {
-    const topStories = frontPageStories.slice(0, 3);
-    const topOutlets = topStories.map((s) => s.outletName);
-    const clusterOutlets = topStories.map((s) => {
-      const meta = PRESS_OUTLETS.find((p) => p.id === s.outletId || p.name === s.outletName);
+  edges.sort((a, b) => b.score - a.score);
+
+  // Greedy clustering: one article per outlet per cluster, requiring strong similarity to cluster seed
+  const assignedArticles = new Set<number>();
+  interface RawCluster {
+    members: IndexedArticle[];
+    pairScores: number[];
+    sharedCounts: Map<string, number>;
+  }
+  const builtClusters: RawCluster[] = [];
+
+  for (const edge of edges) {
+    if (assignedArticles.has(edge.i) && assignedArticles.has(edge.j)) continue;
+
+    // Try attaching to an existing cluster if one endpoint is already a member
+    let targetCluster: RawCluster | undefined;
+    let candidateIdx: number | null = null;
+
+    if (assignedArticles.has(edge.i) && !assignedArticles.has(edge.j)) {
+      targetCluster = builtClusters.find((c) => c.members.some((m) => m.idx === edge.i));
+      candidateIdx = edge.j;
+    } else if (assignedArticles.has(edge.j) && !assignedArticles.has(edge.i)) {
+      targetCluster = builtClusters.find((c) => c.members.some((m) => m.idx === edge.j));
+      candidateIdx = edge.i;
+    }
+
+    if (targetCluster && candidateIdx !== null) {
+      const candidate = indexed[candidateIdx];
+      const alreadyHasOutlet = targetCluster.members.some(
+        (m) => m.art.outletId === candidate.art.outletId
+      );
+      if (alreadyHasOutlet) continue;
+
+      // Verify candidate matches cluster seed too so unrelated articles don't chain-drift
+      const seed = targetCluster.members[0];
+      const seedSim = computeArticlePairSimilarity(
+        seed.titleTokens,
+        seed.bodyTokens,
+        candidate.titleTokens,
+        candidate.bodyTokens
+      );
+      if (seedSim.score < PAIR_SIMILARITY_THRESHOLD) continue;
+
+      targetCluster.members.push(candidate);
+      targetCluster.pairScores.push(seedSim.score);
+      seedSim.sharedKeywords.forEach((kw) => {
+        targetCluster!.sharedCounts.set(kw, (targetCluster!.sharedCounts.get(kw) || 0) + 1);
+      });
+      assignedArticles.add(candidateIdx);
+    } else if (!assignedArticles.has(edge.i) && !assignedArticles.has(edge.j)) {
+      const sharedCounts = new Map<string, number>();
+      edge.sharedKeywords.forEach((kw) => sharedCounts.set(kw, 1));
+      builtClusters.push({
+        members: [indexed[edge.i], indexed[edge.j]],
+        pairScores: [edge.score],
+        sharedCounts,
+      });
+      assignedArticles.add(edge.i);
+      assignedArticles.add(edge.j);
+    }
+  }
+
+  builtClusters.sort((a, b) => {
+    if (b.members.length !== a.members.length) return b.members.length - a.members.length;
+    const avgA = a.pairScores.reduce((s, v) => s + v, 0) / Math.max(1, a.pairScores.length);
+    const avgB = b.pairScores.reduce((s, v) => s + v, 0) / Math.max(1, b.pairScores.length);
+    return avgB - avgA;
+  });
+
+  for (let cIdx = 0; cIdx < Math.min(5, builtClusters.length); cIdx += 1) {
+    const cluster = builtClusters[cIdx];
+    const uniqueByOutlet = cluster.members.map((m) => m.art);
+    const uniqueOutlets = uniqueByOutlet.map((m) => m.outletName);
+    if (uniqueOutlets.length < 2) continue;
+
+    const avgSim =
+      cluster.pairScores.reduce((sum, v) => sum + v, 0) / Math.max(1, cluster.pairScores.length);
+    const realSimilarityScore = Math.max(1, Math.min(99, Math.round(avgSim * 100)));
+
+    const sharedKeywords = Array.from(cluster.sharedCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([kw]) => kw)
+      .slice(0, 4);
+
+    const representative = uniqueByOutlet[0];
+    const clusterTitle = representative.title;
+
+    const clusterOutlets = uniqueByOutlet.map((m) => {
+      const meta = PRESS_OUTLETS.find((p) => p.id === m.outletId || p.name === m.outletName);
+      const cleanUrl =
+        m.link && !m.link.includes('news.google.com')
+          ? m.link
+          : getOfficialOutletHomepage(m.outletId, m.outletName);
       return {
-        outletId: s.outletId,
-        outletName: s.outletName,
+        outletId: m.outletId,
+        outletName: m.outletName,
         category: meta?.category === 'economy' ? '경제지' : '종합지',
-        headline: s.title,
-        leadSummary: s.leadSummary,
-        stance: '첫화면 중앙 톱 보도',
-        originalUrl: s.originalUrl,
-        publishedAt: s.publishedAt,
-        reporter: s.reporter || `${s.outletName} 편집국`,
-        fullContent: s.fullContent,
-        articleBlocks: s.articleBlocks,
-        leadImage: s.leadImage,
-        leadImageCaption: s.leadImageCaption,
+        headline: m.title,
+        leadSummary: generate3LineSummaryFromSnippet(m.title, m.snippet, m.outletName, m.leadSentences),
+        stance: '동일 이슈 보도',
+        originalUrl: cleanUrl,
+        publishedAt: formatPublishedAtFromRaw(m.pubDate, todayFormatted, shortTime),
+        reporter: m.reporter || `${m.outletName} 편집국`,
+        fullContent: trimCitationExcerpt(m.fullBody || m.snippet),
+        articleBlocks: trimCitationBlocks(m.articleBlocks),
+        leadImage: m.leadImage,
+        leadImageCaption: m.leadImageCaption,
       };
     });
-    const fallbackTitle = '[실시간 종합] 당일 주요 언론사 첫화면 중앙 톱뉴스 핵심 현안 모음';
+
+    const sampleSummaries = uniqueByOutlet
+      .slice(0, 3)
+      .map((m) => `${m.outletName}: ${m.title}`);
+    while (sampleSummaries.length < 3) {
+      sampleSummaries.push(
+        `공통 핵심어(${sharedKeywords.join(', ') || '주요 현안'}) 기준으로 ${uniqueOutlets.length}개 언론사의 보도가 유사도 ${realSimilarityScore}%로 묶였습니다.`
+      );
+    }
+
+    const primaryWithBody =
+      uniqueByOutlet.find((m) => m.fullBody && m.fullBody.length >= 120) || representative;
+
+    const integratedOneLineSummary =
+      uniqueOutlets.length >= 3
+        ? buildClusterIntegratedOneLineSummary(sharedKeywords, uniqueOutlets, clusterTitle)
+        : undefined;
+
     overlappingStories.push({
-      id: `ol-realtime-${Date.now().toString(36)}`,
+      id: `ol-cluster-${cIdx + 1}-${Date.now().toString(36)}`,
       outletId: 'multiple',
-      outletName: `${topOutlets.length}개 언론사 주요 동향 (${topOutlets.join(', ')})`,
+      outletName: `${uniqueOutlets.length}개 언론사 공통 보도 (${uniqueOutlets.join(', ')})`,
       category: 'overlapping',
-      title: fallbackTitle,
-      leadSummary: topStories.map((s) => `${s.outletName}: ${s.title}`),
-      baseSummary: topStories.map((s) => `${s.outletName}: ${s.title}`),
-      originalUrl: clusterOutlets[0]?.originalUrl || 'https://www.chosun.com',
-      publishedAt: `${todayFormatted} ${shortTime} 실시간`,
-      keywords: ['실시간종합', '주요뉴스'],
-      topic: '종합·경제',
-      similarityScore: 78,
-      integratedOneLineSummary:
-        topOutlets.length >= 3
-          ? buildClusterIntegratedOneLineSummary(
-              fallbackTitle,
-              topOutlets,
-              topStories.map((s) => s.title)
-            )
-          : undefined,
-      coveredOutlets: topOutlets,
+      title: clusterTitle,
+      leadSummary: sampleSummaries.slice(0, 3),
+      baseSummary: sampleSummaries.slice(0, 3),
+      originalUrl:
+        clusterOutlets[0]?.originalUrl ||
+        getOfficialOutletHomepage(representative.outletId, representative.outletName),
+      publishedAt: formatPublishedAtFromRaw(representative.pubDate, todayFormatted, shortTime),
+      keywords: sharedKeywords.length > 0 ? sharedKeywords : extractSearchKeywords(clusterTitle).split(' ').slice(0, 3),
+      topic: inferTopicFromText(clusterTitle),
+      similarityScore: realSimilarityScore,
+      integratedOneLineSummary,
+      coveredOutlets: uniqueOutlets,
       clusterOutlets,
-      consensusPoints: topStories.map((s) => `[${s.outletName}] ${s.title}`),
-      fullContent: topStories[0]?.fullContent,
-      articleBlocks: topStories[0]?.articleBlocks,
-      leadImage: topStories[0]?.leadImage,
-      leadImageCaption: topStories[0]?.leadImageCaption,
+      consensusPoints: [
+        ...(sharedKeywords.length > 0
+          ? [`공통 핵심어 (유사도 ${realSimilarityScore}%): ${sharedKeywords.join(', ')}`]
+          : []),
+        ...uniqueByOutlet.slice(0, 4).map((m) => `[${m.outletName}] ${m.title}`),
+      ],
+      fullContent: trimCitationExcerpt(primaryWithBody?.fullBody || primaryWithBody?.snippet),
+      articleBlocks: trimCitationBlocks(primaryWithBody?.articleBlocks),
+      leadImage: primaryWithBody?.leadImage,
+      leadImageCaption: primaryWithBody?.leadImageCaption,
     });
   }
 
-  // 3. Exclusive stories dynamically picked from real articles containing [단독] or distinct investigative stories
-  const fullBodyCollected = allCollected.filter(
-    (a) => Boolean(a.fullBody && a.fullBody.length >= 100) && !a.link.includes('news.google.com')
-  );
-  const exclusivePool = fullBodyCollected.length >= 2 ? fullBodyCollected : allCollected;
-  const realExclusives = exclusivePool.filter(
-    (a) => a.title.includes('단독') || a.title.includes('기획') || a.title.includes('포착')
-  );
-  const pickedExclusives = (realExclusives.length >= 2 ? realExclusives : exclusivePool.slice(0, 4))
-    .filter((art, idx, arr) => arr.findIndex((x) => x.outletId === art.outletId) === idx)
-    .slice(0, 3);
+  // 3. Exclusive stories: ONLY include articles with an explicit exclusive marker in the title.
+  // Never match '기획'/'포착' and never backfill generic articles when none exist.
+  const realExclusives = allCollected
+    .filter((a) => EXPLICIT_EXCLUSIVE_TITLE_REGEX.test(a.title.trim()))
+    .filter((art, idx, arr) => arr.findIndex((x) => x.outletId === art.outletId && x.title === art.title) === idx)
+    .slice(0, 6);
 
-  const exclusiveStories: NewsStory[] = pickedExclusives.map((art) => {
+  const exclusiveStories: NewsStory[] = realExclusives.map((art, idx) => {
     const baseSummary = generate3LineSummaryFromSnippet(art.title, art.snippet, art.outletName, art.leadSentences);
     return {
-      id: `ex-${art.outletId}-${Date.now().toString(36)}`,
+      id: `ex-${art.outletId}-${idx}-${Date.now().toString(36)}`,
       outletId: art.outletId,
       outletName: art.outletName,
       category: 'exclusive',
@@ -2181,24 +2345,24 @@ export function buildRealBriefing(
       baseSummary,
       originalUrl: art.link || getOfficialOutletHomepage(art.outletId, art.outletName),
       naverUrl: art.naverUrl || undefined,
-      publishedAt: `${todayFormatted} ${shortTime} 실시간`,
+      publishedAt: formatPublishedAtFromRaw(art.pubDate, todayFormatted, shortTime),
       keywords: extractSearchKeywords(art.title).split(' ').slice(0, 3),
       topic: inferTopicFromText(art.title),
       reporter: art.reporter || `${art.outletName} 편집국`,
-      exclusiveBadge: art.title.includes('단독') ? `${art.outletName} 단독` : `${art.outletName} 심층`,
+      exclusiveBadge: `${art.outletName} 단독`,
       importanceRating: 'Crucial',
-      reactions: { insightful: 48, important: 96, surprising: 22 },
-      fullContent: (art.fullBody || art.snippet || baseSummary.join('\n\n')).trim(),
-      articleBlocks: art.articleBlocks,
+      reactions: { insightful: 0, important: 0, surprising: 0 },
+      fullContent: trimCitationExcerpt(art.fullBody || art.snippet || baseSummary.join('\n\n')),
+      articleBlocks: trimCitationBlocks(art.articleBlocks),
       leadImage: art.leadImage,
       leadImageCaption: art.leadImageCaption,
     };
   });
 
-  const resolvedSectorHeadlines: SectorHeadlineItem[] =
-    sectorHeadlinesInput && sectorHeadlinesInput.length > 0
-      ? sectorHeadlinesInput
-      : MOCK_SECTOR_HEADLINES;
+  // Never silently substitute stale mock headlines into a live briefing
+  const resolvedSectorHeadlines: SectorHeadlineItem[] = Array.isArray(sectorHeadlinesInput)
+    ? sectorHeadlinesInput
+    : [];
 
   const topKeywords = allKeywords.slice(0, 8);
   const keywordTrends = computeKeywordTrends(
@@ -2212,7 +2376,10 @@ export function buildRealBriefing(
   const rawBriefing: DailyBriefing = {
     id: `briefing-real-${Date.now()}`,
     briefingDate: todayFormatted,
-    briefingTime: `${nowKstTime} 실시간`,
+    briefingTime: `${nowKstTime} 수집`,
+    sourceType: frontPageStories.length > 0 ? 'live' : 'cached',
+    sectorSourceType: 'live',
+    collectedAt: collectedAtIso,
     topKeywords,
     keywordTrends,
     tone,
@@ -2220,7 +2387,7 @@ export function buildRealBriefing(
     frontPageOutletIds: targetIds,
     overlappingOutletIds: targetIds,
     summaryNote:
-      '선택한 대한민국 주요 언론사의 최신 1면 핵심 톱기사를 실시간 수집하여 요약 3줄(개조식)·심층 시사점 1줄(개조식) 인사이트 브리핑으로 정리했습니다.',
+      '선택한 대한민국 주요 언론사 공식 홈페이지 첫화면 및 뉴스 피드에서 수집한 최신 기사를 요약했습니다.',
     frontPageStories,
     overlappingStories,
     exclusiveStories,

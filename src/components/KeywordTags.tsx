@@ -33,7 +33,7 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
   const [hoveredPointIdx, setHoveredPointIdx] = useState<number | null>(null);
   const [popoverAlign, setPopoverAlign] = useState<'left' | 'center' | 'right'>('left');
   const [anchorLeftPx, setAnchorLeftPx] = useState<number>(0);
-  const [rankSortBy, setRankSortBy] = useState<'surge' | 'coverage'>('surge');
+  const [rankSortBy, setRankSortBy] = useState<'surge' | 'coverage'>('coverage');
   const [adaptiveLayout, setAdaptiveLayout] = useState<{
     isSideBySide: boolean;
     leftWidth: number | null;
@@ -59,6 +59,11 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
     return map;
   }, [keywords, briefing]);
 
+  const anyHistoricalTrend = useMemo(
+    () => Object.values(trendMap).some((t) => t.hasHistoricalTrend),
+    [trendMap]
+  );
+
   const rankedKeywords = useMemo(() => {
     const items = keywords.map((kw) => ({
       keyword: kw,
@@ -67,21 +72,24 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
     }));
 
     return items.sort((a, b) => {
-      if (rankSortBy === 'coverage') {
+      const aPct = a.trend.hasHistoricalTrend && a.trend.dailyChangePercent !== null ? a.trend.dailyChangePercent : -9999;
+      const bPct = b.trend.hasHistoricalTrend && b.trend.dailyChangePercent !== null ? b.trend.dailyChangePercent : -9999;
+
+      if (rankSortBy === 'coverage' || !anyHistoricalTrend) {
         if (b.trend.currentOutletCount !== a.trend.currentOutletCount) {
           return b.trend.currentOutletCount - a.trend.currentOutletCount;
         }
-        return b.trend.dailyChangePercent - a.trend.dailyChangePercent;
+        return bPct - aPct;
       }
-      if (b.trend.dailyChangePercent !== a.trend.dailyChangePercent) {
-        return b.trend.dailyChangePercent - a.trend.dailyChangePercent;
+      if (bPct !== aPct) {
+        return bPct - aPct;
       }
       if (b.trend.currentOutletCount !== a.trend.currentOutletCount) {
         return b.trend.currentOutletCount - a.trend.currentOutletCount;
       }
       return b.trend.peakOutletCount - a.trend.peakOutletCount;
     });
-  }, [keywords, trendMap, rankSortBy]);
+  }, [keywords, trendMap, rankSortBy, anyHistoricalTrend]);
 
   const buildMiniSparklinePath = (trend: KeywordTrendData): string => {
     const series = trend.hourlySeries || [];
@@ -297,7 +305,8 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
     };
   }, [activeTrend]);
 
-  const formatChangeText = (pct: number) => {
+  const formatChangeText = (pct: number | null) => {
+    if (pct === null) return '수집 중';
     if (pct > 0) return `+${pct}%`;
     if (pct < 0) return `${pct}%`;
     return '0%';
@@ -381,10 +390,10 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
                 <Flame className="w-3.5 h-3.5" aria-hidden="true" />
               </div>
               <h3 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5 min-w-0">
-                <span className="whitespace-nowrap shrink-0">오늘의 급상승 핵심 키워드</span>
+                <span className="whitespace-nowrap shrink-0">오늘의 핵심 키워드</span>
                 {(!adaptiveLayout.isSideBySide || (adaptiveLayout.leftWidth ?? 0) >= 560) && (
                   <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400 truncate hidden sm:inline">
-                    · 클릭 시 기사 필터 · 수치 클릭 시 24시간 추이
+                    · 클릭 시 기사 필터 · 수치 클릭 시 보도 현황 및 추이
                   </span>
                 )}
               </h3>
@@ -399,18 +408,6 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
               >
                 <button
                   type="button"
-                  onClick={() => setRankSortBy('surge')}
-                  aria-pressed={rankSortBy === 'surge'}
-                  className={`px-2 py-0.5 text-[11px] font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                    rankSortBy === 'surge'
-                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                  }`}
-                >
-                  상승률순
-                </button>
-                <button
-                  type="button"
                   onClick={() => setRankSortBy('coverage')}
                   aria-pressed={rankSortBy === 'coverage'}
                   className={`px-2 py-0.5 text-[11px] font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
@@ -420,6 +417,22 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
                   }`}
                 >
                   보도량순
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRankSortBy('surge')}
+                  disabled={!anyHistoricalTrend}
+                  aria-pressed={rankSortBy === 'surge' && anyHistoricalTrend}
+                  title={anyHistoricalTrend ? '24시간 변동률순 정렬' : '누적 추이 데이터 수집 후 활성화됩니다'}
+                  className={`px-2 py-0.5 text-[11px] font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                    !anyHistoricalTrend
+                      ? 'text-slate-400 dark:text-slate-500 cursor-not-allowed'
+                      : rankSortBy === 'surge'
+                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs cursor-pointer'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 cursor-pointer'
+                  }`}
+                >
+                  상승률순
                 </button>
               </div>
 
@@ -501,43 +514,68 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
                       onClick={(e) => handleTogglePopover(item.keyword, e.currentTarget)}
                       aria-expanded={isPopoverOpen}
                       aria-haspopup="dialog"
-                      aria-label={`${rank}위 ${item.label}, ${item.trend.currentOutletCount}개사 보도, 전일 대비 ${changeText} (${visual.statusLabel}), 24시간 추이 보기`}
-                      title={`${rank}위 ${item.keyword} · ${item.trend.currentOutletCount}개사 보도 · 전일 대비 ${changeText} · 최고 ${item.trend.peakHourLabel} (클릭: 24시간 추이 그래프)`}
+                      aria-label={
+                        item.trend.hasHistoricalTrend
+                          ? `${rank}위 ${item.label}, ${item.trend.currentOutletCount}개사 보도, 기준 대비 ${changeText} (${visual.statusLabel}), 보도 추이 보기`
+                          : `${rank}위 ${item.label}, ${item.trend.currentOutletCount}개사 보도, 추이 데이터 수집 중`
+                      }
+                      title={
+                        item.trend.hasHistoricalTrend
+                          ? `${rank}위 ${item.keyword} · ${item.trend.currentOutletCount}개사 보도 · 기준 대비 ${changeText} (클릭: 추이 그래프)`
+                          : `${rank}위 ${item.keyword} · 현재 ${item.trend.currentOutletCount}개사 보도 · 24시간 추이 수집 중`
+                      }
                       className={`px-2 py-1.5 text-[11px] font-mono tabular-nums font-bold border-l flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                         isSelected
                           ? `border-blue-500 ${visual.activeBtnClass}`
                           : `border-slate-200/80 dark:border-slate-700 ${visual.badgeClass}`
                       }`}
                     >
-                      {sparkPath && !isMobileView && (
-                        <svg
-                          viewBox="0 0 28 12"
-                          className="w-6 h-3 overflow-visible shrink-0 hidden sm:block"
-                          aria-hidden="true"
-                        >
-                          <path
-                            d={sparkPath}
-                            fill="none"
-                            stroke={isSelected ? '#ffffff' : visual.strokeColor}
-                            strokeWidth={1.6}
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
+                      {item.trend.hasHistoricalTrend ? (
+                        <>
+                          {sparkPath && !isMobileView && (
+                            <svg
+                              viewBox="0 0 28 12"
+                              className="w-6 h-3 overflow-visible shrink-0 hidden sm:block"
+                              aria-hidden="true"
+                            >
+                              <path
+                                d={sparkPath}
+                                fill="none"
+                                stroke={isSelected ? '#ffffff' : visual.strokeColor}
+                                strokeWidth={1.6}
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          )}
+                          <span className="inline-flex items-center gap-0.5">
+                            <TrendIcon className="w-3 h-3 shrink-0" aria-hidden="true" />
+                            <span>{changeText}</span>
+                          </span>
+                          <span
+                            className={`text-[10px] font-medium ${
+                              isSelected
+                                ? 'text-blue-100'
+                                : 'text-slate-500 dark:text-slate-400'
+                            }`}
+                          >
+                            · {item.trend.currentOutletCount}사
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span>{item.trend.currentOutletCount}사</span>
+                          <span
+                            className={`text-[10px] font-sans font-medium ${
+                              isSelected
+                                ? 'text-blue-100'
+                                : 'text-slate-500 dark:text-slate-400'
+                            }`}
+                          >
+                            · 추이 수집 중
+                          </span>
+                        </>
                       )}
-                      <span className="inline-flex items-center gap-0.5">
-                        <TrendIcon className="w-3 h-3 shrink-0" aria-hidden="true" />
-                        <span>{changeText}</span>
-                      </span>
-                      <span
-                        className={`text-[10px] font-medium ${
-                          isSelected
-                            ? 'text-blue-100'
-                            : 'text-slate-500 dark:text-slate-400'
-                        }`}
-                      >
-                        · {item.trend.currentOutletCount}사
-                      </span>
                     </button>
                   </li>
                 );
@@ -677,13 +715,13 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
         })()}
       </div>
 
-      {/* 24-Hour Outlet Coverage Trend Popover */}
-      {activeTrend && chartModel && (
+      {/* Keyword Coverage & Trend Popover */}
+      {activeTrend && (
         <div
           ref={popoverRef}
           role="dialog"
           aria-modal="false"
-          aria-label={`${activeTrend.keyword} 지난 24시간 언론사 보도 트렌드`}
+          aria-label={`${activeTrend.keyword} 언론사 보도 현황 및 추이`}
           style={
             popoverAlign === 'center'
               ? { left: `${anchorLeftPx}px` }
@@ -705,29 +743,35 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
                 <span className="text-sm font-black text-slate-900 dark:text-white truncate">
                   {activeTrend.keyword}
                 </span>
-                {(() => {
-                  const visual = getTrendVisual(activeTrend.direction);
-                  const Icon = visual.Icon;
-                  return (
-                    <span
-                      className={`inline-flex items-center gap-1 text-[11px] font-mono tabular-nums font-bold px-2 py-0.5 rounded-md ${
-                        activeTrend.direction === 'up'
-                          ? 'bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300'
-                          : activeTrend.direction === 'down'
-                          ? 'bg-rose-50 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300'
-                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-                      }`}
-                    >
-                      <Icon className="w-3 h-3 shrink-0" aria-hidden="true" />
-                      <span>
-                        전일 대비 {formatChangeText(activeTrend.dailyChangePercent)}
+                {activeTrend.hasHistoricalTrend ? (
+                  (() => {
+                    const visual = getTrendVisual(activeTrend.direction);
+                    const Icon = visual.Icon;
+                    return (
+                      <span
+                        className={`inline-flex items-center gap-1 text-[11px] font-mono tabular-nums font-bold px-2 py-0.5 rounded-md ${
+                          activeTrend.direction === 'up'
+                            ? 'bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300'
+                            : activeTrend.direction === 'down'
+                            ? 'bg-rose-50 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                        }`}
+                      >
+                        <Icon className="w-3 h-3 shrink-0" aria-hidden="true" />
+                        <span>기준 대비 {formatChangeText(activeTrend.dailyChangePercent)}</span>
                       </span>
-                    </span>
-                  );
-                })()}
+                    );
+                  })()
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                    추이 수집 중
+                  </span>
+                )}
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                지난 24시간 동안 해당 키워드를 다룬 언론사 수 추이
+                {activeTrend.hasHistoricalTrend
+                  ? '실제 수집 이력 기반 언론사 보도 수 추이'
+                  : '현재 수집된 기사에서 직접 확인된 언론사 보도 현황'}
               </p>
             </div>
             <button
@@ -740,7 +784,7 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
             </button>
           </div>
 
-          {/* 3-Column Metrics Strip (clean hairline dividers, tabular numbers) */}
+          {/* 3-Column Metrics Strip */}
           <div className="grid grid-cols-3 divide-x divide-slate-200/80 dark:divide-slate-800 py-2.5 text-center">
             <div className="px-2">
               <div className="text-[11px] text-slate-500 dark:text-slate-400">
@@ -752,173 +796,195 @@ export const KeywordTags: React.FC<KeywordTagsProps> = ({
             </div>
             <div className="px-2">
               <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                24h 최고
+                {activeTrend.hasHistoricalTrend ? '관측 최고' : '매칭 기사'}
               </div>
               <div className="text-sm font-black font-mono tabular-nums text-blue-600 dark:text-blue-400 mt-0.5">
-                {activeTrend.peakOutletCount}개사
-                <span className="text-[10px] font-sans font-medium text-slate-400 dark:text-slate-500 ml-1">
-                  ({activeTrend.peakHourLabel})
-                </span>
+                {activeTrend.hasHistoricalTrend ? (
+                  <>
+                    {activeTrend.peakOutletCount}개사
+                    <span className="text-[10px] font-sans font-medium text-slate-400 dark:text-slate-500 ml-1">
+                      ({activeTrend.peakHourLabel})
+                    </span>
+                  </>
+                ) : (
+                  `${activeTrend.matchedArticleCount ?? activeTrend.currentOutletCount}건`
+                )}
               </div>
             </div>
             <div className="px-2">
               <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                전일 기준
+                24시간 변화
               </div>
               <div className="text-sm font-black font-mono tabular-nums text-slate-700 dark:text-slate-200 mt-0.5">
-                {activeTrend.previousOutletCount} → {activeTrend.currentOutletCount}사
+                {activeTrend.hasHistoricalTrend && activeTrend.previousOutletCount !== null
+                  ? `${activeTrend.previousOutletCount} → ${activeTrend.currentOutletCount}사`
+                  : '수집 중'}
               </div>
             </div>
           </div>
 
-          {/* Interactive 24-Hour Trend Chart */}
+          {/* Interactive 24-Hour Trend Chart OR Honest Collecting State */}
           <div className="pt-2 pb-1 border-t border-slate-200/80 dark:border-slate-800">
-            <div className="flex items-center justify-between text-[11px] mb-1.5">
-              <span className="font-semibold text-slate-600 dark:text-slate-300">
-                24시간 언론사 보도 수 그래프
-              </span>
-              {activePoint && (
-                <span className="font-mono tabular-nums font-bold text-blue-600 dark:text-blue-400">
-                  {activePoint.timeLabel} ({activePoint.hourLabel}) · {activePoint.outletCount}개사
-                </span>
-              )}
-            </div>
+            {activeTrend.hasHistoricalTrend && chartModel && chartModel.points.length >= 2 ? (
+              <>
+                <div className="flex items-center justify-between text-[11px] mb-1.5">
+                  <span className="font-semibold text-slate-600 dark:text-slate-300">
+                    시간대별 언론사 보도 수 그래프
+                  </span>
+                  {activePoint && (
+                    <span className="font-mono tabular-nums font-bold text-blue-600 dark:text-blue-400">
+                      {activePoint.timeLabel} ({activePoint.hourLabel}) · {activePoint.outletCount}개사
+                    </span>
+                  )}
+                </div>
 
-            {(() => {
-              const visual = getTrendVisual(activeTrend.direction);
-              const gradientId = `kw-trend-grad-${encodeURIComponent(activeTrend.keyword).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-              return (
-                <svg
-                  viewBox={`0 0 ${chartModel.width} ${chartModel.height}`}
-                  className="w-full h-32 overflow-visible select-none"
-                  role="img"
-                  aria-label={`${activeTrend.keyword} 24시간 언론사 보도 수 선 그래프`}
-                >
-                  <defs>
-                    <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={visual.fillColorStart} />
-                      <stop offset="100%" stopColor={visual.fillColorEnd} />
-                    </linearGradient>
-                  </defs>
+                {(() => {
+                  const visual = getTrendVisual(activeTrend.direction);
+                  const gradientId = `kw-trend-grad-${encodeURIComponent(activeTrend.keyword).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+                  return (
+                    <svg
+                      viewBox={`0 0 ${chartModel.width} ${chartModel.height}`}
+                      className="w-full h-32 overflow-visible select-none"
+                      role="img"
+                      aria-label={`${activeTrend.keyword} 시간대별 언론사 보도 수 선 그래프`}
+                    >
+                      <defs>
+                        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={visual.fillColorStart} />
+                          <stop offset="100%" stopColor={visual.fillColorEnd} />
+                        </linearGradient>
+                      </defs>
 
-                  {/* Horizontal reference gridlines & Y-axis labels */}
-                  {[0, chartModel.yMid, chartModel.yMax].map((tickVal) => {
-                    const yPos =
-                      chartModel.padTop +
-                      chartModel.plotH -
-                      (tickVal / chartModel.yMax) * chartModel.plotH;
-                    return (
-                      <g key={tickVal}>
+                      {[0, chartModel.yMid, chartModel.yMax].map((tickVal) => {
+                        const yPos =
+                          chartModel.padTop +
+                          chartModel.plotH -
+                          (tickVal / chartModel.yMax) * chartModel.plotH;
+                        return (
+                          <g key={tickVal}>
+                            <line
+                              x1={chartModel.padLeft}
+                              y1={yPos}
+                              x2={chartModel.width - chartModel.padRight}
+                              y2={yPos}
+                              stroke="currentColor"
+                              className="text-slate-200 dark:text-slate-800"
+                              strokeDasharray={tickVal === 0 ? undefined : '3 3'}
+                              strokeWidth={1}
+                            />
+                            <text
+                              x={chartModel.padLeft - 6}
+                              y={yPos + 3}
+                              textAnchor="end"
+                              className="fill-slate-400 dark:fill-slate-500 text-[9px] font-mono"
+                            >
+                              {tickVal}사
+                            </text>
+                          </g>
+                        );
+                      })}
+
+                      {activePoint && (
                         <line
-                          x1={chartModel.padLeft}
-                          y1={yPos}
-                          x2={chartModel.width - chartModel.padRight}
-                          y2={yPos}
-                          stroke="currentColor"
-                          className="text-slate-200 dark:text-slate-800"
-                          strokeDasharray={tickVal === 0 ? undefined : '3 3'}
+                          x1={activePoint.x}
+                          y1={chartModel.padTop}
+                          x2={activePoint.x}
+                          y2={chartModel.padTop + chartModel.plotH}
+                          stroke={visual.strokeColor}
+                          strokeOpacity={0.35}
+                          strokeDasharray="2 2"
                           strokeWidth={1}
                         />
-                        <text
-                          x={chartModel.padLeft - 6}
-                          y={yPos + 3}
-                          textAnchor="end"
-                          className="fill-slate-400 dark:fill-slate-500 text-[9px] font-mono"
-                        >
-                          {tickVal}사
-                        </text>
-                      </g>
-                    );
-                  })}
+                      )}
 
-                  {/* Active point vertical guide line */}
-                  {activePoint && (
-                    <line
-                      x1={activePoint.x}
-                      y1={chartModel.padTop}
-                      x2={activePoint.x}
-                      y2={chartModel.padTop + chartModel.plotH}
-                      stroke={visual.strokeColor}
-                      strokeOpacity={0.35}
-                      strokeDasharray="2 2"
-                      strokeWidth={1}
-                    />
-                  )}
-
-                  {/* Gradient Area & Trend Line */}
-                  {chartModel.areaPath && (
-                    <path d={chartModel.areaPath} fill={`url(#${gradientId})`} />
-                  )}
-                  {chartModel.linePath && (
-                    <path
-                      d={chartModel.linePath}
-                      fill="none"
-                      stroke={visual.strokeColor}
-                      strokeWidth={2.25}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  )}
-
-                  {/* Interactive Data Points + X-axis Labels */}
-                  {chartModel.points.map((pt) => {
-                    const isActive = activePoint?.idx === pt.idx;
-                    const showXLabel = pt.idx % 2 === 0 || pt.idx === chartModel.points.length - 1;
-                    return (
-                      <g key={pt.idx}>
-                        <circle
-                          cx={pt.x}
-                          cy={pt.y}
-                          r={isActive ? 4.5 : 2.75}
-                          fill={isActive ? visual.strokeColor : '#ffffff'}
+                      {chartModel.areaPath && (
+                        <path d={chartModel.areaPath} fill={`url(#${gradientId})`} />
+                      )}
+                      {chartModel.linePath && (
+                        <path
+                          d={chartModel.linePath}
+                          fill="none"
                           stroke={visual.strokeColor}
-                          strokeWidth={isActive ? 2 : 1.75}
-                          className="dark:fill-slate-900 transition-all"
+                          strokeWidth={2.25}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
                         />
-                        {/* Larger invisible hit target for easy hover/tap */}
-                        <circle
-                          cx={pt.x}
-                          cy={pt.y}
-                          r={12}
-                          fill="transparent"
-                          className="cursor-pointer"
-                          onMouseEnter={() => setHoveredPointIdx(pt.idx)}
-                          onClick={() => setHoveredPointIdx(pt.idx)}
-                        />
-                        {showXLabel && (
-                          <text
-                            x={pt.x}
-                            y={chartModel.height - 6}
-                            textAnchor="middle"
-                            className={`text-[9px] font-mono ${
-                              isActive
-                                ? 'fill-slate-900 dark:fill-white font-bold'
-                                : 'fill-slate-400 dark:fill-slate-500'
-                            }`}
-                          >
-                            {pt.timeLabel}
-                          </text>
-                        )}
-                      </g>
-                    );
-                  })}
-                </svg>
-              );
-            })()}
+                      )}
+
+                      {chartModel.points.map((pt) => {
+                        const isActive = activePoint?.idx === pt.idx;
+                        const showXLabel = pt.idx % 2 === 0 || pt.idx === chartModel.points.length - 1;
+                        return (
+                          <g key={pt.idx}>
+                            <circle
+                              cx={pt.x}
+                              cy={pt.y}
+                              r={isActive ? 4.5 : 2.75}
+                              fill={isActive ? visual.strokeColor : '#ffffff'}
+                              stroke={visual.strokeColor}
+                              strokeWidth={isActive ? 2 : 1.75}
+                              className="dark:fill-slate-900 transition-all"
+                            />
+                            <circle
+                              cx={pt.x}
+                              cy={pt.y}
+                              r={12}
+                              fill="transparent"
+                              className="cursor-pointer"
+                              onMouseEnter={() => setHoveredPointIdx(pt.idx)}
+                              onClick={() => setHoveredPointIdx(pt.idx)}
+                            />
+                            {showXLabel && (
+                              <text
+                                x={pt.x}
+                                y={chartModel.height - 6}
+                                textAnchor="middle"
+                                className={`text-[9px] font-mono ${
+                                  isActive
+                                    ? 'fill-slate-900 dark:fill-white font-bold'
+                                    : 'fill-slate-400 dark:fill-slate-500'
+                                }`}
+                              >
+                                {pt.timeLabel}
+                              </text>
+                            )}
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  );
+                })()}
+              </>
+            ) : (
+              <div className="rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 px-3 py-4 text-center space-y-1">
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                  24시간 추이 데이터 수집 중
+                </p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  임의 추정치를 표시하지 않고, 시간대별 실제 수집 이력이 2개 구간 이상 누적되면 추이 그래프가 표시됩니다.
+                </p>
+              </div>
+            )}
           </div>
 
-          {/* Covered Outlets (Clean typographic metadata) & Filter Action */}
+          {/* Covered Outlets & Filter Action */}
           <div className="pt-2.5 mt-1 border-t border-slate-200/80 dark:border-slate-800 space-y-2.5">
             <div className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
               <span className="font-bold text-slate-800 dark:text-slate-100 mr-1.5">
-                주요 보도 언론사:
+                확인된 보도 언론사:
               </span>
-              <span>{activeTrend.coveredOutlets.join(' · ')}</span>
+              <span>
+                {activeTrend.coveredOutlets.length > 0
+                  ? activeTrend.coveredOutlets.join(' · ')
+                  : '현재 수집 기사 중 직접 매칭된 언론사가 없습니다.'}
+              </span>
             </div>
 
             <div className="flex items-center justify-between gap-2">
               <span className="text-[10px] text-slate-400 dark:text-slate-500">
-                3시간 간격 누적 집계 기준
+                {activeTrend.hasHistoricalTrend
+                  ? '실제 수집 스냅샷 기준'
+                  : '현재 브리핑 실측 기사 기준'}
               </span>
               <button
                 type="button"

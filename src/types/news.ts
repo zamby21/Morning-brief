@@ -84,6 +84,8 @@ export interface NewsStory {
   quoteHighlight?: string;
 }
 
+export type DataSourceType = 'live' | 'cached' | 'mock';
+
 export interface KeywordTrendPoint {
   hourLabel: string;
   timeLabel: string;
@@ -92,20 +94,25 @@ export interface KeywordTrendPoint {
 
 export interface KeywordTrendData {
   keyword: string;
-  dailyChangePercent: number;
+  dailyChangePercent: number | null;
   direction: 'up' | 'down' | 'flat';
   currentOutletCount: number;
-  previousOutletCount: number;
+  previousOutletCount: number | null;
+  matchedArticleCount?: number;
   coveredOutlets: string[];
   hourlySeries: KeywordTrendPoint[];
   peakHourLabel: string;
   peakOutletCount: number;
+  hasHistoricalTrend: boolean;
 }
 
 export interface DailyBriefing {
   id: string;
   briefingDate: string; // e.g. "2026년 10월 19일 (월)"
   briefingTime: string; // e.g. "09:00 AM"
+  sourceType?: DataSourceType;
+  sectorSourceType?: DataSourceType;
+  collectedAt?: string; // ISO timestamp of actual collection
   topKeywords: string[];
   keywordTrends?: Record<string, KeywordTrendData>;
   tone: BriefingTone;
@@ -134,6 +141,7 @@ export interface WeeklyIssue {
 
 export interface WeeklyReport {
   weekRange: string;
+  sourceType?: DataSourceType;
   overallDiagnosis: string;
   topTrendKeywords: { keyword: string; count: number }[];
   timeline: WeeklyIssue[];
@@ -171,6 +179,7 @@ export interface SectorHeadlineItem {
   leadImageCaption?: string;
   reporter?: string;
   pressSection?: string;
+  sourceType?: DataSourceType;
 }
 
 export interface SectorPreferences {
@@ -213,7 +222,8 @@ export interface EmailDispatchLog {
   id: string;
   sentAt: string;
   recipient: string;
-  status: 'success' | 'queued' | 'failed';
+  status: 'preview' | 'success' | 'queued' | 'failed';
+  isPreviewOnly?: boolean;
   headline: string;
   storiesCount: number;
 }

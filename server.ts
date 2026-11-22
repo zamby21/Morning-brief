@@ -1,6 +1,9 @@
 import express from 'express';
 import http from 'node:http';
 import https from 'node:https';
+import dns from 'node:dns/promises';
+import net from 'node:net';
+import crypto from 'node:crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
@@ -8,15 +11,11 @@ import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import {
   INITIAL_DAILY_BRIEFING,
   MOCK_WEEKLY_REPORT,
-  INITIAL_EMAIL_LOGS,
   PRESS_OUTLETS,
 } from './src/data/mockNewsData.ts';
 import type { DailyBriefing, EmailDispatchLog, WeeklyReport, BriefingTone } from './src/types/news.ts';
-import { getCurrentKoreanDateString } from './src/utils/dateUtils.ts';
-import { extractSearchKeywords, getOfficialOutletHomepage } from './src/utils/linkUtils.ts';
 import {
   transformBriefingTone,
-  formatLeadSummaryByTone,
   toBulletKorean,
   toBulletInsightLine,
 } from './src/utils/toneTransformer.ts';
@@ -25,8 +24,10 @@ import {
   fetchSectorHeadlinesReal,
   buildRealBriefing,
   collectRelatedArticlesContext,
+  OUTLET_PRESS_DESK_MAP,
 } from './src/services/realNewsCollector.ts';
 import { computeKeywordTrends } from './src/utils/keywordTrend.ts';
+import { escapeHtml, sanitizeHttpUrl, isValidEmailAddress } from './src/utils/htmlSanitizer.ts';
 
 dotenv.config();
 
@@ -34,46 +35,301 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(express.json({ limit: '5mb' }));
+app.disable('x-powered-by');
+app.use(express.json({ limit: '512kb' }));
 
-// In-memory logs
-const emailLogs: EmailDispatchLog[] = [...INITIAL_EMAIL_LOGS];
+// Lightweight per-IP sliding-window rate limiter to protect AI & proxy endpoints
+const rateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function getClientIp(req: express.Request): string {
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff === 'string' && xff.trim()) {
+    return xff.split(',')[0].trim();
+  }
+  return req.socket?.remoteAddress || 'unknown';
+}
+
+function createRateLimiter(bucketName: string, maxRequests: number, windowMs = 60_000) {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const now = Date.now();
+    const key = `${bucketName}:${getClientIp(req)}`;
+    const existing = rateLimitBuckets.get(key);
+
+    if (rateLimitBuckets.size > 5000) {
+      for (const [k, v] of rateLimitBuckets.entries()) {
+        if (now >= v.resetAt) rateLimitBuckets.delete(k);
+      }
+    }
+
+    if (!existing || now >= existing.resetAt) {
+      rateLimitBuckets.set(key, { count: 1, resetAt: now + windowMs });
+      return next();
+    }
+
+    if (existing.count >= maxRequests) {
+      const retryAfterSec = Math.max(1, Math.ceil((existing.resetAt - now) / 1000));
+      res.setHeader('Retry-After', String(retryAfterSec));
+      return res.status(429).json({
+        success: false,
+        error: '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.',
+      });
+    }
+
+    existing.count += 1;
+    return next();
+  };
+}
+
+const VALID_TONES = new Set<BriefingTone>(['formal', 'bullet', 'friendly', 'insight']);
+const VALID_OUTLET_IDS = new Set<string>(PRESS_OUTLETS.map((o) => o.id));
+const VALID_DAYS = new Set<string>(['월', '화', '수', '목', '금', '토', '일']);
+const MAX_OUTLETS_PER_REQUEST = 20;
+const FORCE_REFRESH_COOLDOWN_MS = 10_000;
+let lastForcedRefreshAt = 0;
+
+function isValidHHMM(value: unknown): value is string {
+  return typeof value === 'string' && /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
+}
+
+function isValidIanaTimeZone(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length < 3 || value.length > 64) return false;
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function makeTraceId(): string {
+  return crypto.randomBytes(4).toString('hex');
+}
+
+// In-memory preview logs (starts empty; external mail provider not connected)
+const emailLogs: EmailDispatchLog[] = [];
 
 // Health check endpoint for Vercel and uptime monitoring
-app.get(['/api/health', '/health'], (_req, res) => {
+app.get(['/api/health', '/health'], createRateLimiter('health', 60), (_req, res) => {
   res.json({
     status: 'ok',
-    service: 'Morning Brief AI API',
+    service: 'Morning Brief API',
     geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
+    mailProviderConfigured: false,
     timestamp: new Date().toISOString(),
   });
 });
 
-// Safe image proxy for Korean news press photos (bypasses strict CDN hotlink/Referer blocks in iframe)
-function isDisallowedProxyHost(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  if (
-    h === 'localhost' ||
-    h === '0.0.0.0' ||
-    h === '::1' ||
-    h.endsWith('.local') ||
-    h.endsWith('.internal') ||
-    h.startsWith('127.') ||
-    h.startsWith('10.') ||
-    h.startsWith('192.168.') ||
-    h.startsWith('169.254.') ||
-    /^172\.(1[6-9]|2\d|3[0-1])\./.test(h)
-  ) {
-    return true;
+// Build strict Korean press & news image CDN domain allowlist
+function extractRegistrableDomain(urlStr: string): string | null {
+  try {
+    const host = new URL(urlStr).hostname.toLowerCase();
+    const parts = host.split('.').filter(Boolean);
+    if (parts.length < 2) return null;
+    const tld2 = `${parts[parts.length - 2]}.${parts[parts.length - 1]}`;
+    if (['co.kr', 'or.kr', 'go.kr', 'ne.kr', 're.kr'].includes(tld2) && parts.length >= 3) {
+      return `${parts[parts.length - 3]}.${tld2}`;
+    }
+    return tld2;
+  } catch {
+    return null;
+  }
+}
+
+const ALLOWED_IMAGE_DOMAINS = new Set<string>([
+  // Verified Korean news portal & press image CDNs
+  'pstatic.net',
+  'naver.net',
+  'daumcdn.net',
+  'kakaocdn.net',
+  'yna.co.kr',
+  'yonhapnews.co.kr',
+  'yonhapnewstv.co.kr',
+  'chosun.com',
+  'joongang.co.kr',
+  'joins.com',
+  'donga.com',
+  'hani.co.kr',
+  'khan.co.kr',
+  'mk.co.kr',
+  'hankyung.com',
+  'sedaily.com',
+  'heraldcorp.com',
+  'asiae.co.kr',
+  'kmib.co.kr',
+  'hankookilbo.com',
+  'munhwa.com',
+  'seoul.co.kr',
+  'segye.com',
+  'mt.co.kr',
+  'edaily.co.kr',
+  'fnnews.com',
+  'nocutnews.co.kr',
+  'newstapa.org',
+  'tf.co.kr',
+  'dailian.co.kr',
+  'sidaenews.co.kr',
+  'mediatoday.co.kr',
+  'bizwatch.co.kr',
+  'inews24.com',
+  'ohmynews.com',
+  'economist.co.kr',
+  'joseilbo.com',
+  'pressian.com',
+  'news1.kr',
+  'newsis.com',
+  'kbs.co.kr',
+  'imbc.com',
+  'sbs.co.kr',
+  'ytn.co.kr',
+  'jtbc.co.kr',
+  'tvchosun.com',
+  'mbn.co.kr',
+  'ichannela.com',
+  'wowtv.co.kr',
+  'ikbc.co.kr',
+  'etnews.com',
+  'zdnet.co.kr',
+  'bloter.net',
+  'ddaily.co.kr',
+  'dt.co.kr',
+  'kado.net',
+  'kwnews.co.kr',
+  'kyeonggi.com',
+  'kookje.co.kr',
+  'daejonilbo.com',
+  'imaeil.com',
+  'busan.com',
+]);
+
+for (const outlet of PRESS_OUTLETS) {
+  const dom = extractRegistrableDomain(outlet.homepageUrl);
+  if (dom) ALLOWED_IMAGE_DOMAINS.add(dom);
+}
+for (const entry of Object.values(OUTLET_PRESS_DESK_MAP)) {
+  const dom = extractRegistrableDomain(entry.homepageUrl);
+  if (dom) ALLOWED_IMAGE_DOMAINS.add(dom);
+}
+
+function isAllowedImageHostname(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/\.$/, '');
+  if (!h || h === 'localhost' || net.isIP(h) !== 0) {
+    return false;
+  }
+  for (const allowed of ALLOWED_IMAGE_DOMAINS) {
+    if (h === allowed || h.endsWith(`.${allowed}`)) {
+      return true;
+    }
   }
   return false;
 }
 
-function fetchImageBufferSafe(
+function isPrivateOrReservedIpv4(ip: string): boolean {
+  const parts = ip.split('.').map((n) => Number(n));
+  if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+    return true;
+  }
+  const [a, b] = parts;
+  if (a === 0) return true; // 0.0.0.0/8
+  if (a === 10) return true; // 10.0.0.0/8
+  if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 (CGNAT)
+  if (a === 127) return true; // 127.0.0.0/8 (loopback)
+  if (a === 169 && b === 254) return true; // 169.254.0.0/16 (link-local & cloud metadata)
+  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+  if (a === 192 && b === 0 && parts[2] === 0) return true; // 192.0.0.0/24
+  if (a === 192 && b === 0 && parts[2] === 2) return true; // 192.0.2.0/24
+  if (a === 192 && b === 168) return true; // 192.168.0.0/16
+  if (a === 198 && (b === 18 || b === 19)) return true; // 198.18.0.0/15
+  if (a === 198 && b === 51 && parts[2] === 100) return true; // 198.51.100.0/24
+  if (a === 203 && b === 0 && parts[2] === 113) return true; // 203.0.113.0/24
+  if (a >= 224) return true; // 224.0.0.0/4 multicast & 240.0.0.0/4 reserved/broadcast
+  return false;
+}
+
+function isPrivateOrReservedIp(rawIp: string): boolean {
+  const ip = rawIp.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  const version = net.isIP(ip);
+  if (version === 4) {
+    return isPrivateOrReservedIpv4(ip);
+  }
+  if (version === 6) {
+    // Unspecified & loopback
+    if (ip === '::' || ip === '::1' || /^0+:0+:0+:0+:0+:0+:0+:[01]$/.test(ip)) {
+      return true;
+    }
+    // IPv4-mapped IPv6 dotted form (e.g. ::ffff:127.0.0.1)
+    const mappedDotted = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (mappedDotted) {
+      return isPrivateOrReservedIpv4(mappedDotted[1]);
+    }
+    // IPv4-mapped IPv6 hex form (e.g. ::ffff:7f00:1)
+    const mappedHex = ip.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (mappedHex) {
+      const hi = parseInt(mappedHex[1], 16);
+      const lo = parseInt(mappedHex[2], 16);
+      const ipv4 = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+      return isPrivateOrReservedIpv4(ipv4);
+    }
+    // ULA fc00::/7 (fc.. / fd..), link-local fe80::/10 (fe8..feb), site-local fec0::/10, multicast ff00::/8
+    const firstSegment = ip.split(':')[0] || '';
+    if (/^(fc|fd|ff)/i.test(firstSegment) || /^fe[89abcf]/i.test(firstSegment)) {
+      return true;
+    }
+    // Documentation prefix 2001:db8::/32
+    if (ip.startsWith('2001:db8:') || ip.startsWith('2001:0db8:')) {
+      return true;
+    }
+    return false;
+  }
+  return true;
+}
+
+async function resolveAndValidateProxyTarget(
+  targetUrl: string
+): Promise<{ parsed: URL; pinnedAddress: string; pinnedFamily: 4 | 6 } | null> {
+  let parsed: URL;
+  try {
+    parsed = new URL(targetUrl);
+  } catch {
+    return null;
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+  if (parsed.username || parsed.password) return null;
+  if (parsed.port && parsed.port !== '80' && parsed.port !== '443') return null;
+  if (!isAllowedImageHostname(parsed.hostname)) return null;
+
+  try {
+    const records = await dns.lookup(parsed.hostname, { all: true, verbatim: true });
+    if (!records || records.length === 0) return null;
+
+    // Every single resolved IP (IPv4 & IPv6) must be globally routable public
+    for (const rec of records) {
+      if (isPrivateOrReservedIp(rec.address)) {
+        return null;
+      }
+    }
+
+    const preferred = records.find((r) => r.family === 4) || records[0];
+    return {
+      parsed,
+      pinnedAddress: preferred.address,
+      pinnedFamily: preferred.family === 6 ? 6 : 4,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchImageBufferSafe(
   targetUrl: string,
   redirectsLeft = 3,
   timeoutMs = 6000
 ): Promise<{ status: number; contentType: string; buffer: Buffer } | null> {
+  const validated = await resolveAndValidateProxyTarget(targetUrl);
+  if (!validated) return null;
+
+  const { parsed, pinnedAddress, pinnedFamily } = validated;
+
   return new Promise((resolve) => {
     let settled = false;
     const finish = (val: { status: number; contentType: string; buffer: Buffer } | null) => {
@@ -84,20 +340,20 @@ function fetchImageBufferSafe(
     };
 
     try {
-      const parsed = new URL(targetUrl);
-      if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || isDisallowedProxyHost(parsed.hostname)) {
-        finish(null);
-        return;
-      }
-
-      const referer = parsed.hostname.includes('pstatic.net')
+      const referer = parsed.hostname.endsWith('.pstatic.net') || parsed.hostname === 'pstatic.net'
         ? 'https://n.news.naver.com/'
         : `${parsed.protocol}//${parsed.hostname}/`;
       const lib = parsed.protocol === 'https:' ? https : http;
+
+      // Pin DNS lookup to the pre-validated public IP to prevent DNS rebinding
+      const pinnedLookup: http.RequestOptions['lookup'] = (_hostname, _options, callback) => {
+        callback(null, pinnedAddress, pinnedFamily);
+      };
+
       const req = lib.get(
-        targetUrl,
+        parsed.toString(),
         {
-          family: 4,
+          lookup: pinnedLookup,
           timeout: timeoutMs,
           headers: {
             'User-Agent':
@@ -110,8 +366,12 @@ function fetchImageBufferSafe(
           const status = upstream.statusCode || 0;
           if (status >= 300 && status < 400 && upstream.headers.location && redirectsLeft > 0) {
             upstream.resume();
-            const nextUrl = new URL(upstream.headers.location, targetUrl).toString();
-            fetchImageBufferSafe(nextUrl, redirectsLeft - 1, timeoutMs).then(finish);
+            try {
+              const nextUrl = new URL(upstream.headers.location, parsed.toString()).toString();
+              fetchImageBufferSafe(nextUrl, redirectsLeft - 1, timeoutMs).then(finish);
+            } catch {
+              finish(null);
+            }
             return;
           }
 
@@ -122,9 +382,16 @@ function fetchImageBufferSafe(
           }
 
           const contentType = String(upstream.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+          // Disallow active SVG images through the proxy
+          if (contentType.includes('svg') || contentType.includes('html') || contentType.includes('javascript')) {
+            upstream.resume();
+            finish(null);
+            return;
+          }
+
           const chunks: Buffer[] = [];
           let totalBytes = 0;
-          const MAX_BYTES = 8 * 1024 * 1024;
+          const MAX_BYTES = 5 * 1024 * 1024;
 
           upstream.on('data', (chunk) => {
             const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
@@ -142,20 +409,25 @@ function fetchImageBufferSafe(
               finish(null);
               return;
             }
-            // Validate image content type or magic bytes
-            const isImgType = contentType.startsWith('image/');
+            const isRasterContentType =
+              contentType === 'image/jpeg' ||
+              contentType === 'image/jpg' ||
+              contentType === 'image/png' ||
+              contentType === 'image/gif' ||
+              contentType === 'image/webp' ||
+              contentType === 'image/avif';
             const isMagicImg =
               (buffer[0] === 0xff && buffer[1] === 0xd8) || // JPEG
               (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) || // PNG
               (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) || // GIF
               (buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP'); // WEBP
-            if (!isImgType && !isMagicImg) {
+            if (!isRasterContentType && !isMagicImg) {
               finish(null);
               return;
             }
             finish({
               status,
-              contentType: isImgType ? contentType : 'image/jpeg',
+              contentType: isRasterContentType ? contentType : 'image/jpeg',
               buffer,
             });
           });
@@ -174,11 +446,21 @@ function fetchImageBufferSafe(
   });
 }
 
-app.get(['/api/image-proxy', '/image-proxy'], async (req, res) => {
+app.get(['/api/image-proxy', '/image-proxy'], createRateLimiter('image-proxy', 120), async (req, res) => {
   const rawUrl = typeof req.query.url === 'string' ? req.query.url.trim() : '';
-  if (!rawUrl || !/^https?:\/\//i.test(rawUrl)) {
+  if (!rawUrl || rawUrl.length > 2048 || !/^https?:\/\//i.test(rawUrl)) {
     return res.status(400).send('Invalid image URL');
   }
+  let parsedPreview: URL;
+  try {
+    parsedPreview = new URL(rawUrl);
+  } catch {
+    return res.status(400).send('Invalid image URL');
+  }
+  if (!isAllowedImageHostname(parsedPreview.hostname)) {
+    return res.status(403).send('Image host not permitted');
+  }
+
   const result = await fetchImageBufferSafe(rawUrl);
   if (!result) {
     return res.status(404).send('Image unavailable');
@@ -186,6 +468,7 @@ app.get(['/api/image-proxy', '/image-proxy'], async (req, res) => {
   res.setHeader('Content-Type', result.contentType);
   res.setHeader('Cache-Control', 'public, max-age=3600');
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
   return res.status(200).send(result.buffer);
 });
 
@@ -324,21 +607,52 @@ function normalizeGeminiLeadSummary(
 }
 
 // 1. API: Generate / Refresh daily briefing
-app.post(['/api/summarize', '/summarize'], async (req, res) => {
+app.post(['/api/summarize', '/summarize'], createRateLimiter('summarize', 20), async (req, res) => {
   try {
-    const { outletIds, tone = 'insight', forceRefresh = false } = req.body;
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const { outletIds, tone = 'insight', forceRefresh = false } = body;
+
+    if (typeof tone !== 'string' || !VALID_TONES.has(tone as BriefingTone)) {
+      return res.status(400).json({ success: false, error: '지원하지 않는 요약 어조입니다.' });
+    }
+
+    let requestedOutletIds: string[] = [];
+    if (outletIds !== undefined) {
+      if (!Array.isArray(outletIds)) {
+        return res.status(400).json({ success: false, error: '언론사 목록 형식이 올바르지 않습니다.' });
+      }
+      if (outletIds.length > MAX_OUTLETS_PER_REQUEST) {
+        return res.status(400).json({
+          success: false,
+          error: `한 번에 최대 ${MAX_OUTLETS_PER_REQUEST}개 언론사까지 요청할 수 있습니다.`,
+        });
+      }
+      requestedOutletIds = Array.from(
+        new Set(
+          outletIds.filter((id): id is string => typeof id === 'string' && VALID_OUTLET_IDS.has(id))
+        )
+      );
+    }
+
     const selectedOutlets = PRESS_OUTLETS.filter((o) =>
-      outletIds && outletIds.length > 0 ? outletIds.includes(o.id) : o.isDefaultMajor
+      requestedOutletIds.length > 0 ? requestedOutletIds.includes(o.id) : o.isDefaultMajor
     );
     const targetOutletIds = selectedOutlets.map((o) => o.id);
 
+    // Server-side cooldown for forceRefresh to prevent upstream fetch abuse
+    const nowMs = Date.now();
+    const allowForce = Boolean(forceRefresh) && nowMs - lastForcedRefreshAt >= FORCE_REFRESH_COOLDOWN_MS;
+    if (allowForce) {
+      lastForcedRefreshAt = nowMs;
+    }
+
     // 1. Always harvest real-time center homepage lead articles and live sector headlines in parallel
     const [realArticlesMap, liveSectorHeadlines] = await Promise.all([
-      fetchRealArticlesForOutlets(targetOutletIds, Boolean(forceRefresh)),
-      fetchSectorHeadlinesReal(Boolean(forceRefresh)),
+      fetchRealArticlesForOutlets(targetOutletIds, allowForce),
+      fetchSectorHeadlinesReal(allowForce),
     ]);
 
-    // 2. Build default robust briefing with verified real articles (full verbatim text + inline photos)
+    // 2. Build default robust briefing with verified real articles (bounded excerpts + original links)
     const realBriefing = buildRealBriefing(
       realArticlesMap,
       tone as BriefingTone,
@@ -592,17 +906,35 @@ ${JSON.stringify(geminiInputPayload)}`;
 
     return res.json({ success: true, data: realBriefing, source: 'real-rss-verified' });
   } catch (error: any) {
-    console.error('Error generating summary:', error);
-    const fallback = transformBriefingTone(INITIAL_DAILY_BRIEFING, (req.body.tone || 'insight') as BriefingTone);
-    return res.json({ success: true, data: fallback, source: 'fallback', error: error.message });
+    const traceId = makeTraceId();
+    console.error(`[summarize:${traceId}] Error generating summary:`, error);
+    const safeTone: BriefingTone =
+      typeof req.body?.tone === 'string' && VALID_TONES.has(req.body.tone as BriefingTone)
+        ? (req.body.tone as BriefingTone)
+        : 'insight';
+    const fallback = transformBriefingTone(
+      { ...INITIAL_DAILY_BRIEFING, sourceType: 'mock', sectorSourceType: 'mock' },
+      safeTone
+    );
+    return res.json({
+      success: true,
+      data: fallback,
+      source: 'fallback',
+      traceId,
+    });
   }
 });
 
 // 2. API: Rewrite briefing tone via Gemini (supports 3+1 deep cross-article insight & all 4 sections)
-app.post(['/api/rewrite-tone', '/rewrite-tone'], async (req, res) => {
-  const { currentBriefing, targetTone } = req.body;
-  if (!currentBriefing || !targetTone) {
-    return res.status(400).json({ error: 'Missing currentBriefing or targetTone' });
+app.post(['/api/rewrite-tone', '/rewrite-tone'], createRateLimiter('rewrite-tone', 20), async (req, res) => {
+  const { currentBriefing, targetTone } = req.body || {};
+  if (
+    !currentBriefing ||
+    typeof currentBriefing !== 'object' ||
+    typeof targetTone !== 'string' ||
+    !VALID_TONES.has(targetTone as BriefingTone)
+  ) {
+    return res.status(400).json({ success: false, error: '브리핑 데이터 또는 어조 값이 올바르지 않습니다.' });
   }
 
   if (!apiKey) {
@@ -742,13 +1074,17 @@ ${JSON.stringify({
 });
 
 // 3. API: Weekly Report Generator
-app.post(['/api/weekly-report', '/weekly-report'], async (req, res) => {
+app.post(['/api/weekly-report', '/weekly-report'], createRateLimiter('weekly-report', 15), async (_req, res) => {
+  const sampleReport: WeeklyReport = {
+    ...MOCK_WEEKLY_REPORT,
+    sourceType: 'mock',
+  };
   try {
     if (!apiKey) {
-      return res.json({ success: true, data: MOCK_WEEKLY_REPORT, source: 'cached' });
+      return res.json({ success: true, data: sampleReport, source: 'sample-mock' });
     }
 
-    const prompt = `지난 1주일간 대한민국 주요 10대 언론사(조선, 중앙, 동아, 한겨레, 경향, 매경, 한경, 서경, 헤럴드, 아경)의 데이터베이스를 기반으로 한 '주간 심층 이슈 분석 리포트'를 JSON 형태로 작성해주세요.
+    const prompt = `지난 1주일간 대한민국 주요 10대 언론사(조선, 중앙, 동아, 한겨레, 경향, 매경, 한경, 서경, 헤럴드, 아경)의 주요 이슈 흐름을 바탕으로 한 '주간 심층 이슈 분석 리포트'를 JSON 형태로 작성해주세요.
 
 구성:
 1. 주간 종합 진단 (overallDiagnosis): 2~3문장
@@ -764,177 +1100,236 @@ app.post(['/api/weekly-report', '/weekly-report'], async (req, res) => {
     );
 
     if (!response) {
-      return res.json({ success: true, data: MOCK_WEEKLY_REPORT, source: 'fallback' });
+      return res.json({ success: true, data: sampleReport, source: 'sample-mock' });
     }
 
-    const parsed: WeeklyReport = JSON.parse(response.text || '{}');
+    const parsed: WeeklyReport = {
+      ...JSON.parse(response.text || '{}'),
+      sourceType: 'live',
+    };
     return res.json({ success: true, data: parsed, source: 'gemini-live' });
   } catch (error: any) {
     if (!isQuotaError(error)) {
       console.info('Weekly report fallback:', error?.message || 'unavailable');
     }
-    return res.json({ success: true, data: MOCK_WEEKLY_REPORT, source: 'fallback' });
+    return res.json({ success: true, data: sampleReport, source: 'sample-mock' });
   }
 });
 
-// 4. API: Send / Preview Briefing Email
-app.post(['/api/send-email', '/send-email'], (req, res) => {
-  const { recipient, briefing, scheduledTime = '09:00' } = req.body;
+// 4. API: Generate Sanitized HTML Newsletter Preview (No external mail provider connected)
+app.post(['/api/send-email', '/send-email'], createRateLimiter('send-email', 20), (req, res) => {
+  const { recipient, briefing, scheduledTime = '09:00' } = req.body || {};
   const targetEmail = typeof recipient === 'string' ? recipient.trim() : '';
-  if (!targetEmail || !targetEmail.includes('@')) {
+  if (!isValidEmailAddress(targetEmail)) {
     return res.status(400).json({
       success: false,
-      message: '수신 이메일 주소를 입력해주세요.',
+      message: '올바른 수신 이메일 주소를 입력해주세요.',
     });
   }
 
+  const safeScheduledTime = isValidHHMM(scheduledTime) ? scheduledTime : '09:00';
+  const safeBriefingDate =
+    typeof briefing?.briefingDate === 'string' && briefing.briefingDate.trim()
+      ? briefing.briefingDate.trim().slice(0, 60)
+      : '오늘';
+
+  const frontStories = Array.isArray(briefing?.frontPageStories) ? briefing.frontPageStories.slice(0, 5) : [];
+  const overlapStories = Array.isArray(briefing?.overlappingStories) ? briefing.overlappingStories.slice(0, 2) : [];
+  const exclStories = Array.isArray(briefing?.exclusiveStories) ? briefing.exclusiveStories.slice(0, 2) : [];
+  const topKeywords = Array.isArray(briefing?.topKeywords)
+    ? briefing.topKeywords.slice(0, 10).map((k: unknown) => escapeHtml(String(k || '').slice(0, 40)))
+    : [];
+
+  const renderCardHtml = (
+    story: any,
+    accentColor: string,
+    outletPrefix: string,
+    ctaLabel: string
+  ): string => {
+    const safeOutlet = escapeHtml(outletPrefix);
+    const safeTitle = escapeHtml(String(story?.title || '').slice(0, 200));
+    const lines = Array.isArray(story?.leadSummary) ? story.leadSummary.slice(0, 4) : [];
+    const linesHtml = lines
+      .map((l: unknown) => `<div class="line">${escapeHtml(String(l || '').slice(0, 300))}</div>`)
+      .join('');
+    const safeHref = sanitizeHttpUrl(story?.originalUrl);
+    const linkHtml = safeHref
+      ? `<a class="link-btn" style="color: ${accentColor};" href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer">${escapeHtml(ctaLabel)}</a>`
+      : '';
+    return `
+      <div class="card" style="border-left-color: ${accentColor};">
+        <div class="card-outlet" style="color: ${accentColor};">${safeOutlet}</div>
+        <div class="card-title">${safeTitle}</div>
+        ${linesHtml}
+        ${linkHtml}
+      </div>
+    `;
+  };
+
   const newLog: EmailDispatchLog = {
-    id: `log-${Date.now()}`,
+    id: `preview-${Date.now()}`,
     sentAt: new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),
     recipient: targetEmail,
-    status: 'success',
-    headline: `[모닝브리프 AI] ${briefing?.briefingDate || '오늘'} 대한민국 10대 언론사 1면 및 공통이슈 3줄 요약`,
-    storiesCount:
-      (briefing?.frontPageStories?.length || 0) +
-      (briefing?.overlappingStories?.length || 0) +
-      (briefing?.exclusiveStories?.length || 0),
+    status: 'preview',
+    isPreviewOnly: true,
+    headline: `[미리보기] ${safeBriefingDate} 모닝브리프 뉴스레터`,
+    storiesCount: frontStories.length + overlapStories.length + exclStories.length,
   };
 
   emailLogs.unshift(newLog);
+  if (emailLogs.length > 50) {
+    emailLogs.length = 50;
+  }
 
-  // Generate HTML newsletter preview
-  const htmlNewsletter = `
-  <!DOCTYPE html>
-  <html>
-  <head>
-    <meta charset="utf-8">
-    <style>
-      body { font-family: -apple-system, BlinkMacSystemFont, "Pretendard", sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
-      .container { max-width: 680px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; }
-      .header { background: #0f172a; color: #ffffff; padding: 32px 28px; }
-      .badge { display: inline-block; background: #2563eb; color: #ffffff; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 9999px; }
-      .title { font-size: 22px; font-weight: 800; margin: 12px 0 6px 0; color: #ffffff; }
-      .meta { font-size: 13px; color: #94a3b8; }
-      .section { padding: 24px 28px; border-bottom: 1px solid #f1f5f9; }
-      .sec-title { font-size: 16px; font-weight: 800; color: #0f172a; margin-bottom: 16px; display: flex; align-items: center; }
-      .card { background: #f8fafc; border-left: 4px solid #2563eb; border-radius: 6px; padding: 14px 16px; margin-bottom: 14px; }
-      .card-title { font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 8px; }
-      .card-outlet { font-size: 11px; font-weight: 700; color: #2563eb; margin-bottom: 4px; }
-      .line { font-size: 12.5px; color: #334155; line-height: 1.6; margin: 3px 0; }
-      .link-btn { display: inline-block; font-size: 11px; color: #2563eb; text-decoration: none; margin-top: 6px; font-weight: 600; }
-      .footer { background: #f1f5f9; padding: 20px 28px; text-align: center; font-size: 12px; color: #64748b; }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <div class="header">
-        <span class="badge">매일 오전 ${scheduledTime} 자동 발송</span>
-        <div class="title">모닝브리프 AI - 대한민국 주요 언론사 뉴스 요약</div>
-        <div class="meta">${briefing?.briefingDate || '오늘'} | 수신: ${targetEmail}</div>
-      </div>
-      <div class="section">
-        <div class="sec-title">🔥 오늘의 주요 키워드</div>
-        <p style="font-size: 13px; color: #2563eb; font-weight: 600;">${(briefing?.topKeywords || []).join(' ')}</p>
-      </div>
-      <div class="section">
-        <div class="sec-title">📰 언론사별 신문 1면 핵심 보도 (3줄 요약)</div>
-        ${(briefing?.frontPageStories || [])
-          .slice(0, 5)
-          .map(
-            (s: any) => `
-          <div class="card">
-            <div class="card-outlet">${s.outletName} | 1면 톱기사</div>
-            <div class="card-title">${s.title}</div>
-            ${s.leadSummary.map((l: string) => `<div class="line">${l}</div>`).join('')}
-            <a class="link-btn" href="${s.originalUrl}" target="_blank">원문 기사 바로보기 →</a>
-          </div>
-        `
-          )
-          .join('')}
-      </div>
-      <div class="section">
-        <div class="sec-title">🔄 언론사 공통 핵심 이슈 (교차 검증)</div>
-        ${(briefing?.overlappingStories || [])
-          .slice(0, 2)
-          .map(
-            (s: any) => `
-          <div class="card" style="border-left-color: #7c3aed;">
-            <div class="card-outlet" style="color: #7c3aed;">${s.outletName}</div>
-            <div class="card-title">${s.title}</div>
-            ${s.leadSummary.map((l: string) => `<div class="line">${l}</div>`).join('')}
-            <a class="link-btn" style="color: #7c3aed;" href="${s.originalUrl}" target="_blank">관련 기사 모아보기 →</a>
-          </div>
-        `
-          )
-          .join('')}
-      </div>
-      <div class="section">
-        <div class="sec-title">🌟 언론사 단독 및 심층 특별 기사</div>
-        ${(briefing?.exclusiveStories || [])
-          .slice(0, 2)
-          .map(
-            (s: any) => `
-          <div class="card" style="border-left-color: #ea580c;">
-            <div class="card-outlet" style="color: #ea580c;">[${s.exclusiveBadge || '단독'}] ${s.outletName}</div>
-            <div class="card-title">${s.title}</div>
-            ${s.leadSummary.map((l: string) => `<div class="line">${l}</div>`).join('')}
-            <a class="link-btn" style="color: #ea580c;" href="${s.originalUrl}" target="_blank">원문 단독 기사 보기 →</a>
-          </div>
-        `
-          )
-          .join('')}
-      </div>
-      <div class="footer">
-        본 메일은 모닝브리프 AI 서비스 구독 설정에 따라 매일 오전 ${scheduledTime}에 발송됩니다.<br>
-        수신 시간 변경 및 언론사 선택은 모닝브리프 웹 대시보드에서 관리하실 수 있습니다.
-      </div>
+  const htmlNewsletter = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Pretendard", sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
+    .container { max-width: 680px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; }
+    .header { background: #0f172a; color: #ffffff; padding: 32px 28px; }
+    .badge { display: inline-block; background: #2563eb; color: #ffffff; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 9999px; }
+    .title { font-size: 22px; font-weight: 800; margin: 12px 0 6px 0; color: #ffffff; }
+    .meta { font-size: 13px; color: #94a3b8; }
+    .notice { background: #fffbeb; border-bottom: 1px solid #fde68a; color: #92400e; padding: 12px 28px; font-size: 12px; font-weight: 600; }
+    .section { padding: 24px 28px; border-bottom: 1px solid #f1f5f9; }
+    .sec-title { font-size: 16px; font-weight: 800; color: #0f172a; margin-bottom: 16px; }
+    .card { background: #f8fafc; border-left: 4px solid #2563eb; border-radius: 6px; padding: 14px 16px; margin-bottom: 14px; }
+    .card-title { font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 8px; }
+    .card-outlet { font-size: 11px; font-weight: 700; color: #2563eb; margin-bottom: 4px; }
+    .line { font-size: 12.5px; color: #334155; line-height: 1.6; margin: 3px 0; }
+    .link-btn { display: inline-block; font-size: 11px; color: #2563eb; text-decoration: none; margin-top: 6px; font-weight: 600; }
+    .footer { background: #f1f5f9; padding: 20px 28px; text-align: center; font-size: 12px; color: #64748b; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <span class="badge">뉴스레터 미리보기 · 희망 시각 ${escapeHtml(safeScheduledTime)}</span>
+      <div class="title">모닝브리프 - 대한민국 주요 언론사 뉴스 요약</div>
+      <div class="meta">${escapeHtml(safeBriefingDate)} | 수신 예정: ${escapeHtml(targetEmail)}</div>
     </div>
-  </body>
-  </html>
-  `;
+    <div class="notice">안내: 외부 이메일 발송 서버가 아직 연동되지 않은 미리보기 화면입니다.</div>
+    <div class="section">
+      <div class="sec-title">오늘의 핵심 키워드</div>
+      <p style="font-size: 13px; color: #2563eb; font-weight: 600;">${topKeywords.join(' ')}</p>
+    </div>
+    <div class="section">
+      <div class="sec-title">언론사별 신문 1면 핵심 보도</div>
+      ${frontStories
+        .map((s: any) =>
+          renderCardHtml(s, '#2563eb', `${String(s?.outletName || '언론사')} | 1면 톱기사`, '원문 기사 바로보기 →')
+        )
+        .join('')}
+    </div>
+    ${
+      overlapStories.length > 0
+        ? `<div class="section">
+      <div class="sec-title">언론사 공통 핵심 이슈</div>
+      ${overlapStories
+        .map((s: any) => renderCardHtml(s, '#7c3aed', String(s?.outletName || '공통 보도'), '관련 기사 보기 →'))
+        .join('')}
+    </div>`
+        : ''
+    }
+    ${
+      exclStories.length > 0
+        ? `<div class="section">
+      <div class="sec-title">언론사 단독 보도</div>
+      ${exclStories
+        .map((s: any) =>
+          renderCardHtml(
+            s,
+            '#ea580c',
+            `[${String(s?.exclusiveBadge || '단독')}] ${String(s?.outletName || '')}`,
+            '원문 단독 기사 보기 →'
+          )
+        )
+        .join('')}
+    </div>`
+        : ''
+    }
+    <div class="footer">
+      본 화면은 모닝브리프 뉴스레터 미리보기입니다. (희망 발송 시각: ${escapeHtml(safeScheduledTime)})<br>
+      실제 자동 이메일 발송은 외부 메일 발송 서비스(SMTP/API) 연동 후 활성화됩니다.
+    </div>
+  </div>
+</body>
+</html>`;
 
   res.json({
     success: true,
-    message: `${targetEmail} 주소로 오늘의 모닝브리프 요약본이 정상 발송되었습니다.`,
+    isPreviewOnly: true,
+    message: `${targetEmail} 대상 뉴스레터 미리보기가 생성되었습니다. (외부 메일 서버 미연동으로 실제 발송은 수행되지 않습니다.)`,
     log: newLog,
     htmlPreview: htmlNewsletter,
     history: emailLogs,
   });
 });
 
-// 5. API: Get Email Logs
-app.get(['/api/email-logs', '/email-logs'], (req, res) => {
-  res.json({ logs: emailLogs });
+// 5. API: Get Preview Logs
+app.get(['/api/email-logs', '/email-logs'], createRateLimiter('email-logs', 60), (_req, res) => {
+  res.json({ logs: emailLogs, isPreviewOnly: true });
 });
 
-// 6. API: Email Auto-Dispatch Schedule
+// 6. API: Email Schedule Preferences (temporary in-memory preview state; not a persistent server cron)
 let savedEmailSchedule = {
   recipientEmail: '',
   deliveryTime: '09:00',
   deliveryTimezone: 'Asia/Seoul',
   deliveryDays: ['월', '화', '수', '목', '금'],
-  autoEmailEnabled: true,
+  autoEmailEnabled: false,
+  isPreviewOnly: true,
   updatedAt: new Date().toISOString(),
 };
 
-app.get(['/api/email-schedule', '/email-schedule'], (_req, res) => {
-  res.json({ success: true, schedule: savedEmailSchedule });
+app.get(['/api/email-schedule', '/email-schedule'], createRateLimiter('email-schedule', 30), (_req, res) => {
+  res.json({ success: true, isPreviewOnly: true, schedule: savedEmailSchedule });
 });
 
-app.post(['/api/email-schedule', '/email-schedule'], (req, res) => {
+app.post(['/api/email-schedule', '/email-schedule'], createRateLimiter('email-schedule', 20), (req, res) => {
   const { recipientEmail, deliveryTime, deliveryTimezone, deliveryDays, autoEmailEnabled } = req.body || {};
+
+  if (recipientEmail !== undefined && recipientEmail !== '' && !isValidEmailAddress(recipientEmail)) {
+    return res.status(400).json({ success: false, error: '올바른 이메일 주소 형식이 아닙니다.' });
+  }
+  if (deliveryTime !== undefined && !isValidHHMM(deliveryTime)) {
+    return res.status(400).json({ success: false, error: '발송 시각은 00:00~23:59 형식이어야 합니다.' });
+  }
+  if (deliveryTimezone !== undefined && !isValidIanaTimeZone(deliveryTimezone)) {
+    return res.status(400).json({ success: false, error: '지원하지 않는 시간대(Timezone)입니다.' });
+  }
+  if (deliveryDays !== undefined) {
+    if (
+      !Array.isArray(deliveryDays) ||
+      deliveryDays.length > 7 ||
+      !deliveryDays.every((d) => typeof d === 'string' && VALID_DAYS.has(d))
+    ) {
+      return res.status(400).json({ success: false, error: '발송 요일 값이 올바르지 않습니다.' });
+    }
+  }
+  if (autoEmailEnabled !== undefined && typeof autoEmailEnabled !== 'boolean') {
+    return res.status(400).json({ success: false, error: '자동 발송 여부는 불리언 값이어야 합니다.' });
+  }
+
   savedEmailSchedule = {
     recipientEmail:
-      typeof recipientEmail === 'string' && (recipientEmail === '' || recipientEmail.includes('@'))
-        ? recipientEmail.trim()
-        : savedEmailSchedule.recipientEmail,
-    deliveryTime: typeof deliveryTime === 'string' && /^\d{2}:\d{2}$/.test(deliveryTime) ? deliveryTime : savedEmailSchedule.deliveryTime,
-    deliveryTimezone: typeof deliveryTimezone === 'string' && deliveryTimezone ? deliveryTimezone : savedEmailSchedule.deliveryTimezone,
-    deliveryDays: Array.isArray(deliveryDays) ? deliveryDays : savedEmailSchedule.deliveryDays,
-    autoEmailEnabled: typeof autoEmailEnabled === 'boolean' ? autoEmailEnabled : savedEmailSchedule.autoEmailEnabled,
+      recipientEmail !== undefined ? String(recipientEmail).trim() : savedEmailSchedule.recipientEmail,
+    deliveryTime: deliveryTime !== undefined ? deliveryTime : savedEmailSchedule.deliveryTime,
+    deliveryTimezone: deliveryTimezone !== undefined ? deliveryTimezone : savedEmailSchedule.deliveryTimezone,
+    deliveryDays: deliveryDays !== undefined ? Array.from(new Set(deliveryDays)) : savedEmailSchedule.deliveryDays,
+    autoEmailEnabled: autoEmailEnabled !== undefined ? autoEmailEnabled : savedEmailSchedule.autoEmailEnabled,
+    isPreviewOnly: true,
     updatedAt: new Date().toISOString(),
   };
-  res.json({ success: true, schedule: savedEmailSchedule });
+
+  res.json({
+    success: true,
+    isPreviewOnly: true,
+    note: '설정이 저장되었습니다. 실제 예약 발송은 외부 메일 발송 서비스 및 서버 스케줄러 연동 후 동작합니다.',
+    schedule: savedEmailSchedule,
+  });
 });
 
 // Vite middleware in dev or static files in prod

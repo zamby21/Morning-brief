@@ -42,14 +42,21 @@ export const WeeklyReportModal: React.FC<WeeklyReportModalProps> = ({
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
-                  뉴스 요약 DB 기반 주간 종합 분석 리포트
+                  주간 종합 분석 리포트
                 </h3>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950/80 text-purple-800 dark:text-purple-300">
-                  7-Day AI Deep Analysis
-                </span>
+                {report.sourceType === 'live' ? (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950/80 text-purple-800 dark:text-purple-300">
+                    주간 분석
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300">
+                    샘플 리포트
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                집계 기간: <strong className="text-slate-700 dark:text-slate-200">{report.weekRange}</strong> (주요 언론사 지면·온라인 전수 분석)
+                집계 기간: <strong className="text-slate-700 dark:text-slate-200">{report.weekRange}</strong>
+                {report.sourceType === 'live' ? ' (주요 언론사 이슈 요약)' : ' (예시 샘플 데이터)'}
               </p>
             </div>
           </div>
@@ -64,6 +71,12 @@ export const WeeklyReportModal: React.FC<WeeklyReportModalProps> = ({
 
         {/* Modal Body */}
         <div className="p-5 sm:p-6 overflow-y-auto space-y-6 text-slate-800 dark:text-slate-100 bg-slate-50/50 dark:bg-slate-950/40">
+          {report.sourceType !== 'live' && (
+            <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
+              <strong className="font-bold">샘플 데이터 안내:</strong> 현재 주간 리포트는 7일 아카이브 데이터베이스가 연결되지 않아 참고용 예시 데이터로 표시되고 있습니다.
+            </div>
+          )}
+
           {/* Executive Summary */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-2.5 shadow-xs">
             <div className="flex items-center justify-between">
@@ -71,7 +84,9 @@ export const WeeklyReportModal: React.FC<WeeklyReportModalProps> = ({
                 <Sparkles className="w-4 h-4 text-purple-600 dark:text-purple-400" />
                 <span>주간 핵심 총평 (Executive Summary)</span>
               </span>
-              <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">데이터마이닝 종합</span>
+              <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">
+                {report.sourceType === 'live' ? '주간 종합 분석' : '예시 요약'}
+              </span>
             </div>
             <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-200 leading-relaxed font-medium">
               {report.overallDiagnosis}

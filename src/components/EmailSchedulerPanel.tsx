@@ -143,26 +143,10 @@ export const EmailSchedulerPanel: React.FC<EmailSchedulerPanelProps> = ({
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
-                이메일 자동 발송 스케줄러
+                뉴스레터 수신 희망 스케줄
               </h3>
-              <span
-                className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md ${
-                  autoEmailEnabled
-                    ? 'bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-                }`}
-              >
-                {autoEmailEnabled ? (
-                  <>
-                    <CheckCircle2 className="w-3 h-3 shrink-0" aria-hidden="true" />
-                    <span>자동 발송 켜짐</span>
-                  </>
-                ) : (
-                  <>
-                    <PauseCircle className="w-3 h-3 shrink-0" aria-hidden="true" />
-                    <span>일시 중지</span>
-                  </>
-                )}
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300">
+                미리보기 설정 (메일 서버 미연동)
               </span>
             </div>
 
@@ -173,8 +157,8 @@ export const EmailSchedulerPanel: React.FC<EmailSchedulerPanelProps> = ({
               <span aria-hidden="true">·</span>
               <span className="font-sans">{formatScheduleDaysSummary(currentValues.deliveryDays)}</span>
               <span aria-hidden="true">·</span>
-              <span className="font-sans text-blue-600 dark:text-blue-400 font-semibold">
-                다음 발송: {nextInfo.nextLabel}
+              <span className="font-sans text-slate-600 dark:text-slate-300 font-medium">
+                예정 슬롯: {nextInfo.nextLabel}
               </span>
             </div>
           </div>
@@ -426,7 +410,7 @@ export const EmailSchedulerPanel: React.FC<EmailSchedulerPanelProps> = ({
                       className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white transition cursor-pointer whitespace-nowrap"
                     >
                       <Send className="w-3 h-3" />
-                      <span>{isSendingTest ? '발송 중...' : '테스트 발송'}</span>
+                      <span>{isSendingTest ? '생성 중...' : '미리보기 생성'}</span>
                     </button>
                   )}
                 </div>

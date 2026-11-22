@@ -6,282 +6,259 @@ import type {
   SectorHeadlineItem,
 } from '../types/news.ts';
 
-export interface KeywordArticleSource {
+export interface RawArticleForTrend {
   outletName: string;
   title: string;
   snippet?: string;
   pubDate?: string;
-  keywords?: string[];
 }
 
-function hashKeyword(str: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
+interface RealTrendSnapshot {
+  hourBucketKey: string;
+  timeLabel: string;
+  timestampMs: number;
+  outletCount: number;
 }
 
-function getKstHourAtOffset(hoursAgo: number, now = new Date()): string {
-  const target = new Date(now.getTime() - hoursAgo * 60 * 60 * 1000);
-  const kstHour = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Seoul',
-    hour: '2-digit',
-    hour12: false,
-  }).format(target);
-  return `${kstHour}시`;
+// In-memory store of genuine observed outlet counts per keyword over time (no synthetic/hash fallbacks).
+// Pruned to a rolling 24-hour window.
+const observedKeywordHistory = new Map<string, RealTrendSnapshot[]>();
+const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+
+function normalizeKeywordTokens(keyword: string): string[] {
+  const clean = keyword.replace(/^#/, '').trim().toLowerCase();
+  if (!clean) return [];
+  const parts = clean
+    .split(/[\s·,/+-]+/)
+    .map((p) => p.trim())
+    .filter((p) => p.length >= 2);
+  return parts.length > 0 ? Array.from(new Set([clean, ...parts])) : [clean];
 }
 
-function parseMatchedOutlets(
-  cleanKw: string,
-  stories: NewsStory[],
-  sectorHeadlines: SectorHeadlineItem[] = [],
-  extraArticles: KeywordArticleSource[] = []
-): { outlets: string[]; timestampsMs: number[] } {
-  const outletSet = new Set<string>();
-  const timestampsMs: number[] = [];
-  const lowerKw = cleanKw.toLowerCase();
+function textMatchesKeyword(text: string | undefined, tokens: string[]): boolean {
+  if (!text || tokens.length === 0) return false;
+  const lower = text.toLowerCase();
+  return tokens.some((tok) => lower.includes(tok));
+}
 
-  const matchesText = (text?: string, kws?: string[]) => {
-    if (kws && kws.some((k) => k.replace('#', '').toLowerCase().includes(lowerKw) || lowerKw.includes(k.replace('#', '').toLowerCase()))) {
-      return true;
-    }
-    if (!text) return false;
-    return text.toLowerCase().includes(lowerKw);
+function getKstHourBucket(nowMs: number): { hourBucketKey: string; timeLabel: string; hour: number } {
+  const kstDate = new Date(nowMs + 9 * 60 * 60 * 1000);
+  const yyyy = kstDate.getUTCFullYear();
+  const mm = String(kstDate.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(kstDate.getUTCDate()).padStart(2, '0');
+  const hh = kstDate.getUTCHours();
+  const hhStr = String(hh).padStart(2, '0');
+  return {
+    hourBucketKey: `${yyyy}-${mm}-${dd}T${hhStr}`,
+    timeLabel: `${hhStr}시`,
+    hour: hh,
+  };
+}
+
+function recordObservedSnapshot(keywordKey: string, outletCount: number, nowMs: number): RealTrendSnapshot[] {
+  const cutoff = nowMs - TWENTY_FOUR_HOURS_MS;
+  const existing = (observedKeywordHistory.get(keywordKey) || []).filter(
+    (snap) => snap.timestampMs >= cutoff
+  );
+  const bucket = getKstHourBucket(nowMs);
+  const sameBucketIdx = existing.findIndex((s) => s.hourBucketKey === bucket.hourBucketKey);
+  const nextSnap: RealTrendSnapshot = {
+    hourBucketKey: bucket.hourBucketKey,
+    timeLabel: bucket.timeLabel,
+    timestampMs: nowMs,
+    outletCount,
   };
 
+  if (sameBucketIdx >= 0) {
+    existing[sameBucketIdx] = nextSnap;
+  } else {
+    existing.push(nextSnap);
+  }
+
+  existing.sort((a, b) => a.timestampMs - b.timestampMs);
+  observedKeywordHistory.set(keywordKey, existing);
+  return existing;
+}
+
+/**
+ * Computes strictly factual keyword coverage metrics from real matched articles only.
+ * Never fabricates outlet counts, outlet names, percentage changes, or synthetic 24h series.
+ * Historical 24h trend curves and deltas are only populated once genuine multi-hour
+ * observations have been recorded.
+ */
+export function computeKeywordTrend(
+  rawKeyword: string,
+  stories: NewsStory[] = [],
+  sectorHeadlines: SectorHeadlineItem[] = [],
+  rawArticles: RawArticleForTrend[] = [],
+  _totalMonitoredOutlets = 10,
+  recordHistory = true
+): KeywordTrendData {
+  const displayKeyword = rawKeyword.startsWith('#') ? rawKeyword : `#${rawKeyword}`;
+  const historyKey = displayKeyword.replace(/^#/, '').trim().toLowerCase();
+  const tokens = normalizeKeywordTokens(displayKeyword);
+
+  const matchedOutlets = new Set<string>();
+  const matchedTitles = new Set<string>();
+
   for (const story of stories) {
-    const bodyText = [
-      story.title,
-      ...(story.leadSummary || []),
-      story.topic,
-      story.fullContent || '',
-    ].join(' ');
+    const keywordMatch = (story.keywords || []).some((k) => textMatchesKeyword(k, tokens));
+    const titleMatch = textMatchesKeyword(story.title, tokens);
+    const summaryMatch = (story.leadSummary || []).some((l) => textMatchesKeyword(l, tokens));
 
-    if (!matchesText(bodyText, story.keywords)) continue;
-
-    if (story.coveredOutlets && story.coveredOutlets.length > 0) {
-      story.coveredOutlets.forEach((o) => {
-        if (o) outletSet.add(o.trim());
-      });
-    } else if (story.outletName && !story.outletName.includes('개 언론사')) {
-      outletSet.add(story.outletName.trim());
-    }
-
-    if (story.clusterOutlets && story.clusterOutlets.length > 0) {
-      story.clusterOutlets.forEach((c) => {
-        if (c.outletName) outletSet.add(c.outletName.trim());
-      });
-    }
-  }
-
-  for (const item of sectorHeadlines) {
-    const bodyText = `${item.title} ${item.summary} ${item.sectorLabel}`;
-    if (matchesText(bodyText, item.tags) && item.outletName) {
-      outletSet.add(item.outletName.trim());
-    }
-  }
-
-  for (const art of extraArticles) {
-    const bodyText = `${art.title} ${art.snippet || ''}`;
-    if (matchesText(bodyText, art.keywords) && art.outletName) {
-      outletSet.add(art.outletName.trim());
-      if (art.pubDate) {
-        const parsed = Date.parse(art.pubDate);
-        if (!Number.isNaN(parsed)) {
-          timestampsMs.push(parsed);
-        }
+    if (keywordMatch || titleMatch || summaryMatch) {
+      matchedTitles.add(`${story.outletName}:${story.title}`);
+      if (story.coveredOutlets && story.coveredOutlets.length > 0) {
+        story.coveredOutlets.forEach((o) => {
+          if (o) matchedOutlets.add(o);
+        });
+      } else if (story.outletName && !story.outletName.includes('언론사')) {
+        matchedOutlets.add(story.outletName);
       }
     }
   }
 
-  return {
-    outlets: Array.from(outletSet),
-    timestampsMs,
-  };
-}
+  for (const item of sectorHeadlines) {
+    const tagMatch = (item.tags || []).some((t) => textMatchesKeyword(t, tokens));
+    const titleMatch = textMatchesKeyword(item.title, tokens);
+    const summaryMatch = textMatchesKeyword(item.summary, tokens);
+    if (tagMatch || titleMatch || summaryMatch) {
+      matchedTitles.add(`${item.outletName}:${item.title}`);
+      if (item.outletName) matchedOutlets.add(item.outletName);
+    }
+  }
 
-export function buildSingleKeywordTrend(
-  rawKeyword: string,
-  stories: NewsStory[],
-  sectorHeadlines: SectorHeadlineItem[] = [],
-  extraArticles: KeywordArticleSource[] = [],
-  totalUniverseOutlets = 10,
-  now = new Date()
-): KeywordTrendData {
-  const cleanKw = rawKeyword.replace(/^#/, '').trim();
-  const seed = hashKeyword(cleanKw || rawKeyword);
-  const maxCap = Math.max(10, totalUniverseOutlets);
+  for (const art of rawArticles) {
+    if (textMatchesKeyword(art.title, tokens) || textMatchesKeyword(art.snippet, tokens)) {
+      matchedTitles.add(`${art.outletName}:${art.title}`);
+      if (art.outletName) matchedOutlets.add(art.outletName);
+    }
+  }
 
-  const { outlets: matchedOutlets, timestampsMs } = parseMatchedOutlets(
-    cleanKw,
-    stories,
-    sectorHeadlines,
-    extraArticles
-  );
+  const coveredOutlets = Array.from(matchedOutlets);
+  const currentOutletCount = coveredOutlets.length;
+  const matchedArticleCount = matchedTitles.size;
 
-  // If few exact matches (e.g. semantic tag like #AI반도체 or #기준금리), derive grounded fallback count
-  const fallbackOutlets = [
-    '조선일보',
-    '중앙일보',
-    '동아일보',
-    '매일경제',
-    '한국경제',
-    '한겨레',
-    '경향신문',
-    '서울경제',
-    '헤럴드경제',
-    '아시아경제',
-  ];
+  const nowMs = Date.now();
+  const history = recordHistory
+    ? recordObservedSnapshot(historyKey, currentOutletCount, nowMs)
+    : (observedKeywordHistory.get(historyKey) || []).filter(
+        (snap) => snap.timestampMs >= nowMs - TWENTY_FOUR_HOURS_MS
+      );
 
-  const baseMatchedCount = matchedOutlets.length;
-  const effectiveCurrentCount =
-    baseMatchedCount > 0
-      ? Math.min(maxCap, baseMatchedCount)
-      : Math.min(maxCap, 2 + (seed % 5));
+  // Only claim a historical trend when we actually have >= 2 distinct hourly observations
+  const hasHistoricalTrend = history.length >= 2;
 
-  const coveredOutlets =
-    matchedOutlets.length > 0
-      ? matchedOutlets
-      : fallbackOutlets.slice(0, effectiveCurrentCount);
+  if (!hasHistoricalTrend) {
+    return {
+      keyword: displayKeyword,
+      dailyChangePercent: null,
+      direction: 'flat',
+      currentOutletCount,
+      previousOutletCount: null,
+      matchedArticleCount,
+      coveredOutlets,
+      hourlySeries: [],
+      peakHourLabel: '수집 중',
+      peakOutletCount: currentOutletCount,
+      hasHistoricalTrend: false,
+    };
+  }
 
-  // Determine deterministic yet grounded daily momentum across keywords:
-  // Broad coverage (>=4 outlets) generally trends upward, 2-3 varies between slight growth/flat/dip, 1 often cools down
-  const momentumRoll = seed % 10;
-  let dailyChangePercent: number;
-  if (effectiveCurrentCount >= 5) {
-    dailyChangePercent = 28 + (seed % 57); // +28% ~ +84%
-  } else if (effectiveCurrentCount >= 3) {
-    if (momentumRoll < 6) dailyChangePercent = 12 + (seed % 34); // +12% ~ +45%
-    else if (momentumRoll < 8) dailyChangePercent = 0; // flat 0%
-    else dailyChangePercent = -(8 + (seed % 15)); // -8% ~ -22%
-  } else {
-    if (momentumRoll < 4) dailyChangePercent = 8 + (seed % 21);
-    else if (momentumRoll === 4) dailyChangePercent = 0;
-    else dailyChangePercent = -(10 + (seed % 24));
+  const hourlySeries: KeywordTrendPoint[] = history.map((snap, idx) => {
+    const hoursAgo = Math.max(0, Math.round((nowMs - snap.timestampMs) / (60 * 60 * 1000)));
+    return {
+      hourLabel: idx === history.length - 1 || hoursAgo === 0 ? '현재' : `-${hoursAgo}h`,
+      timeLabel: snap.timeLabel,
+      outletCount: snap.outletCount,
+    };
+  });
+
+  const baselineOutletCount = history[0].outletCount;
+  let dailyChangePercent = 0;
+  if (baselineOutletCount > 0) {
+    dailyChangePercent = Math.round(
+      ((currentOutletCount - baselineOutletCount) / baselineOutletCount) * 100
+    );
+  } else if (currentOutletCount > 0) {
+    dailyChangePercent = 100;
+  }
+
+  let peakPoint = hourlySeries[hourlySeries.length - 1];
+  for (const pt of hourlySeries) {
+    if (pt.outletCount >= peakPoint.outletCount) {
+      peakPoint = pt;
+    }
   }
 
   const direction: 'up' | 'down' | 'flat' =
     dailyChangePercent > 0 ? 'up' : dailyChangePercent < 0 ? 'down' : 'flat';
 
-  const previousOutletCount = Math.max(
-    1,
-    Math.min(
-      maxCap,
-      Math.round(effectiveCurrentCount / (1 + dailyChangePercent / 100))
-    )
-  );
-
-  // Build 9 points spanning the past 24 hours in 3-hour increments: 24h ago -> now
-  const offsets = [24, 21, 18, 15, 12, 9, 6, 3, 0];
-  const nowMs = now.getTime();
-
-  // Count any real RSS article timestamps falling into each 3-hour window
-  const realWindowHits = offsets.map((h) => {
-    const endMs = nowMs - Math.max(0, h - 3) * 3600 * 1000;
-    const startMs = nowMs - h * 3600 * 1000;
-    return timestampsMs.filter((t) => t >= startMs && t <= endMs).length;
-  });
-
-  const hourlySeries: KeywordTrendPoint[] = offsets.map((hoursAgo, idx) => {
-    const progress = idx / (offsets.length - 1); // 0 -> 1
-    let count: number;
-
-    if (idx === offsets.length - 1) {
-      count = effectiveCurrentCount;
-    } else if (direction === 'up') {
-      const startVal = Math.max(1, Math.min(effectiveCurrentCount, previousOutletCount));
-      const curve = Math.pow(progress, 0.82);
-      const wave = ((seed >> (idx % 8)) & 1) === 1 ? 1 : 0;
-      const candidate = Math.round(startVal + (effectiveCurrentCount - startVal) * curve) + (idx > 1 && idx < 7 ? wave - 0 : 0);
-      count = Math.max(1, Math.min(maxCap, candidate));
-    } else if (direction === 'down') {
-      const startVal = Math.max(effectiveCurrentCount + 1, previousOutletCount);
-      const curve = Math.pow(progress, 1.05);
-      const bump = idx === 2 || idx === 3 ? 1 : 0;
-      count = Math.max(1, Math.min(maxCap, Math.round(startVal - (startVal - effectiveCurrentCount) * curve) + bump));
-    } else {
-      const jitter = ((seed + idx * 3) % 3) - 1; // -1, 0, +1
-      count = Math.max(1, Math.min(maxCap, effectiveCurrentCount + (idx === 0 || idx === offsets.length - 1 ? 0 : jitter)));
-    }
-
-    // Factor in real RSS hits if present in that bucket
-    if (realWindowHits[idx] > 0) {
-      count = Math.min(maxCap, Math.max(count, Math.min(effectiveCurrentCount, realWindowHits[idx] + 1)));
-    }
-
-    return {
-      hourLabel: hoursAgo === 0 ? '현재' : `${hoursAgo}시간 전`,
-      timeLabel: hoursAgo === 0 ? '현재' : getKstHourAtOffset(hoursAgo, now),
-      outletCount: count,
-    };
-  });
-
-  let peakOutletCount = 0;
-  let peakHourLabel = '현재';
-  for (const pt of hourlySeries) {
-    if (pt.outletCount >= peakOutletCount) {
-      peakOutletCount = pt.outletCount;
-      peakHourLabel = pt.timeLabel;
-    }
-  }
-
   return {
-    keyword: rawKeyword,
+    keyword: displayKeyword,
     dailyChangePercent,
     direction,
-    currentOutletCount: effectiveCurrentCount,
-    previousOutletCount,
+    currentOutletCount,
+    previousOutletCount: baselineOutletCount,
+    matchedArticleCount,
     coveredOutlets,
     hourlySeries,
-    peakHourLabel,
-    peakOutletCount,
+    peakHourLabel: peakPoint.hourLabel === '현재' ? '현재' : peakPoint.timeLabel,
+    peakOutletCount: peakPoint.outletCount,
+    hasHistoricalTrend: true,
   };
 }
 
 export function computeKeywordTrends(
   keywords: string[],
-  stories: NewsStory[],
+  stories: NewsStory[] = [],
   sectorHeadlines: SectorHeadlineItem[] = [],
-  extraArticles: KeywordArticleSource[] = [],
-  totalUniverseOutlets = 10,
-  now = new Date()
+  rawArticles: RawArticleForTrend[] = [],
+  totalMonitoredOutlets = 10
 ): Record<string, KeywordTrendData> {
-  const result: Record<string, KeywordTrendData> = {};
+  const trends: Record<string, KeywordTrendData> = {};
   for (const kw of keywords) {
-    result[kw] = buildSingleKeywordTrend(
-      kw,
+    const displayKw = kw.startsWith('#') ? kw : `#${kw}`;
+    trends[displayKw] = computeKeywordTrend(
+      displayKw,
       stories,
       sectorHeadlines,
-      extraArticles,
-      totalUniverseOutlets,
-      now
+      rawArticles,
+      totalMonitoredOutlets,
+      true
     );
   }
-  return result;
+  return trends;
 }
 
 export function getKeywordTrendForBriefing(
   keyword: string,
   briefing?: DailyBriefing
 ): KeywordTrendData {
-  if (briefing?.keywordTrends && briefing.keywordTrends[keyword]) {
-    return briefing.keywordTrends[keyword];
+  const displayKw = keyword.startsWith('#') ? keyword : `#${keyword}`;
+  const precomputed = briefing?.keywordTrends?.[displayKw] || briefing?.keywordTrends?.[keyword];
+  if (precomputed) {
+    return {
+      ...precomputed,
+      hasHistoricalTrend: Boolean(precomputed.hasHistoricalTrend && precomputed.hourlySeries?.length >= 2),
+      dailyChangePercent:
+        precomputed.hasHistoricalTrend && typeof precomputed.dailyChangePercent === 'number'
+          ? precomputed.dailyChangePercent
+          : null,
+      previousOutletCount:
+        precomputed.hasHistoricalTrend && typeof precomputed.previousOutletCount === 'number'
+          ? precomputed.previousOutletCount
+          : null,
+    };
   }
-  const stories: NewsStory[] = briefing
-    ? [
-        ...(briefing.frontPageStories || []),
-        ...(briefing.overlappingStories || []),
-        ...(briefing.exclusiveStories || []),
-      ]
-    : [];
-  const totalOutlets = Math.max(10, briefing?.selectedOutletIds?.length || 10);
-  return buildSingleKeywordTrend(
-    keyword,
-    stories,
-    briefing?.sectorHeadlines || [],
-    [],
-    totalOutlets
-  );
+
+  const allStories: NewsStory[] = [
+    ...(briefing?.frontPageStories || []),
+    ...(briefing?.overlappingStories || []),
+    ...(briefing?.exclusiveStories || []),
+  ];
+  const sectorItems: SectorHeadlineItem[] = briefing?.sectorHeadlines || [];
+  const monitoredCount = Math.max(10, briefing?.selectedOutletIds?.length || 10);
+
+  return computeKeywordTrend(displayKw, allStories, sectorItems, [], monitoredCount, false);
 }

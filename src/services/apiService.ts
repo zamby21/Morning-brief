@@ -1,77 +1,96 @@
 import { DailyBriefing, EmailDispatchLog, WeeklyReport, BriefingTone } from '../types/news';
-import { INITIAL_DAILY_BRIEFING, MOCK_WEEKLY_REPORT, INITIAL_EMAIL_LOGS } from '../data/mockNewsData';
+import { INITIAL_DAILY_BRIEFING, MOCK_WEEKLY_REPORT } from '../data/mockNewsData';
 import { transformBriefingTone } from '../utils/toneTransformer';
 import { getCurrentKoreanDateString } from '../utils/dateUtils';
 import { ensureFrontPageStories } from '../utils/outletStories';
+import { escapeHtml, sanitizeHttpUrl } from '../utils/htmlSanitizer';
 
-// In-memory fallback email logs for static/offline client sessions
-const clientEmailLogs: EmailDispatchLog[] = [...INITIAL_EMAIL_LOGS];
+// In-memory preview logs for offline/static client sessions (external mail provider not connected)
+const clientEmailLogs: EmailDispatchLog[] = [];
 
 /**
- * Helper to generate HTML email newsletter for offline/static fallback preview
+ * Helper to generate sanitized HTML email newsletter for offline/static fallback preview
  */
 function generateClientHtmlNewsletter(
   targetEmail: string,
   briefing: DailyBriefing,
   scheduledTime: string
 ): string {
-  return `
-  <!DOCTYPE html>
-  <html>
-  <head>
-    <meta charset="utf-8">
-    <style>
-      body { font-family: -apple-system, BlinkMacSystemFont, "Pretendard", sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
-      .container { max-width: 680px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; }
-      .header { background: #0f172a; color: #ffffff; padding: 32px 28px; }
-      .badge { display: inline-block; background: #2563eb; color: #ffffff; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 9999px; }
-      .title { font-size: 22px; font-weight: 800; margin: 12px 0 6px 0; color: #ffffff; }
-      .meta { font-size: 13px; color: #94a3b8; }
-      .section { padding: 24px 28px; border-bottom: 1px solid #f1f5f9; }
-      .sec-title { font-size: 16px; font-weight: 800; color: #0f172a; margin-bottom: 16px; }
-      .card { background: #f8fafc; border-left: 4px solid #2563eb; border-radius: 6px; padding: 14px 16px; margin-bottom: 14px; }
-      .card-title { font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 8px; }
-      .card-outlet { font-size: 11px; font-weight: 700; color: #2563eb; margin-bottom: 4px; }
-      .line { font-size: 12.5px; color: #334155; line-height: 1.6; margin: 3px 0; }
-      .link-btn { display: inline-block; font-size: 11px; color: #2563eb; text-decoration: none; margin-top: 6px; font-weight: 600; }
-      .footer { background: #f1f5f9; padding: 20px 28px; text-align: center; font-size: 12px; color: #64748b; }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <div class="header">
-        <span class="badge">매일 오전 ${scheduledTime} 자동 발송</span>
-        <div class="title">모닝브리프 - 대한민국 주요 언론사 뉴스 요약</div>
-        <div class="meta">${briefing?.briefingDate || '오늘'} | 수신: ${targetEmail}</div>
-      </div>
-      <div class="section">
-        <div class="sec-title">🔥 오늘의 주요 키워드</div>
-        <p style="font-size: 13px; color: #2563eb; font-weight: 600;">${(briefing?.topKeywords || []).join(' ')}</p>
-      </div>
-      <div class="section">
-        <div class="sec-title">📰 언론사별 신문 1면 핵심 보도 (3줄 요약)</div>
-        ${(briefing?.frontPageStories || [])
-          .slice(0, 5)
-          .map(
-            (s: any) => `
-          <div class="card">
-            <div class="card-outlet">${s.outletName} | 1면 톱기사</div>
-            <div class="card-title">${s.title}</div>
-            ${(s.leadSummary || []).map((l: string) => `<div class="line">${l}</div>`).join('')}
-            <a class="link-btn" href="${s.originalUrl}" target="_blank">원문 기사 바로보기 →</a>
-          </div>
-        `
-          )
-          .join('')}
-      </div>
-      <div class="footer">
-        본 메일은 모닝브리프 서비스 구독 설정에 따라 매일 오전 ${scheduledTime}에 발송됩니다.<br>
-        수신 시간 변경 및 언론사 선택은 모닝브리프 웹 대시보드에서 관리하실 수 있습니다.
-      </div>
+  const safeTime = escapeHtml(scheduledTime || '09:00');
+  const safeDate = escapeHtml(briefing?.briefingDate || '오늘');
+  const safeEmail = escapeHtml(targetEmail);
+  const safeKeywords = (briefing?.topKeywords || [])
+    .slice(0, 10)
+    .map((k) => escapeHtml(k))
+    .join(' ');
+
+  const frontCards = (briefing?.frontPageStories || [])
+    .slice(0, 5)
+    .map((s) => {
+      const safeHref = sanitizeHttpUrl(s.originalUrl);
+      const linesHtml = (s.leadSummary || [])
+        .slice(0, 4)
+        .map((l) => `<div class="line">${escapeHtml(l)}</div>`)
+        .join('');
+      const linkHtml = safeHref
+        ? `<a class="link-btn" href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer">원문 기사 바로보기 →</a>`
+        : '';
+      return `
+        <div class="card">
+          <div class="card-outlet">${escapeHtml(s.outletName)} | 1면 톱기사</div>
+          <div class="card-title">${escapeHtml(s.title)}</div>
+          ${linesHtml}
+          ${linkHtml}
+        </div>
+      `;
+    })
+    .join('');
+
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Pretendard", sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
+    .container { max-width: 680px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; }
+    .header { background: #0f172a; color: #ffffff; padding: 32px 28px; }
+    .badge { display: inline-block; background: #2563eb; color: #ffffff; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 9999px; }
+    .title { font-size: 22px; font-weight: 800; margin: 12px 0 6px 0; color: #ffffff; }
+    .meta { font-size: 13px; color: #94a3b8; }
+    .notice { background: #fffbeb; border-bottom: 1px solid #fde68a; color: #92400e; padding: 12px 28px; font-size: 12px; font-weight: 600; }
+    .section { padding: 24px 28px; border-bottom: 1px solid #f1f5f9; }
+    .sec-title { font-size: 16px; font-weight: 800; color: #0f172a; margin-bottom: 16px; }
+    .card { background: #f8fafc; border-left: 4px solid #2563eb; border-radius: 6px; padding: 14px 16px; margin-bottom: 14px; }
+    .card-title { font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 8px; }
+    .card-outlet { font-size: 11px; font-weight: 700; color: #2563eb; margin-bottom: 4px; }
+    .line { font-size: 12.5px; color: #334155; line-height: 1.6; margin: 3px 0; }
+    .link-btn { display: inline-block; font-size: 11px; color: #2563eb; text-decoration: none; margin-top: 6px; font-weight: 600; }
+    .footer { background: #f1f5f9; padding: 20px 28px; text-align: center; font-size: 12px; color: #64748b; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <span class="badge">뉴스레터 미리보기 · 희망 시각 ${safeTime}</span>
+      <div class="title">모닝브리프 - 대한민국 주요 언론사 뉴스 요약</div>
+      <div class="meta">${safeDate} | 수신 예정: ${safeEmail}</div>
     </div>
-  </body>
-  </html>
-  `;
+    <div class="notice">안내: 외부 이메일 발송 서버가 아직 연동되지 않은 미리보기 화면입니다.</div>
+    <div class="section">
+      <div class="sec-title">오늘의 핵심 키워드</div>
+      <p style="font-size: 13px; color: #2563eb; font-weight: 600;">${safeKeywords}</p>
+    </div>
+    <div class="section">
+      <div class="sec-title">언론사별 신문 1면 핵심 보도</div>
+      ${frontCards}
+    </div>
+    <div class="footer">
+      본 화면은 모닝브리프 뉴스레터 미리보기입니다. (희망 발송 시각: ${safeTime})<br>
+      실제 자동 이메일 발송은 외부 메일 발송 서비스(SMTP/API) 연동 후 활성화됩니다.
+    </div>
+  </div>
+</body>
+</html>`;
 }
 
 export async function fetchSummary(
@@ -93,18 +112,21 @@ export async function fetchSummary(
       }
     }
   } catch (err) {
-    console.warn('API /api/summarize unreachable or failed, using robust client fallback:', err);
+    console.warn('API /api/summarize unreachable or failed, using local sample fallback:', err);
   }
 
-  // Graceful client-side fallback for static Vercel deployment
-  const fallback = transformBriefingTone(INITIAL_DAILY_BRIEFING, tone);
+  // Graceful client-side sample fallback (explicitly marked as mock)
+  const fallback = transformBriefingTone(
+    { ...INITIAL_DAILY_BRIEFING, sourceType: 'mock', sectorSourceType: 'mock' },
+    tone
+  );
   fallback.briefingDate = getCurrentKoreanDateString();
   fallback.selectedOutletIds = outletIds && outletIds.length > 0 ? outletIds : fallback.selectedOutletIds;
   fallback.frontPageStories = ensureFrontPageStories(fallback.frontPageStories, fallback.selectedOutletIds);
 
   return {
     data: fallback,
-    source: 'client_cache',
+    source: 'client_sample_fallback',
   };
 }
 
@@ -128,7 +150,6 @@ export async function rewriteTone(
     console.warn('API /api/rewrite-tone unreachable, executing client-side tone transformation:', err);
   }
 
-  // Guaranteed client-side tone rewrite fallback
   return transformBriefingTone(currentBriefing, targetTone);
 }
 
@@ -145,17 +166,24 @@ export async function fetchWeeklyReport(): Promise<WeeklyReport> {
       }
     }
   } catch (err) {
-    console.warn('API /api/weekly-report unreachable, using local report:', err);
+    console.warn('API /api/weekly-report unreachable, using local sample report:', err);
   }
 
-  return MOCK_WEEKLY_REPORT;
+  return { ...MOCK_WEEKLY_REPORT, sourceType: 'mock' };
 }
 
 export async function sendEmailBriefing(
   recipient: string,
   briefing: DailyBriefing,
   scheduledTime: string
-): Promise<{ success: boolean; message: string; log: EmailDispatchLog; htmlPreview: string; history: EmailDispatchLog[] }> {
+): Promise<{
+  success: boolean;
+  isPreviewOnly?: boolean;
+  message: string;
+  log: EmailDispatchLog;
+  htmlPreview: string;
+  history: EmailDispatchLog[];
+}> {
   const targetEmail = (recipient || '').trim();
 
   try {
@@ -171,28 +199,30 @@ export async function sendEmailBriefing(
       }
     }
   } catch (err) {
-    console.warn('API /api/send-email unreachable, providing client simulation:', err);
+    console.warn('API /api/send-email unreachable, generating local HTML preview:', err);
   }
 
-  // Client-side fallback dispatch
-  const fallbackLog: EmailDispatchLog = {
-    id: `log-${Date.now()}`,
+  // Client-side preview generation (honestly marked as preview-only, never fake sent)
+  const previewLog: EmailDispatchLog = {
+    id: `preview-${Date.now()}`,
     sentAt: new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),
     recipient: targetEmail,
-    status: 'success',
-    headline: `[모닝브리프] ${briefing?.briefingDate || '오늘'} 대한민국 주요 언론사 1면 및 공통이슈 3줄 요약`,
+    status: 'preview',
+    isPreviewOnly: true,
+    headline: `[미리보기] ${briefing?.briefingDate || '오늘'} 모닝브리프 뉴스레터`,
     storiesCount:
       (briefing?.frontPageStories?.length || 0) +
       (briefing?.overlappingStories?.length || 0) +
       (briefing?.exclusiveStories?.length || 0),
   };
 
-  clientEmailLogs.unshift(fallbackLog);
+  clientEmailLogs.unshift(previewLog);
 
   return {
     success: true,
-    message: `${targetEmail} 주소로 오늘의 모닝브리프 요약본이 정상 발송되었습니다. (클라이언트 동기화 완료)`,
-    log: fallbackLog,
+    isPreviewOnly: true,
+    message: `${targetEmail} 대상 뉴스레터 미리보기가 생성되었습니다. (외부 메일 서버 미연동으로 실제 이메일은 전송되지 않습니다.)`,
+    log: previewLog,
     htmlPreview: generateClientHtmlNewsletter(targetEmail, briefing, scheduledTime),
     history: clientEmailLogs,
   };
@@ -208,7 +238,7 @@ export async function fetchEmailLogs(): Promise<EmailDispatchLog[]> {
       }
     }
   } catch (err) {
-    console.warn('API /api/email-logs unreachable, returning local logs:', err);
+    console.warn('API /api/email-logs unreachable, returning local preview logs:', err);
   }
   return clientEmailLogs;
 }
