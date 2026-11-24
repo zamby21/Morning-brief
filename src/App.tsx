@@ -21,13 +21,10 @@ import {
   INITIAL_DAILY_BRIEFING,
   INITIAL_USER_PREFERENCES,
   MOCK_WEEKLY_REPORT,
-  INITIAL_EMAIL_LOGS,
   DEFAULT_10_OUTLETS,
   PRESS_OUTLETS,
-  MOCK_SECTOR_HEADLINES,
 } from './data/mockNewsData';
-import { ensureFrontPageStories } from './utils/outletStories';
-import { getCurrentKoreanDateString, getCurrentYMD } from './utils/dateUtils';
+import { getCurrentKoreanDateString } from './utils/dateUtils';
 import {
   DailyBriefing,
   UserPreferences,
@@ -55,7 +52,6 @@ import {
   sendEmailBriefing,
   saveEmailSchedule,
 } from './services/apiService';
-import { getNextScheduledDispatchInfo } from './utils/emailScheduler';
 import { transformBriefingTone } from './utils/toneTransformer';
 import {
   addReadArticleKeys,
@@ -66,8 +62,6 @@ import {
   saveReadArticleKeys,
 } from './utils/readArticles';
 import {
-  Clock,
-  Mail,
   Smartphone,
   Sparkles,
   Layers,
@@ -76,8 +70,9 @@ import {
   ArrowUp,
   ChevronDown,
   ChevronUp,
-  SlidersHorizontal,
   Building,
+  AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
 
 const STORAGE_KEY_PREFERENCES = 'morning_brief_user_preferences_v2';
@@ -123,13 +118,27 @@ const loadSavedPreferences = (): UserPreferences => {
           ? Array.from(new Set([targetEmail, ...rawSavedEmails]))
           : Array.from(new Set(rawSavedEmails));
 
+        const rawEnabledSectors =
+          parsed.sectorPreferences &&
+          Array.isArray(parsed.sectorPreferences.enabledSectors) &&
+          parsed.sectorPreferences.enabledSectors.length > 0
+            ? parsed.sectorPreferences.enabledSectors
+            : DEFAULT_SECTOR_PREFERENCES.enabledSectors;
+
+        const upgradedEnabledSectors =
+          rawEnabledSectors.length === 3 &&
+          rawEnabledSectors.includes('construction') &&
+          rawEnabledSectors.includes('realestate') &&
+          rawEnabledSectors.includes('finance') &&
+          !rawEnabledSectors.includes('urban')
+            ? [...rawEnabledSectors, 'urban']
+            : rawEnabledSectors;
+
         const savedSectorPrefs = parsed.sectorPreferences && typeof parsed.sectorPreferences === 'object'
           ? {
               ...DEFAULT_SECTOR_PREFERENCES,
               ...parsed.sectorPreferences,
-              enabledSectors: Array.isArray(parsed.sectorPreferences.enabledSectors) && parsed.sectorPreferences.enabledSectors.length > 0
-                ? parsed.sectorPreferences.enabledSectors
-                : DEFAULT_SECTOR_PREFERENCES.enabledSectors,
+              enabledSectors: upgradedEnabledSectors,
               favoriteKeywords: Array.isArray(parsed.sectorPreferences.favoriteKeywords)
                 ? parsed.sectorPreferences.favoriteKeywords
                 : [],
@@ -158,8 +167,8 @@ const loadSavedPreferences = (): UserPreferences => {
           selectedOutlets: combined,
           frontPageOutlets: validFront,
           overlappingOutlets: validOverlap,
-          minOutletCoverageRatio: typeof parsed.minOutletCoverageRatio === 'number' && parsed.minOutletCoverageRatio > 0 ? parsed.minOutletCoverageRatio : 50,
-          minSimilarityScore: typeof parsed.minSimilarityScore === 'number' && parsed.minSimilarityScore > 0 ? parsed.minSimilarityScore : 70,
+          minOutletCoverageRatio: typeof parsed.minOutletCoverageRatio === 'number' && parsed.minOutletCoverageRatio > 0 ? parsed.minOutletCoverageRatio : 20,
+          minSimilarityScore: typeof parsed.minSimilarityScore === 'number' && parsed.minSimilarityScore > 0 ? parsed.minSimilarityScore : 35,
           sectorPreferences: savedSectorPrefs,
         };
       }
@@ -180,17 +189,25 @@ export default function App() {
     const frontOutlets = saved.frontPageOutlets || DEFAULT_10_OUTLETS;
     const overlapOutlets = saved.overlappingOutlets || DEFAULT_10_OUTLETS;
     const combined = saved.selectedOutlets || DEFAULT_10_OUTLETS;
-    const initialWithStories = {
+    const initialWithStories: DailyBriefing = {
       ...INITIAL_DAILY_BRIEFING,
+      sourceType: 'mock',
+      isFallback: true,
       selectedOutletIds: combined,
       frontPageOutletIds: frontOutlets,
       overlappingOutletIds: overlapOutlets,
-      frontPageStories: ensureFrontPageStories(INITIAL_DAILY_BRIEFING.frontPageStories, frontOutlets),
+      frontPageStories: INITIAL_DAILY_BRIEFING.frontPageStories.filter(
+        (s) => !s.outletId || frontOutlets.includes(s.outletId)
+      ),
     };
     return transformBriefingTone(initialWithStories, saved.preferredTone || 'insight');
   });
-  const [weeklyReport, setWeeklyReport] = useState<WeeklyReport>(MOCK_WEEKLY_REPORT);
-  const [emailLogs, setEmailLogs] = useState<EmailDispatchLog[]>(INITIAL_EMAIL_LOGS);
+  const [weeklyReport, setWeeklyReport] = useState<WeeklyReport>({
+    ...MOCK_WEEKLY_REPORT,
+    sourceType: 'mock',
+    isFallback: true,
+  });
+  const [emailLogs, setEmailLogs] = useState<EmailDispatchLog[]>([]);
 
   // Filters
   const [selectedKeyword, setSelectedKeyword] = useState<string | null>(null);
@@ -384,18 +401,27 @@ export default function App() {
         if (result && result.data) {
           const todayFormatted = getCurrentKoreanDateString();
           const liveFront = result.data.frontPageStories || [];
+          const isFallbackResponse =
+            Boolean(result.data.isFallback) ||
+            result.data.sourceType === 'mock' ||
+            result.source === 'client_sample_fallback' ||
+            result.source === 'collection-empty' ||
+            result.source === 'fallback';
           const updatedBriefing: DailyBriefing = {
             ...result.data,
             briefingDate: result.data.briefingDate || todayFormatted,
-            frontPageStories:
-              liveFront.length > 0
-                ? liveFront
-                : ensureFrontPageStories([], activeOutlets),
+            frontPageStories: liveFront,
+            isFallback: isFallbackResponse,
+            sourceType: isFallbackResponse ? 'mock' : (result.data.sourceType || 'live'),
           };
           setBriefing(updatedBriefing);
           lastLiveSyncRef.current = Date.now();
           if (!silent && result.source !== 'client_cache') {
-            triggerNotification('각 언론사 홈페이지 첫화면 중앙 1면 기사가 실시간 갱신되었습니다.');
+            if (isFallbackResponse) {
+              triggerNotification('실시간 기사 수집에 실패하여 샘플 데이터를 표시 중입니다.');
+            } else {
+              triggerNotification('각 언론사 홈페이지 첫화면 중앙 1면 기사가 실시간 갱신되었습니다.');
+            }
           }
         }
       } catch (err) {
@@ -410,19 +436,8 @@ export default function App() {
     [preferences.selectedOutlets, preferences.preferredTone, preferences.subscribedTopics]
   );
 
-  // Dynamic date sync + Immediate real-time homepage fetch on mount + Continuous 60s live auto-refresh
+  // Immediate real-time homepage fetch on mount + Continuous 60s live auto-refresh
   useEffect(() => {
-    const todayFormatted = getCurrentKoreanDateString();
-    const todayYMD = getCurrentYMD();
-    setBriefing((prev) => ({
-      ...prev,
-      briefingDate: todayFormatted,
-      frontPageStories: (prev.frontPageStories || []).map((s) => ({
-        ...s,
-        publishedAt: s.publishedAt ? s.publishedAt.replace(/^\d{4}-\d{2}-\d{2}/, todayYMD) : `${todayYMD} 실시간`,
-      })),
-    }));
-
     // Immediately pull real-time center homepage stories on load
     syncLiveNews(true, undefined, undefined, true);
 
@@ -575,13 +590,13 @@ export default function App() {
       selectedOutletIds: combined,
       frontPageOutletIds: validFront,
       overlappingOutletIds: validOverlap,
-      frontPageStories: ensureFrontPageStories(prev.frontPageStories, validFront),
+      frontPageStories: prev.frontPageStories.filter((s) => !s.outletId || validFront.includes(s.outletId)),
     }));
 
     triggerNotification(
       `수집 언론사(1면: ${validFront.length}개사, 공통: ${validOverlap.length}개사) 설정이 저장되었습니다. 실시간 기사를 동기화합니다.`
     );
-    syncLiveNews(true, combined, undefined, true);
+    syncLiveNews(true, combined, undefined, false);
   };
 
   // 3-1. 공통 이슈 기준 비율(언론사 보도율 & 유사도) 실시간 조정 및 브라우저 영구 저장
@@ -652,7 +667,7 @@ export default function App() {
     triggerNotification(`수신 이메일 '${emailToDelete}'이(가) 목록에서 삭제되었습니다.`);
   };
 
-  // 3-3. 건설·부동산·금융 관심분야 설정 영구 저장 핸들러
+  // 3-3. 건설·부동산·도시개발·금융 관심분야 설정 영구 저장 핸들러
   const handleSaveSectorPreferences = (newSectorPrefs: SectorPreferences) => {
     const updated: UserPreferences = {
       ...preferences,
@@ -665,7 +680,7 @@ export default function App() {
     } catch (e) {
       console.warn('Failed to save sector preferences to localStorage', e);
     }
-    triggerNotification('건설·부동산·금융 관심분야 맞춤 설정이 브라우저에 저장되었습니다. (다시 열어도 유지)');
+    triggerNotification('건설·부동산·도시개발·금융 관심분야 맞춤 설정이 브라우저에 저장되었습니다.');
   };
 
   // 4. Update Topic subscriptions
@@ -679,13 +694,13 @@ export default function App() {
     });
   };
 
-  // 5. Send Email Briefing
+  // 5. Generate Email Newsletter Preview (Preview-only unless mail provider is configured)
   const handleSendEmail = React.useCallback(async (email: string): Promise<string> => {
     const res = await sendEmailBriefing(email, briefing, preferences.deliveryTime);
     if (res.log) {
       setEmailLogs((prev) => [res.log, ...prev]);
     }
-    triggerNotification(`${email} 주소로 요약본이 정상 발송되었습니다.`);
+    triggerNotification(`${email} 대상 뉴스레터 미리보기가 생성되었습니다. (실제 발송 미연동)`);
     return res.message;
   }, [briefing, preferences.deliveryTime]);
 
@@ -721,55 +736,25 @@ export default function App() {
     []
   );
 
-  // 5-2. Minute-level automatic email dispatch check while dashboard is open
-  useEffect(() => {
-    const LAST_AUTO_SENT_KEY = 'morning_brief_last_auto_sent_slot';
-    const checkSchedule = () => {
-      const info = getNextScheduledDispatchInfo({
-        autoEmailEnabled: preferences.autoEmailEnabled,
-        deliveryTime: preferences.deliveryTime,
-        deliveryTimezone: preferences.deliveryTimezone || 'Asia/Seoul',
-        deliveryDays: preferences.deliveryDays,
-      });
-      if (!info.matchesCurrentMinute) return;
-      try {
-        const lastSlot = localStorage.getItem(LAST_AUTO_SENT_KEY);
-        if (lastSlot === info.currentSlotKey) return;
-        localStorage.setItem(LAST_AUTO_SENT_KEY, info.currentSlotKey);
-      } catch {
-        // Ignore storage restriction
-      }
-      if (!preferences.recipientEmail || !preferences.recipientEmail.includes('@')) return;
-      handleSendEmail(preferences.recipientEmail);
-    };
-
-    checkSchedule();
-    const timer = window.setInterval(checkSchedule, 30 * 1000);
-    return () => window.clearInterval(timer);
-  }, [
-    preferences.autoEmailEnabled,
-    preferences.deliveryTime,
-    preferences.deliveryTimezone,
-    preferences.deliveryDays,
-    preferences.recipientEmail,
-    handleSendEmail,
-  ]);
-
   // 6. Test Web Push Notification
   const handleTestPush = () => {
-    const pushText = `[09:00 모닝브리프] 오늘의 핵심 3줄: 韓·美 AI반도체 공급망 협정 합의 및 기준금리 추가 인하 전망!`;
+    const topHeadline =
+      briefing.overlappingStories[0]?.title ||
+      briefing.frontPageStories[0]?.title ||
+      '주요 언론사 실시간 브리핑이 준비되었습니다.';
+    const pushText = `[모닝브리프] ${topHeadline}`;
     setPushToast(pushText);
 
     if ('Notification' in window) {
       if (Notification.permission === 'granted') {
-        new Notification('모닝브리프 AI 09:00 알림', {
+        new Notification('모닝브리프 알림', {
           body: pushText,
           icon: '/favicon.ico',
         });
       } else if (Notification.permission !== 'denied') {
         Notification.requestPermission().then((permission) => {
           if (permission === 'granted') {
-            new Notification('모닝브리프 AI 09:00 알림', {
+            new Notification('모닝브리프 알림', {
               body: pushText,
               icon: '/favicon.ico',
             });
@@ -856,15 +841,15 @@ export default function App() {
     ? preferences.overlappingOutlets
     : (preferences.selectedOutlets && preferences.selectedOutlets.length > 0 ? preferences.selectedOutlets : DEFAULT_10_OUTLETS);
 
-  const minCoverageRatio = preferences.minOutletCoverageRatio ?? 50;
-  const minSimilarityScore = preferences.minSimilarityScore ?? 70;
+  const minCoverageRatio = preferences.minOutletCoverageRatio ?? 20;
+  const minSimilarityScore = preferences.minSimilarityScore ?? 35;
 
   const filteredOverlapping = briefing.overlappingStories.filter((s) => {
     // 1. 기사 유사도 기준 검증 (동적 설정값 적용)
-    const similarity = s.similarityScore ?? 75;
+    const similarity = s.similarityScore ?? 0;
     if (similarity < minSimilarityScore) return false;
 
-    // 2. 선택된 수집 언론사 중 설정 비율(%) 이상 언론사 보도 검증
+    // 2. 선택된 수집 언론사 중 설정 비율(%) 이상 (최소 3개사) 언론사 보도 검증
     if (s.coveredOutlets && s.coveredOutlets.length > 0) {
       const matchingCount = s.coveredOutlets.filter((outletName) => {
         return activeOverlapOutlets.some((id) => {
@@ -873,8 +858,8 @@ export default function App() {
         });
       }).length;
 
-      // 선택된 언론사 수 대비 최소 필요 언론사 수 계산 (동적 비율 적용)
-      const minRequired = Math.max(1, Math.ceil(activeOverlapOutlets.length * (minCoverageRatio / 100)));
+      // 선택된 언론사 수 대비 최소 필요 언론사 수 계산 (최소 3개사 기준)
+      const minRequired = Math.max(3, Math.ceil(activeOverlapOutlets.length * (minCoverageRatio / 100)));
       if (matchingCount < minRequired) {
         return false;
       }
@@ -890,8 +875,8 @@ export default function App() {
     return matchesKeywordAndTopic(s.title, s.leadSummary, s.keywords, s.topic);
   });
 
-  // 4번째 기능: 건설·부동산·금융 헤드라인 필터링
-  const rawSectorHeadlines = briefing.sectorHeadlines || MOCK_SECTOR_HEADLINES;
+  // 4번째 기능: 건설·부동산·도시개발·금융 헤드라인 필터링
+  const rawSectorHeadlines = briefing.sectorHeadlines ?? [];
   const filteredSectorHeadlines = rawSectorHeadlines.filter((h) => {
     return matchesKeywordAndTopic(h.title, h.summary, h.tags, h.sectorLabel);
   });
@@ -950,6 +935,8 @@ export default function App() {
           preferences={preferences}
           briefingDate={briefing.briefingDate}
           briefingTime={briefing.briefingTime}
+          sourceType={briefing.sourceType}
+          isFallback={briefing.isFallback}
           onResetHome={() => {
             setSelectedKeyword(null);
             setSelectedTopic('전체');
@@ -1023,8 +1010,8 @@ export default function App() {
                   className="px-2 sm:px-2.5 py-1.5 text-[11px] sm:text-xs gap-1 sm:gap-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/70 hover:bg-amber-100 dark:hover:bg-amber-900/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-bold transition flex items-center active:scale-95 cursor-pointer shrink-0"
                 >
                   <Building className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-600 dark:text-amber-400" />
-                  <span className="hidden sm:inline">4. 건설·부동산·금융</span>
-                  <span className="sm:hidden">4. 건설·금융</span>
+                  <span className="hidden sm:inline">4. 건설·부동산·도시개발·금융</span>
+                  <span className="sm:hidden">4. 건설·도시·금융</span>
                   <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-600 text-white font-bold">
                     {filteredSectorHeadlines.length}
                   </span>
@@ -1088,6 +1075,29 @@ export default function App() {
           )}
 
           <main className="space-y-4 sm:space-y-5">
+            {(briefing.isFallback || briefing.sourceType === 'mock') && (
+              <div className="bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-700/80 rounded-2xl px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-amber-950 dark:text-amber-200 shadow-xs">
+                <div className="flex items-start sm:items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
+                  <div>
+                    <span className="font-bold">수집 실패 · 샘플 데이터 표시 중</span>
+                    <span className="text-amber-800 dark:text-amber-300 ml-1.5">
+                      실시간 언론사 수집이 완료되지 않았거나 일시적으로 연결할 수 없어 참고용 샘플 기사를 표시하고 있습니다.
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRefreshLive}
+                  disabled={isLoading}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold text-xs shrink-0 self-start sm:self-auto cursor-pointer transition active:scale-95"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                  <span>실시간 다시 시도</span>
+                </button>
+              </div>
+            )}
+
             {/* 1. Keyword Tags + Weekly Report Shortcut (태그 필터링 + 24h 트렌드 + 주간 종합 리포트) */}
             <KeywordTags
               keywords={briefing.topKeywords}
@@ -1203,10 +1213,10 @@ export default function App() {
           {/* Footer */}
           <footer className="mt-12 pt-8 border-t border-slate-200 dark:border-slate-800 text-center text-xs text-slate-500 dark:text-slate-400 space-y-2">
             <p>
-              <strong className="text-slate-800 dark:text-slate-200">모닝브리프</strong> | 대한민국 주요 언론사 1면 톱기사·공통 핵심이슈·단독 보도 및 건설·부동산·금융 실시간 헤드라인 AI 3줄 요약 브리핑 플랫폼
+              <strong className="text-slate-800 dark:text-slate-200">모닝브리프</strong> | 대한민국 주요 언론사 1면 톱기사·공통 핵심이슈·단독 보도 및 건설·부동산·도시개발·금융 실시간 헤드라인 요약 브리핑 플랫폼
             </p>
             <p className="text-[11px] text-slate-400 dark:text-slate-500">
-              모든 보도의 지적재산권은 해당 언론사에 있으며, 공식 원문 링크를 통해 전문을 확인하실 수 있습니다. 맞춤형 언론사 실시간 수집 · AI 인사이트 요약 · 예약 이메일 발송 지원.
+              모든 보도의 지적재산권은 해당 언론사에 있으며, 공식 원문 링크를 통해 전문을 확인하실 수 있습니다. 맞춤형 언론사 실시간 수집 · 핵심 인사이트 요약 · 뉴스레터 HTML 미리보기 지원.
             </p>
           </footer>
         </div>

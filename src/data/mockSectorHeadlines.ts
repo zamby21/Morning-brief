@@ -1,8 +1,7 @@
 import type { SectorHeadlineItem } from '../types/news.ts';
-import { getCurrentKoreanDateString } from '../utils/dateUtils.ts';
 import { getOfficialOutletSearchUrl, getNaverNewsUrl } from '../utils/linkUtils.ts';
 
-const today = getCurrentKoreanDateString();
+const SAMPLE_DATE_LABEL = '샘플 데이터';
 
 const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naverUrl'>[] = [
   // ==========================================
@@ -21,7 +20,7 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
       '국토교통부는 이르면 연말 착공에 돌입해 2029년 전면 개통을 목표로 공정을 추진할 계획입니다.',
       '고금리와 원가 부담으로 위축됐던 대형 건설사들의 토목 수주 잔고가 본격적인 회복 국면에 진입할 전망입니다.',
     ],
-    publishedAt: `${today} 07:15`,
+    publishedAt: `${SAMPLE_DATE_LABEL} · 참고용`,
     tags: ['GTX', '토목수주', '인프라SOC', '현대건설', '대우건설'],
     impactRating: 'Crucial',
     highlightBadge: '수주 3.2조 원',
@@ -49,7 +48,7 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
       '현대건설·삼성물산·DL이앤씨 등이 해수담수화 및 암모니아 전환 복합 플랜트 분야에서 수주 유력권에 진입했습니다.',
       '해외 고부가가치 플랜트 물량 확대가 국내 주택 경기 둔화를 상쇄하는 핵심 성장 축으로 자리잡고 있습니다.',
     ],
-    publishedAt: `${today} 07:45`,
+    publishedAt: `${SAMPLE_DATE_LABEL} · 참고용`,
     tags: ['해외건설', 'K원전', '플랜트수주', '팀코리아'],
     impactRating: 'High',
     highlightBadge: '해외 200억불',
@@ -77,7 +76,7 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
       '그간 공사비 현실화 미흡으로 수도권 도로·철도 공공사업 유찰이 반복되자 단가 산정 체계를 전면 개편했습니다.',
       '적정 공사비 보장을 통해 공공 인프라 착공 지연 해소와 건설 현장의 시공 품질 제고가 기대됩니다.',
     ],
-    publishedAt: `${today} 08:10`,
+    publishedAt: `${SAMPLE_DATE_LABEL} · 참고용`,
     tags: ['공사비현실화', '국토교통부', '자재비연동', '유찰방지'],
     impactRating: 'High',
     highlightBadge: '공사비 단가 인상',
@@ -105,7 +104,7 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
       '신용등급 하락으로 부동산 PF 대출 연장에 난항을 겪던 건실한 중견 시공사를 선별해 저리 융자와 보증을 지원합니다.',
       '금융권 리스크가 실물 건설 현장으로 전이되는 연쇄 부실 위기를 선제적으로 차단하는 효과가 예상됩니다.',
     ],
-    publishedAt: `${today} 08:30`,
+    publishedAt: `${SAMPLE_DATE_LABEL} · 참고용`,
     tags: ['건설공제조합', '책임준공', '중견건설사', '유동성지원'],
     impactRating: 'Crucial',
     highlightBadge: '보증 5조 원',
@@ -133,7 +132,7 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
       '모듈러 공법 적용 건축물에는 용적률 완화 혜택과 함께 공공임대·군 관사 발주 우선 배정 인센티브가 부여됩니다.',
       '건설 현장의 만성적인 숙련공 부족과 안전사고 위험을 낮추고 공기를 최대 30% 단축할 수 있는 제도적 기반이 열렸습니다.',
     ],
-    publishedAt: `${today} 06:40`,
+    publishedAt: `${SAMPLE_DATE_LABEL} · 참고용`,
     tags: ['스마트건설', '모듈러주택', 'OSC공법', '공기단축'],
     impactRating: 'Medium',
     highlightBadge: '공기 30% 단축',
@@ -150,8 +149,8 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
   },
   {
     id: 'sec-const-06',
-    sector: 'construction',
-    sectorLabel: '건설·SOC',
+    sector: 'urban',
+    sectorLabel: '도시개발·정비',
     outletId: 'asiae',
     outletName: '아시아경제',
     title: '대형 건설사, 하반기 서울 정비사업 수주전 격돌... 압구정·한남 하이엔드 랜드마크 각축',
@@ -161,13 +160,13 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
       '지방 미분양 리스크가 여전한 가운데 사업성과 브랜드 홍보 효과가 확실한 한강변 핵심 입지로 선별 수주 전략이 집중되고 있습니다.',
       '특화 설계와 금융 조건 제안이 이어지면서 조합원들의 기대감과 함께 공사비 협상 과정의 신경전도 가열되는 양상입니다.',
     ],
-    publishedAt: `${today} 08:50`,
+    publishedAt: `${SAMPLE_DATE_LABEL} · 참고용`,
     tags: ['도시정비', '재건축재개발', '하이엔드브랜드', '한강변'],
     impactRating: 'Medium',
     highlightBadge: '하이엔드 수주전',
     keyFigure: '단지별 수조 원 규모',
     reporter: '아시아경제 건설부동산부',
-    pressSection: '건설·산업 면',
+    pressSection: '도시개발·정비 면',
     fullContent: `[아시아경제] 하반기 서울 한강변 일대 초대형 재건축·재개발 정비사업 시공사 선정 일정이 본격화되면서 국내 1군 대형 건설사들이 하이엔드 브랜드를 앞세운 총력 수주전에 돌입했다.
 
 압구정 특별계획구역과 한남 재정비촉진지구 등 단지별 공사비만 수조 원대에 달하는 핵심 사업지가 연이어 입찰을 예고하면서, 건설사들은 전담 태스크포스(TF)를 꾸리고 글로벌 건축설계사와 협업안을 제시하고 있다.
@@ -193,7 +192,7 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
       '수억 원대 시세차익 기대감과 신축 공급 부족 우려가 맞물리며 청약 가점 만점 통장이 대거 쏟아졌습니다.',
       '대출 규제 환경 속에서도 자금력을 갖춘 수요가 강남권 핵심 단지로만 몰리는 시장 양극화가 한층 심화되고 있습니다.',
     ],
-    publishedAt: `${today} 07:20`,
+    publishedAt: `${SAMPLE_DATE_LABEL} · 참고용`,
     tags: ['분양가상한제', '로또청약', '청약경쟁률', '강남3구'],
     impactRating: 'Crucial',
     highlightBadge: '경쟁률 380:1',
@@ -210,8 +209,8 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
   },
   {
     id: 'sec-re-02',
-    sector: 'realestate',
-    sectorLabel: '부동산·주택',
+    sector: 'urban',
+    sectorLabel: '도시개발·정비',
     outletId: 'mk',
     outletName: '매일경제',
     title: '1기 신도시(분당·일산·평촌) 선도지구 특별정비구역 심의 착수... 최대 용적률 450% 부여',
@@ -221,13 +220,13 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
       '분당·일산·평촌·중동·산본 등 2만 6,000여 가구 규모 선도단지는 안전진단 면제와 통합 심의를 통해 사업 기간을 대폭 줄이게 됩니다.',
       '향후 추가 분담금 규모와 기반시설 확충 비용 분담 비율이 실제 착공 속도를 결정할 핵심 관건으로 떠올랐습니다.',
     ],
-    publishedAt: `${today} 07:55`,
+    publishedAt: `${SAMPLE_DATE_LABEL} · 참고용`,
     tags: ['1기신도시', '노후계획도시', '분당재건축', '용적률완화'],
     impactRating: 'High',
     highlightBadge: '용적률 최대 450%',
     keyFigure: '선도지구 2.6만호',
     reporter: '매일경제 부동산부',
-    pressSection: '부동산·정책 면',
+    pressSection: '도시개발·정비 면',
     fullContent: `[매일경제] 국토교통부와 1기 신도시 해당 지자체들이 노후계획도시 재정비 선도지구에 대한 특별정비구역 지정 심의에 본격 착수하면서 최대 용적률 450%까지 부여하는 세부 가이드라인을 확정했다.
 
 이번 가이드라인에 따르면 분당·일산·평촌·중동·산본 등 1기 신도시 선도지구 약 2만 6,000가구는 공공기여 비율을 충족할 경우 종상향과 함께 안전진단 면제 및 통합 심의 혜택을 적용받는다.
@@ -249,7 +248,7 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
       '생애최초 주택 구입자와 신혼부부 등 서민층의 주거 사다리 훼손 우려가 제기되자 방 공제 면제 축소 방침을 손질했습니다.',
       '가계부채 관리 기조를 유지하면서도 이미 분양·매매 계약을 체결한 실수요자의 피해가 없도록 경과 규정이 적용됩니다.',
     ],
-    publishedAt: `${today} 08:20`,
+    publishedAt: `${SAMPLE_DATE_LABEL} · 참고용`,
     tags: ['디딤돌대출', '정책모기지', '생애최초', '실수요자'],
     impactRating: 'High',
     highlightBadge: '대출규제 유예',
@@ -277,7 +276,7 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
       '전세사기 여파로 급감한 도심 내 빌라·다세대 공급과 임대 물량을 되살려 1~2인 가구의 주거 불안을 완화하기 위한 조치입니다.',
       '취득세 중과 배제와 임대사업자 세제 혜택이 이어지면 침체된 비아파트 매매·임대 거래가 점진적으로 살아날 것으로 기대됩니다.',
     ],
-    publishedAt: `${today} 08:40`,
+    publishedAt: `${SAMPLE_DATE_LABEL} · 참고용`,
     tags: ['비아파트', '오피스텔', '취득세감면', '주택공급'],
     impactRating: 'Medium',
     highlightBadge: '세제특례 2년 연장',
@@ -294,8 +293,8 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
   },
   {
     id: 'sec-re-05',
-    sector: 'realestate',
-    sectorLabel: '부동산·주택',
+    sector: 'urban',
+    sectorLabel: '도시개발·정비',
     outletId: 'donga',
     outletName: '동아일보',
     title: '3기 신도시 고양창릉·남양주왕숙 본청약 개시... 평당 분양가 2,150만~2,200만원 확정',
@@ -305,13 +304,13 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
       '추정 분양가는 3.3㎡당 2,150만~2,200만 원 선으로 책정돼 주변 기축 시세 대비 가격 경쟁력을 확보했다는 평가입니다.',
       'GTX 등 광역교통망 연계 여건이 우수해 무주택 실수요자의 청약 대거 유입과 서울 전세 수요 분산이 기대됩니다.',
     ],
-    publishedAt: `${today} 06:50`,
-    tags: ['3기신도시', '본청약', '공공분양', '고양창릉', '남양주왕숙'],
+    publishedAt: `${SAMPLE_DATE_LABEL} · 참고용`,
+    tags: ['3기신도시', '본청약', '택지개발', '고양창릉', '남양주왕숙'],
     impactRating: 'High',
     highlightBadge: '평당 2,150만원',
     keyFigure: '수도권 1만 가구',
     reporter: '동아일보 부동산팀',
-    pressSection: '부동산·정책 면',
+    pressSection: '도시개발·정비 면',
     fullContent: `[동아일보] 수도권 주택 공급의 핵심 축인 3기 신도시 고양창릉과 남양주왕숙 지구의 본청약이 본격적으로 막을 올렸다. 확정 분양가는 3.3㎡당 2,150만~2,200만 원 수준으로 결정됐다.
 
 한국토지주택공사(LH)에 따르면 이번 본청약 물량은 과거 사전청약 당첨자 물량과 일반공급 물량을 합쳐 수도권 내 약 1만 가구 규모로 순차 분양된다.
@@ -333,7 +332,7 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
       '반면 내수 소비 위축과 온라인 쇼핑 확산이 겹친 지방 주요 상업지구는 중대형 상가 공실률이 20%에 육박하는 극심한 침체를 겪고 있습니다.',
       '상업용 부동산 시장에서도 우량 임차인 확보 가능성에 따른 입지 양극화와 자산 리모델링 수요가 두드러지고 있습니다.',
     ],
-    publishedAt: `${today} 08:55`,
+    publishedAt: `${SAMPLE_DATE_LABEL} · 참고용`,
     tags: ['상업용부동산', '꼬마빌딩', '성수상권', '공실률양극화'],
     impactRating: 'Medium',
     highlightBadge: '평당 2억 돌파',
@@ -365,7 +364,7 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
       '스트레스 DSR 2단계 시행 이후 수도권 가계대출 증가 폭 둔화 여부와 1,380원대 원·달러 환율 변동성이 핵심 판단 기준입니다.',
       '채권·외환 시장은 한은이 금융안정과 성장 균형을 맞추며 점진적인 통화 완화 속도를 조절할 것으로 내다보고 있습니다.',
     ],
-    publishedAt: `${today} 07:10`,
+    publishedAt: `${SAMPLE_DATE_LABEL} · 참고용`,
     tags: ['한국은행', '기준금리', '금융통화위원회', '가계부채'],
     impactRating: 'Crucial',
     highlightBadge: '기준금리 3.00% 전망',
@@ -393,7 +392,7 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
       '기업 밸류업 프로그램에 발맞춰 주요 금융그룹이 대규모 자사주 매입·소각과 현금 배당 확대를 통해 총주주환원율 40%대 상향을 예고했습니다.',
       '외국인 투자자들의 은행주 저평가 해소 기대감이 커지면서 금융업종 전반의 밸류에이션 재평가 흐름이 탄력을 받고 있습니다.',
     ],
-    publishedAt: `${today} 08:05`,
+    publishedAt: `${SAMPLE_DATE_LABEL} · 참고용`,
     tags: ['금융지주', '밸류업', '자사주소각', '주주환원'],
     impactRating: 'High',
     highlightBadge: '사상 최대 순익',
@@ -421,7 +420,7 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
       '사업성이 떨어지는 브리지론·본PF 사업장은 신속한 경·공매를 유도하고, 정상화 가능 현장에는 신디케이트론 등 신규 유동성을 투입합니다.',
       '제2금융권과 건설업계에 잠재된 PF 부실 연쇄 충격 우려가 구조조정 진전에 따라 점진적으로 해소될 전망입니다.',
     ],
-    publishedAt: `${today} 08:15`,
+    publishedAt: `${SAMPLE_DATE_LABEL} · 참고용`,
     tags: ['부동산PF', '정상화펀드', '금융위원회', 'PF구조조정'],
     impactRating: 'Crucial',
     highlightBadge: 'PF펀드 20조 원',
@@ -449,7 +448,7 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
       '은행연합회 공시 결과 가계대출 억제를 위해 수차례 올렸던 가산금리가 차주들의 이자 부담을 가중시킨다는 비판이 커진 데 따른 것입니다.',
       '조달금리 하락분 반영과 가산금리 합리화가 이뤄질 경우 실수요자들의 주택담보대출 금리 부담이 점차 낮아질 전망입니다.',
     ],
-    publishedAt: `${today} 08:35`,
+    publishedAt: `${SAMPLE_DATE_LABEL} · 참고용`,
     tags: ['주택담보대출', '가산금리', '예대금리차', '시중은행'],
     impactRating: 'High',
     highlightBadge: '가산금리 인하 검토',
@@ -477,7 +476,7 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
       '글로벌 통화 완화 기조와 국내 코리아 밸류업 지수 기반 ETF 상품 출시가 대형 저평가 가치주의 수급 개선을 견인했습니다.',
       '대외 관세·환율 변수에도 불구하고 실적 가시성이 확인된 업종을 중심으로 기관·외국인의 저가 매수세가 유입되고 있습니다.',
     ],
-    publishedAt: `${today} 09:05`,
+    publishedAt: `${SAMPLE_DATE_LABEL} · 참고용`,
     tags: ['코스피', '외국인순매수', '밸류업지수', '금융주'],
     impactRating: 'Medium',
     highlightBadge: '코스피 2,600 회복',
@@ -505,7 +504,7 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
       '연체율 상승 압력을 낮추기 위해 공동 매각 펀드와 자산관리공사(캠코) 등을 활용해 조 단위 부실채권(NPL) 상매각을 속도감 있게 추진하고 있습니다.',
       '건전성 지표가 점차 바닥을 다지고 수신 금리 부담도 완화되면서 제2금융권 수익성과 유동성 방어력이 회복될 전망입니다.',
     ],
-    publishedAt: `${today} 08:45`,
+    publishedAt: `${SAMPLE_DATE_LABEL} · 참고용`,
     tags: ['제2금융권', '저축은행', '대손충당금', 'NPL매각'],
     impactRating: 'Medium',
     highlightBadge: 'NPL 적극 정리',
@@ -524,7 +523,10 @@ const RAW_MOCK_SECTOR_HEADLINES: Omit<SectorHeadlineItem, 'originalUrl' | 'naver
 
 export const MOCK_SECTOR_HEADLINES: SectorHeadlineItem[] = RAW_MOCK_SECTOR_HEADLINES.map((item) => ({
   ...item,
+  publishedAt: `${SAMPLE_DATE_LABEL} · 참고용`,
   leadSummary: item.baseSummary,
   originalUrl: getOfficialOutletSearchUrl(item.outletId, item.outletName, item.title, item.tags),
   naverUrl: getNaverNewsUrl(item.title, item.outletName, item.tags),
+  sourceType: 'mock',
+  isFallback: true,
 }));

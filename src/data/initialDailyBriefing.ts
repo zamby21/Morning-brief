@@ -1,12 +1,18 @@
 import type { DailyBriefing } from '../types/news.ts';
 const DEFAULT_10_OUTLETS = ['chosun', 'joongang', 'donga', 'hani', 'khan', 'mk', 'hankyung', 'sedaily', 'herald', 'asiae'];
 import { MOCK_SECTOR_HEADLINES } from './mockSectorHeadlines.ts';
-import { getCurrentKoreanDateString } from '../utils/dateUtils.ts';
+
+const SAMPLE_TIMESTAMP = '샘플 데이터';
+
+const getCurrentKoreanDateString = () => SAMPLE_TIMESTAMP;
 
 export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
-  id: 'briefing-today-0900',
-  briefingDate: getCurrentKoreanDateString(),
-  briefingTime: '09:00 AM 기준 집계',
+  id: 'briefing-sample-fallback',
+  briefingDate: '샘플 브리핑',
+  briefingTime: '샘플 데이터',
+  sourceType: 'mock',
+  sectorSourceType: 'mock',
+  isFallback: true,
   topKeywords: [
     '#짙은안개출근길',
     '#엔비디아젠슨황',
@@ -22,9 +28,9 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
   overlappingOutletIds: DEFAULT_10_OUTLETS,
   sectorHeadlines: MOCK_SECTOR_HEADLINES,
   summaryNote:
-    '대한민국 주요 언론사의 실제 보도 기사를 100% 실시간 수집하여 핵심 3줄로 검증 요약한 공식 모닝 브리핑입니다.',
+    '실시간 뉴스 수집 전 또는 수집 실패 시 표시되는 샘플 브리핑입니다. 상단 [실시간 갱신]을 눌러 최신 기사를 불러올 수 있습니다.',
 
-  // 1. 각 언론사 신문 첫페이지 (1면) 실제 핵심 보도
+  // 1. 각 언론사 신문 첫페이지 (1면) 샘플 데이터
   frontPageStories: [
     {
       id: 'fp-khan-1',
@@ -44,7 +50,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
       reporter: '경향신문 사회부',
       pressSection: '1면 종합',
       newspaperPage: '제 1 면 (종합)',
-      reactions: { insightful: 45, important: 110, surprising: 18 },
+      reactions: { insightful: 0, important: 0, surprising: 0 },
       fullContent: `[경향신문] 목요일인 12일 아침 전국 내륙을 중심으로 짙은 안개가 끼어 출근길 교통안전에 각별한 주의가 요구된다. 낮부터는 기온이 떨어져 쌀쌀하겠으며 오후부터 전국 곳곳에 비가 내릴 전망이다.
 
 기상청에 따르면 이날 오전까지 경기 남부 내륙과 충청권, 전라권, 경상권 내륙을 중심으로 가시거리 200m 미만의 짙은 안개가 끼는 곳이 많겠다. 그 밖의 지역에서도 가시거리 1km 미만의 안개가 끼는 곳이 있어 차량 운행 시 감속 운행과 안전거리 확보가 필수적이다.
@@ -72,7 +78,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
       pressSection: '1면 종합',
       newspaperPage: '제 1 면 (종합)',
       newspaperIssueNo: '제 29,142호',
-      reactions: { insightful: 48, important: 112, surprising: 15 },
+      reactions: { insightful: 0, important: 0, surprising: 0 },
       fullContent: `[조선일보] 금융당국이 국내 금융지주사 회장들의 이른바 ‘셀프 연임’ 관행에 강력한 제동을 걸었다. 최고경영자(CEO) 후보추천위원회를 전원 독립이사로 채우고, 3연임 이상을 시도할 경우 주주총회에서 발행주식 총수 75% 이상의 찬성을 얻도록 하는 고강도 지배구조 모범관행 가이드라인을 최종 확정했다.
 
 금융위원회와 금융감독원은 12일 이 같은 내용을 골자로 하는 ‘금융지주 지배구조 선진화 로드맵’을 발표했다. 현직 회장이 영향력을 행사할 수 있는 사내이사나 우호적 인사를 CEO 추천위에서 전면 배제함으로써 독립성을 확보하겠다는 취지다.
@@ -98,7 +104,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
       topic: '반도체·AI',
       reporter: '매일경제 테크부',
       pressSection: '1면 종합',
-      reactions: { insightful: 62, important: 140, surprising: 21 },
+      reactions: { insightful: 0, important: 0, surprising: 0 },
       fullContent: `[매일경제 속보] 글로벌 AI 반도체 시장을 독점하며 시가총액 1위를 다투는 미국 엔비디아의 젠슨 황 최고경영자(CEO)가 사내 비위 의혹에 휩싸여 이사회의 전격적인 해임 논의에 직면했다.
 
 12일(현지시각) 미국 주요 경제 매체와 통신에 따르면 엔비디아 사외이사들로 구성된 특별조사위원회는 젠슨 황 CEO의 사내 부적절한 관계 의혹에 대한 내부 조사를 마치고, 이르면 오늘 긴급 이사회를 열어 거취를 최종 결정할 예정이다.
@@ -122,7 +128,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
       topic: '반도체·AI',
       reporter: '중앙일보 뉴욕 특파원',
       pressSection: '1면 종합',
-      reactions: { insightful: 52, important: 125, surprising: 35 },
+      reactions: { insightful: 0, important: 0, surprising: 0 },
       fullContent: `[중앙일보] 미국 엔비디아의 젠슨 황 최고경영자(CEO)를 둘러싼 사내 스캔들 파문이 걷잡을 수 없이 확산하고 있다. 내부 직원의 추가 폭로가 잇따르면서 엔비디아 이사회가 황 CEO의 해임을 진지하게 준비하고 있다는 보도가 나왔다.
 
 월스트리트저널(WSJ)과 외신에 따르면 엔비디아 이사회는 외부 법무법인을 선임해 황 CEO의 이해충돌 및 기업 윤리 강령 위반 여부를 조사해왔다. 이사회 내부에서는 AI 패권 경쟁이 치열한 시점에 CEO의 도덕적 리스크를 조기에 털어내야 한다는 강경론이 고개를 들고 있다.
@@ -146,7 +152,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
       topic: '금융·거시경제',
       reporter: '한국경제 증권부',
       pressSection: '1면 경제',
-      reactions: { insightful: 55, important: 104, surprising: 14 },
+      reactions: { insightful: 0, important: 0, surprising: 0 },
       fullContent: `[한국경제] 글로벌 AI 인프라 시장의 신흥 강자인 코어위브가 대규모 GPU 클러스터 증설 계약을 연이어 체결했다는 소식이 전해지면서 미국 반도체주가 일제히 폭등했다. 마이크론 테크놀로지가 하루 만에 12% 이상 치솟으며 AI 랠리의 부활을 알렸다.
 
 12일 뉴욕 증시에서 필라델피아 반도체 지수는 3% 넘게 급등했다. 데이터센터 전력과 서버 증설 속도가 둔화할 것이라는 시장 일각의 ‘AI 거품론’을 잠재우고 고대역폭메모리(HBM) 수요가 여전히 공급을 압도하고 있다는 사실이 확인된 결과다.
@@ -170,7 +176,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
       topic: '정치·정책',
       reporter: '동아일보 정치부',
       pressSection: '1면 종합',
-      reactions: { insightful: 38, important: 95, surprising: 12 },
+      reactions: { insightful: 0, important: 0, surprising: 0 },
       fullContent: `[동아일보] 더불어민주당 조정식 의원이 여권에서 강력히 반발하고 있는 ‘검찰 조작기소 의혹 특검법’과 관련해 "헌법과 법률상 아무런 법적 문제가 없다"며 법안 통과를 강행하겠다는 뜻을 분명히 했다.
 
 조 의원은 12일 국회에서 기자들과 만나 "검찰의 자의적인 권한 남용과 표적 수사 행태를 바로잡는 것은 입법부의 당연한 헌법적 책무"라며 "여당의 사법 방해 프레임은 국민적 눈높이에 맞지 않는다"고 비판했다.
@@ -194,7 +200,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
       topic: '정치·외교',
       reporter: '한겨레 정치부',
       pressSection: '1면 종합',
-      reactions: { insightful: 44, important: 88, surprising: 16 },
+      reactions: { insightful: 0, important: 0, surprising: 0 },
       fullContent: `[한겨레] 대통령이 오는 16일부터 19일까지 아세안(ASEAN·동남아시아국가연합) 정상회의와 아시아태평양경제협력체(APEC) 정상회의에 잇따라 참석하기 위해 필리핀과 중국을 공식 순방한다.
 
 대통령실은 12일 브리핑을 통해 "이번 다자 정상회의를 통해 글로벌 공급망 교란에 대응한 역내 경제 안보 협력을 공고히 하고, 한반도 평화 프로세스의 동력을 되살리기 위해 국제사회의 북미 대화 재개 지지를 집중 당부할 예정"이라고 발표했다.
@@ -218,7 +224,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
       topic: '금융·거시경제',
       reporter: '서울경제 증권부',
       pressSection: '1면 종합',
-      reactions: { insightful: 41, important: 87, surprising: 18 },
+      reactions: { insightful: 0, important: 0, surprising: 0 },
       fullContent: `[서울경제] 국내 개인투자자(서학개미)들이 미국 대표 지수인 S&P 500 추종 ETF와 대형 기술주로 쏠림 현상을 보이는 가운데, 월가 주요 투자은행들이 주가 고평가에 따른 급격한 조정 가능성을 잇달아 경고하고 나섰다.
 
 골드만삭스와 모건스탠리는 최근 보고서에서 "S&P 500의 주가수익비율(PER)이 22배를 넘어서 역사적 상단에 도달했다"며 "미 연준의 기준금리 인하 속도가 시장 기대보다 완만해질 경우 대규모 차익 실현 매물이 출회될 수 있다"고 지적했다.
@@ -242,7 +248,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
       topic: '산업·소비재',
       reporter: '헤럴드경제 산업부',
       pressSection: '1면 종합',
-      reactions: { insightful: 35, important: 68, surprising: 8 },
+      reactions: { insightful: 0, important: 0, surprising: 0 },
       fullContent: `[헤럴드경제] 국내 러닝 인구가 급증하는 가운데 토종 스포츠 브랜드 프로-스펙스가 최첨단 카본 플레이트 기술을 적용한 장거리 러닝화 ‘인피니트 러시 Rev.’를 공식 출시했다.
 
 이번 신제품은 독자 개발한 초고탄성 폼 미드솔과 지면 반발력을 극대화하는 S자형 카본 플레이트를 결합해 에너지 리턴율을 85%까지 끌어올렸다. 장거리 마라톤 러너들의 착지 충격을 효과적으로 분산시키고 추진력을 더해 기록 단축을 돕도록 설계됐다.
@@ -266,7 +272,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
       topic: '금융·거시경제',
       reporter: '아시아경제 증권부',
       pressSection: '1면 종합',
-      reactions: { insightful: 36, important: 72, surprising: 11 },
+      reactions: { insightful: 0, important: 0, surprising: 0 },
       fullContent: `[아시아경제] 12일 코스피 지수가 개장 직후 5400선을 터치하며 강한 상승 출발을 알렸으나, 옵션 만기일을 맞은 외국인과 기관의 차익 실현 매물이 쏟아지며 하락 전환해 보합권에서 등락을 거듭하고 있다.
 
 이날 오전 10시 기준 코스피는 전 거래일 대비 0.15% 내린 5380선 안팎에서 거래되고 있다. 반도체 대형주는 AI 랠리 훈풍에 힘입어 지수를 방어하고 있으나, 이차전지와 바이오 등 성장주 전반에 걸쳐 경계 매물이 출회되고 있다.
@@ -347,7 +353,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
           publishedAt: `${getCurrentKoreanDateString()} 07:25`,
         },
       ],
-      reactions: { insightful: 120, important: 245, surprising: 58 },
+      reactions: { insightful: 0, important: 0, surprising: 0 },
     },
     {
       id: 'ol-2',
@@ -402,7 +408,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
           publishedAt: `${getCurrentKoreanDateString()} 07:45`,
         },
       ],
-      reactions: { insightful: 95, important: 180, surprising: 22 },
+      reactions: { insightful: 0, important: 0, surprising: 0 },
     },
     {
       id: 'ol-3',
@@ -427,7 +433,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
         '다자 정상외교를 통한 실용적 국익 확보의 중요성 강조',
         '국회 내 정쟁 지양 및 시급한 민생 법안 우선 처리 필요성 공감',
       ],
-      reactions: { insightful: 65, important: 140, surprising: 15 },
+      reactions: { insightful: 0, important: 0, surprising: 0 },
     },
   ],
 
@@ -450,7 +456,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
       topic: '사회·노동',
       exclusiveBadge: '경향 심층',
       importanceRating: 'Crucial',
-      reactions: { insightful: 48, important: 96, surprising: 16 },
+      reactions: { insightful: 0, important: 0, surprising: 0 },
       fullContent: `[경향신문 단독 기획] 외국인 이주노동자 고용 평가와 계약 갱신 과정에서 불거진 '솎아내기' 논란으로 갈등을 겪어온 일강 노사가 마라톤 협상 끝에 객관적이고 투명한 '공정 평가제' 도입에 전격 합의했다.
 
 12일 경향신문 취재를 종합하면, 일강 노사는 고용노동부와 노동인권단체의 중재 아래 이주노동자에 대한 자의적 재계약 거부 조항을 폐지하고, 노사 동수로 구성된 공정평가위원회의 심의를 거치도록 취업규칙을 개정했다.
@@ -474,7 +480,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
       topic: '금융·거시경제',
       exclusiveBadge: '조선 단독',
       importanceRating: 'Crucial',
-      reactions: { insightful: 65, important: 120, surprising: 24 },
+      reactions: { insightful: 0, important: 0, surprising: 0 },
       fullContent: `[조선일보 단독] 금융당국이 국내 금융지주사들의 고질적인 지배구조 병폐로 꼽혀온 회장들의 '셀프 연임'에 철퇴를 내렸다.
 
 차기 회장을 추천하는 후보추천위원회를 100% 사외 독립이사로만 채우고, 3연임에 도전하는 회장에 대해서는 주주총회 발행주식 총수 75%의 압도적 찬성을 요구하는 특별결의를 의무화하는 방안이 확정됐다.
@@ -498,7 +504,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
       topic: 'IT·산업',
       exclusiveBadge: '서경 기획',
       importanceRating: 'High',
-      reactions: { insightful: 42, important: 84, surprising: 31 },
+      reactions: { insightful: 0, important: 0, surprising: 0 },
       fullContent: `[서울경제 심층 기획] 글로벌 D램과 낸드플래시 등 메모리 반도체 가격이 AI 붐을 타고 급등하면서, 신흥국 시장을 겨냥한 보급형 저가 스마트폰 제조 생태계가 원가 폭탄에 직면했다.
 
 12일 시장조사업체와 전자 업계에 따르면 200달러 미만 저가 스마트폰 1대당 메모리 탑재 원가 비중이 연초 35%에서 최근 54%까지 치솟았다. 스마트폰 전체 부품 원가의 절반 이상을 메모리가 차지하게 된 셈이다.
@@ -522,7 +528,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
       topic: '반도체·AI',
       exclusiveBadge: '매경 특종',
       importanceRating: 'Crucial',
-      reactions: { insightful: 88, important: 156, surprising: 47 },
+      reactions: { insightful: 0, important: 0, surprising: 0 },
       fullContent: `[매일경제 특종 속보] 엔비디아 창업자 젠슨 황의 전격 해임 가능성이 수면 위로 부상하며 전 세계 테크 업계가 발칵 뒤집혔다.
 
 사외이사 특별위원회가 주도한 이번 조사는 사내 부적절한 관계와 직권 남용 의혹에 초점이 맞춰져 있으며, 이사회는 오늘 긴급회의를 통해 최종 입장을 밝힐 예정이다.`,
@@ -544,7 +550,7 @@ export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
       topic: '금융·거시경제',
       exclusiveBadge: '한경 심층',
       importanceRating: 'Medium',
-      reactions: { insightful: 53, important: 78, surprising: 31 },
+      reactions: { insightful: 0, important: 0, surprising: 0 },
       fullContent: `[한국경제 심층] 코어위브의 대규모 인프라 투자 소식이 촉발한 글로벌 반도체 랠리가 국내 증시로 번질 수 있을지 주목된다.
 
 필라델피아 반도체 지수가 3% 넘게 반등하며 AI 거품론을 일축한 가운데, 국내 메모리 대장주들의 4분기 실적 호조 기대가 재부각되고 있다.`,

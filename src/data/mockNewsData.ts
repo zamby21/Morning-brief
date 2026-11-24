@@ -1596,7 +1596,7 @@ export const INITIAL_USER_PREFERENCES: UserPreferences = {
   deliveryTime: '09:00',
   deliveryTimezone: 'Asia/Seoul',
   deliveryDays: ['월', '화', '수', '목', '금'],
-  autoEmailEnabled: true,
+  autoEmailEnabled: false,
   pushNotificationEnabled: false,
   preferredTone: 'insight',
   toneExplicitlySelected: false,
@@ -1605,8 +1605,8 @@ export const INITIAL_USER_PREFERENCES: UserPreferences = {
   selectedOutlets: DEFAULT_10_OUTLETS,
   frontPageOutlets: DEFAULT_10_OUTLETS,
   overlappingOutlets: DEFAULT_10_OUTLETS,
-  minOutletCoverageRatio: 50,
-  minSimilarityScore: 70,
+  minOutletCoverageRatio: 20,
+  minSimilarityScore: 35,
   sectorPreferences: DEFAULT_SECTOR_PREFERENCES,
 };
 

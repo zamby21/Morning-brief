@@ -283,60 +283,25 @@ export function toBulletInsightLine(rawInsight: string): string {
   return `[시사점] ${bulletized}`;
 }
 
+export const UNAVAILABLE_AI_INSIGHT_LINE =
+  '[시사점] AI 분석 불가 — 요약 모델 미연결 또는 일시 지연으로 원문 핵심 3줄 요약만 제공합니다.';
+
 /**
- * Synthesizes a sharp, article-specific 1-line strategic/market/policy implication ([시사점]) in concise bullet style (개조식)
- * as a deterministic fallback when Gemini cross-article insight is not yet attached.
+ * Returns an honest placeholder notice instead of fabricating domain-regex boilerplate
+ * whenever Gemini cross-article insight is not attached.
  */
 export function buildArticleSpecificInsight(
-  title: string,
-  baseLines: string[],
-  topic: string = '',
-  outletName: string = ''
+  _title?: string,
+  _baseLines?: string[],
+  _topic: string = '',
+  _outletName: string = ''
 ): string {
-  const strippedLines = baseLines.map((l) => l.replace(/^\[[^\]]+\]\s*/g, '').trim());
-  const combinedText = `${title} ${strippedLines.join(' ')} ${topic}`;
-  const thirdFact = stripSummaryDecorations(strippedLines[2] || '').replace(/\.$/, '');
-  const cleanTitle = (title || '')
-    .replace(/\[.*?\]/g, '')
-    .replace(/“|”|"|'/g, '')
-    .trim();
-
-  // If 3rd fact already captures a concrete forward-looking consequence or risk, anchor the bullet insight on it
-  const hasForecastCue = /(전망|우려|파장|영향|변동|확대|기대|대비|분수령|관건|과제|위기|기회|효과|촉각)/.test(thirdFact);
-  if (hasForecastCue && thirdFact.length >= 20 && thirdFact.length <= 130 && !thirdFact.includes('점에')) {
-    const bulletBody = toBulletKorean(thirdFact).replace(/^▪\s*/, '').trim();
-    return `[시사점] ${bulletBody} — 관련 업계·정책 당국의 선제적 리스크 점검 필요`;
-  }
-
-  if (/수능|시험|부정행위|수험생|교육부|세무사|커닝/.test(combinedText)) {
-    return `[시사점] 시험 공정성 훼손 차단 및 첨단 부정행위 방지 체계 고도화가 제도 신뢰 회복의 핵심 관건`;
-  }
-  if (/비타민|건강|의료|질병|병원|영양제|방역/.test(combinedText)) {
-    return `[시사점] 계절·생활 환경 변화에 맞춘 근거 기반 예방 보건 및 공중위생 대응 체계 강화 필요`;
-  }
-  if (/트럼프|시진핑|푸틴|APEC|한한령|FTA|중국|미국|관세|외교|공급망/.test(combinedText)) {
-    return `[시사점] 주요국 통상·안보 협의 구도 재편에 따른 수출·공급망 리스크 및 신시장 기회 동시 대비 필요`;
-  }
-  if (/법원|판결|무죄|구형|특검|재판|계엄|대법|구속|수사|경찰/.test(combinedText)) {
-    return `[시사점] 사법 판단과 수사 향방이 향후 정책 추진 동력 및 제도적 기준 재정비의 중대 분수령 전망`;
-  }
-  if (/반도체|HBM|엔비디아|삼성전자|SK하이닉스|하이닉스|희토류/.test(combinedText)) {
-    return `[시사점] AI 인프라·첨단 기술 패권 경쟁 심화 속 핵심 밸류체인 자립도 및 수익성 방어 역량 주목`;
-  }
-  if (/부동산|아파트|전세|분양|집값|주택|건설|PF|재건축|신안|대전|지역/.test(combinedText)) {
-    return `[시사점] 입지·수급 여건별 시장 양극화 심화 우려 속 실수요 대응 및 자금조달·PF 리스크 정밀 관리 필요`;
-  }
-  if (/증시|코스피|코스닥|주가|성장률|금리|환율|GDP|KDI|수출/.test(combinedText)) {
-    return `[시사점] '${cleanTitle.slice(0, 26)}${cleanTitle.length > 26 ? '…' : ''}' 흐름이 거시·수급 변곡점으로 작용하며 업종별 실적 차별화 확대 전망`;
-  }
-
-  const label = outletName ? `${outletName} 보도 사안 관련 ` : '';
-  return `[시사점] ${label}후속 조치 및 이해관계자 대응 속도가 향후 정책·시장 파급 폭을 좌우할 핵심 변수 전망`;
+  return UNAVAILABLE_AI_INSIGHT_LINE;
 }
 
 /**
  * Formats 3 factual summary lines into the requested BriefingTone consistently across all sections.
- * - insight: 3 lines in bullet style (개조식) + 1 line of [시사점] in bullet style (개조식) => total 4 lines
+ * - insight: 3 lines in bullet style (개조식) + 1 line of [시사점] (real Gemini insight or explicit unavailable notice)
  * - bullet: 3 lines in bullet style (개조식)
  * - formal: 3 lines in formal briefing style (~습니다/~입니다)
  * - friendly: 3 lines in conversational explanatory style (~했어요/~이에요)
@@ -345,7 +310,7 @@ export function formatLeadSummaryByTone(
   title: string,
   candidateLines: string[],
   targetTone: BriefingTone,
-  topic: string = '',
+  _topic: string = '',
   outletName: string = '',
   aiInsight?: string
 ): { baseSummary: string[]; leadSummary: string[] } {
@@ -355,8 +320,8 @@ export function formatLeadSummaryByTone(
       cleanBase.length === 0
         ? `${outletName ? `${outletName}이 ` : ''}"${title}" 사안을 주요 보도로 다뤘습니다.`
         : cleanBase.length === 1
-        ? `관련 현장과 이해관계자들의 입장 및 세부 쟁점이 집중 보도되고 있습니다.`
-        : `후속 조치와 시장·사회적 파급 결과에 관심이 모아지고 있습니다.`;
+        ? `관련 세부 내용은 언론사 원문 기사에서 확인할 수 있습니다.`
+        : `추가 경과 및 후속 보도는 공식 원문 링크를 참고하세요.`;
     cleanBase.push(fallbackLine);
   }
   const preservedBase = cleanBase.slice(0, 3);
@@ -364,10 +329,13 @@ export function formatLeadSummaryByTone(
   let nextSummary: string[];
   if (targetTone === 'insight') {
     const bulletLines = preservedBase.map((line) => toBulletKorean(line));
-    const insightLine =
-      aiInsight && aiInsight.trim().length >= 8
-        ? toBulletInsightLine(aiInsight)
-        : buildArticleSpecificInsight(title, preservedBase, topic, outletName);
+    const hasRealAiInsight =
+      Boolean(aiInsight) &&
+      aiInsight!.trim().length >= 8 &&
+      !aiInsight!.includes('AI 분석 불가');
+    const insightLine = hasRealAiInsight
+      ? toBulletInsightLine(aiInsight!)
+      : UNAVAILABLE_AI_INSIGHT_LINE;
     nextSummary = [...bulletLines, insightLine];
   } else if (targetTone === 'bullet') {
     nextSummary = preservedBase.map((line) => toBulletKorean(line));

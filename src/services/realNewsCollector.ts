@@ -9,9 +9,8 @@ import type {
   ArticleContentBlock,
 } from '../types/news.ts';
 import { PRESS_OUTLETS, DEFAULT_10_OUTLETS } from '../data/mockNewsData.ts';
-import { MOCK_SECTOR_HEADLINES } from '../data/mockSectorHeadlines.ts';
 import { getCurrentKoreanDateString } from '../utils/dateUtils.ts';
-import { extractSearchKeywords, getOfficialOutletHomepage, getNaverNewsUrl } from '../utils/linkUtils.ts';
+import { extractSearchKeywords, getOfficialOutletHomepage } from '../utils/linkUtils.ts';
 import { transformBriefingTone } from '../utils/toneTransformer.ts';
 import { computeKeywordTrends } from '../utils/keywordTrend.ts';
 
@@ -33,12 +32,141 @@ export interface RawRSSArticle {
   isTopLead?: boolean;
 }
 
-// Short 30-second cache to prevent duplicate bursts while keeping real-time freshness
-let cachedArticles: Record<string, RawRSSArticle[]> = {};
-let lastFetchedTime = 0;
+interface OutletCacheEntry {
+  articles: RawRSSArticle[];
+  fetchedAt: number;
+  kstDate: string;
+}
+
+interface OutletFetchHealth {
+  okCount: number;
+  failCount: number;
+  lastOkAt?: string;
+  lastErrorAt?: string;
+}
+
+// Per-outlet KST-dated short cache (30s) to avoid yesterday bleed and unselected-outlet leakage
+const outletCache = new Map<string, OutletCacheEntry>();
+const outletFetchHealth = new Map<string, OutletFetchHealth>();
 let cachedSectorHeadlines: SectorHeadlineItem[] = [];
 let lastSectorFetchedTime = 0;
+let lastSectorFetchedKstDate = '';
 const CACHE_TTL_MS = 30 * 1000;
+const MAX_ARTICLE_AGE_MS = 24 * 60 * 60 * 1000;
+
+function getKstDateKey(date: Date = new Date()): string {
+  return date.toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
+}
+
+function recordOutletHealth(outletId: string, ok: boolean): void {
+  const prev = outletFetchHealth.get(outletId) || { okCount: 0, failCount: 0 };
+  const nowIso = new Date().toISOString();
+  if (ok) {
+    prev.okCount += 1;
+    prev.lastOkAt = nowIso;
+  } else {
+    prev.failCount += 1;
+    prev.lastErrorAt = nowIso;
+  }
+  outletFetchHealth.set(outletId, prev);
+}
+
+export function getCollectorHealthSnapshot(): {
+  trackedOutlets: number;
+  healthyOutlets: number;
+  degradedOutlets: string[];
+  cachedOutletCount: number;
+  cachedSectorCount: number;
+} {
+  let healthyOutlets = 0;
+  const degradedOutlets: string[] = [];
+  for (const [id, stat] of outletFetchHealth.entries()) {
+    const lastOk = stat.lastOkAt ? Date.parse(stat.lastOkAt) : 0;
+    const lastErr = stat.lastErrorAt ? Date.parse(stat.lastErrorAt) : 0;
+    if (stat.okCount > 0 && lastOk >= lastErr) {
+      healthyOutlets += 1;
+    } else if (stat.failCount > 0) {
+      degradedOutlets.push(id);
+    }
+  }
+  return {
+    trackedOutlets: outletFetchHealth.size,
+    healthyOutlets,
+    degradedOutlets: degradedOutlets.slice(0, 15),
+    cachedOutletCount: outletCache.size,
+    cachedSectorCount: cachedSectorHeadlines.length,
+  };
+}
+
+function parseKstDateTimeString(raw: string): string | undefined {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return undefined;
+  // Format: "2026-11-22 07:15:30" or "2026-11-22 07:15"
+  const m = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (m) {
+    const iso = `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6] || '00'}+09:00`;
+    if (!Number.isNaN(Date.parse(iso))) return iso;
+  }
+  const parsed = Date.parse(trimmed);
+  if (!Number.isNaN(parsed)) {
+    return new Date(parsed).toISOString();
+  }
+  return undefined;
+}
+
+function extractRealPubDateFromHtml(html: string): string | undefined {
+  if (!html) return undefined;
+  const naverDataDate = html.match(/data-date-time=["'](\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?)["']/i)?.[1];
+  if (naverDataDate) {
+    const iso = parseKstDateTimeString(naverDataDate);
+    if (iso) return iso;
+  }
+  const metaPub =
+    html.match(/<meta[^>]+property=["']article:published_time["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
+    html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']article:published_time["']/i)?.[1] ||
+    html.match(/<meta[^>]+name=["'](?:pubdate|article:published_time|date|DC\.date\.issued)["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
+    html.match(/"datePublished"\s*:\s*"([^"]+)"/i)?.[1];
+  if (metaPub) {
+    const iso = parseKstDateTimeString(metaPub);
+    if (iso) return iso;
+  }
+  return undefined;
+}
+
+function isWithinLast24Hours(pubDateRaw: string | undefined, nowMs = Date.now()): boolean {
+  if (!pubDateRaw) return true;
+  const ts = Date.parse(pubDateRaw);
+  if (Number.isNaN(ts)) return true;
+  const age = nowMs - ts;
+  // Allow slight clock skew up to 2h in the future; reject anything older than 24h
+  return age >= -2 * 60 * 60 * 1000 && age <= MAX_ARTICLE_AGE_MS;
+}
+
+function normalizeTitleForDedup(title: string): string {
+  return (title || '')
+    .replace(/\[[^\]]*\]|【[^】]*】|\([^)]*\)/g, ' ')
+    .replace(/[^a-zA-Z0-9가-힣\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function areTitlesNearDuplicate(a: string, b: string): boolean {
+  const na = normalizeTitleForDedup(a);
+  const nb = normalizeTitleForDedup(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  if (na.length >= 16 && nb.length >= 16 && (na.includes(nb) || nb.includes(na))) return true;
+  const ta = new Set(na.split(' ').filter((w) => w.length >= 2));
+  const tb = new Set(nb.split(' ').filter((w) => w.length >= 2));
+  if (ta.size < 3 || tb.size < 3) return false;
+  let inter = 0;
+  for (const w of ta) {
+    if (tb.has(w)) inter += 1;
+  }
+  const overlap = inter / Math.min(ta.size, tb.size);
+  return overlap >= 0.8;
+}
 
 // Verified official Naver Press Desk (media.naver.com/press/{naverCode}) directory for all Naver CP outlets
 export const OUTLET_PRESS_DESK_MAP: Record<
@@ -993,6 +1121,7 @@ async function fetchNaverArticleDetail(
   title: string;
   originUrl: string;
   naverUrl: string;
+  pubDate?: string;
   leadSentences: string[];
   fullBody: string;
   articleBlocks: ArticleContentBlock[];
@@ -1009,12 +1138,14 @@ async function fetchNaverArticleDetail(
     artHtml.match(/<a[^>]*class="[^"]*media_end_head_origin_link[^"]*"[^>]*href="([^"]+)"/i);
   const originUrl = origM ? decodeHtmlEntities(origM[1]).trim() : '';
   const resolvedTitle = fallbackTitle || extractCleanHtmlTitle(artHtml, outletName);
+  const pubDate = extractRealPubDateFromHtml(artHtml);
   const extracted = extractArticleTextAndSummary(artHtml, homepageBullets, prologue, naverArticleUrl);
 
   return {
     title: resolvedTitle,
     originUrl,
     naverUrl: naverArticleUrl,
+    pubDate,
     leadSentences: extracted.sentences,
     fullBody: extracted.fullBody,
     articleBlocks: extracted.articleBlocks,
@@ -1150,12 +1281,13 @@ async function fetchUniversalOutletArticle(
     if (!title || title.length < 8) continue;
 
     const extracted = extractArticleTextAndSummary(artRes.text, [], '', artRes.finalUrl || url);
+    const detectedPubDate = extractRealPubDateFromHtml(artRes.text) || new Date().toISOString();
     const articleObj: RawRSSArticle = {
       outletId,
       outletName,
       title,
       link: artRes.finalUrl || url,
-      pubDate: new Date().toISOString(),
+      pubDate: detectedPubDate,
       snippet: extracted.fullBody || extracted.sentences.join(' '),
       leadSentences: extracted.sentences,
       fullBody: extracted.fullBody,
@@ -1201,6 +1333,7 @@ async function fetchHomepageCenterLeadArticle(
   let leadImage: string | undefined;
   let leadImageCaption: string | undefined;
   let reporter: string | undefined;
+  let pubDate: string | undefined;
 
   // 1. Direct Homepage HTML Extraction for Top 10 Custom-Mapped Major Outlets
   if (TOP10_CUSTOM_HOMEPAGE_IDS.has(outletId)) {
@@ -1312,6 +1445,7 @@ async function fetchHomepageCenterLeadArticle(
   if (title && link) {
     const artRes = await fetchHtmlFast(link, 4500);
     if (artRes.ok && artRes.text) {
+      pubDate = extractRealPubDateFromHtml(artRes.text) || pubDate;
       const extracted = extractArticleTextAndSummary(artRes.text, homepageBullets, prologue, link);
       if (extracted.sentences.length > 0 || extracted.fullBody.length > 50) {
         leadSentences = extracted.sentences;
@@ -1366,6 +1500,7 @@ async function fetchHomepageCenterLeadArticle(
                 articleBlocks = [{ type: 'image', url: detail.leadImage, caption: detail.leadImageCaption }, ...articleBlocks];
               }
               reporter = detail.reporter || reporter;
+              pubDate = detail.pubDate || pubDate;
             }
           }
         }
@@ -1395,6 +1530,7 @@ async function fetchHomepageCenterLeadArticle(
             leadImage = bestDetail.leadImage;
             leadImageCaption = bestDetail.leadImageCaption;
             reporter = bestDetail.reporter || reporter;
+            pubDate = bestDetail.pubDate || pubDate;
           }
         }
       }
@@ -1430,7 +1566,7 @@ async function fetchHomepageCenterLeadArticle(
     title,
     link: link || homepageUrl,
     naverUrl: naverArticleUrl || undefined,
-    pubDate: new Date().toISOString(),
+    pubDate: pubDate || new Date().toISOString(),
     snippet: fullBody || prologue || leadSentences.join(' '),
     leadSentences,
     fullBody,
@@ -1442,8 +1578,18 @@ async function fetchHomepageCenterLeadArticle(
   };
 }
 
+function matchesOutletSourceName(sourceTagText: string, outletName: string, logoText?: string): boolean {
+  const cleanSource = decodeHtmlEntities(sourceTagText || '').replace(/\s+/g, '').toLowerCase();
+  if (!cleanSource) return false;
+  const targets = [outletName, logoText || '']
+    .map((s) => s.replace(/\s+/g, '').toLowerCase())
+    .filter((s) => s.length >= 2);
+  return targets.some((t) => cleanSource === t || cleanSource.includes(t) || t.includes(cleanSource));
+}
+
 /**
- * Fetch real articles for specified Korean press outlets in real-time
+ * Fetch real articles for specified Korean press outlets in real-time.
+ * Strictly returns ONLY the requested outletIds and evicts entries from previous KST dates.
  */
 export async function fetchRealArticlesForOutlets(
   outletIds: string[] = DEFAULT_10_OUTLETS,
@@ -1454,19 +1600,37 @@ export async function fetchRealArticlesForOutlets(
   );
 
   const now = Date.now();
-  const hasAllRequested = outletsToFetch.every(
-    (o) => cachedArticles[o.id] && cachedArticles[o.id].length > 0
-  );
-  if (!forceRefresh && now - lastFetchedTime < CACHE_TTL_MS && hasAllRequested) {
-    return cachedArticles;
+  const todayKst = getKstDateKey();
+
+  // Evict stale entries from prior KST dates so yesterday's articles never bleed into today
+  for (const [key, entry] of outletCache.entries()) {
+    if (entry.kstDate !== todayKst || now - entry.fetchedAt > 6 * 60 * 60 * 1000) {
+      outletCache.delete(key);
+    }
   }
 
   const results: Record<string, RawRSSArticle[]> = {};
+  const outletsNeedingFetch: typeof outletsToFetch = [];
 
-  // Process in controlled concurrency batches (max 8 outlets at a time) so selecting many outlets never overwhelms sockets
+  for (const outlet of outletsToFetch) {
+    const cached = outletCache.get(outlet.id);
+    if (
+      !forceRefresh &&
+      cached &&
+      cached.kstDate === todayKst &&
+      now - cached.fetchedAt < CACHE_TTL_MS &&
+      cached.articles.length > 0
+    ) {
+      results[outlet.id] = cached.articles;
+    } else {
+      outletsNeedingFetch.push(outlet);
+    }
+  }
+
+  // Process in controlled concurrency batches (max 8 outlets at a time)
   const BATCH_SIZE = 8;
-  for (let i = 0; i < outletsToFetch.length; i += BATCH_SIZE) {
-    const batch = outletsToFetch.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < outletsNeedingFetch.length; i += BATCH_SIZE) {
+    const batch = outletsNeedingFetch.slice(i, i + BATCH_SIZE);
     await Promise.allSettled(
       batch.map(async (outlet) => {
         const articles: RawRSSArticle[] = [];
@@ -1477,9 +1641,9 @@ export async function fetchRealArticlesForOutlets(
           articles.push(topLead);
         }
 
-        // 2. Fetch Google News RSS ONLY as last-resort fallback if lead failed, or lightweight secondary items for cluster matching
+        // 2. Fetch Google News RSS strictly verified by <source> matching outlet.name and within 24h
         try {
-          const searchUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(outlet.name)}&hl=ko&gl=KR&ceid=KR:ko`;
+          const searchUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(`"${outlet.name}" when:1d`)}&hl=ko&gl=KR&ceid=KR:ko`;
           const res = await fetch(searchUrl, {
             signal: AbortSignal.timeout(3000),
             headers: { 'User-Agent': 'Mozilla/5.0 (MorningBrief/1.0)' },
@@ -1487,23 +1651,37 @@ export async function fetchRealArticlesForOutlets(
 
           if (res.ok) {
             const xml = await res.text();
-            const items = [
-              ...xml.matchAll(
-                /<item>[\s\S]*?<title>(.*?)<\/title>[\s\S]*?<link>(.*?)<\/link>[\s\S]*?<pubDate>(.*?)<\/pubDate>[\s\S]*?<description>(.*?)<\/description>/g
-              ),
-            ].slice(0, 3);
-
+            const itemBlocks = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)].slice(0, 8);
             const escapedOutlet = outlet.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            for (const m of items) {
-              let t = decodeHtmlEntities(m[1].replace(/<!\[CDATA\[(.*?)\]\]>/g, '$1'));
+            let secondaryAdded = 0;
+
+            for (const blockMatch of itemBlocks) {
+              if (secondaryAdded >= 3) break;
+              const itemXml = blockMatch[1] || '';
+              const sourceText = itemXml.match(/<source[^>]*>([\s\S]*?)<\/source>/i)?.[1] || '';
+              // Reject articles that merely mention the outlet name without actually being published by it
+              if (!matchesOutletSourceName(sourceText, outlet.name, outlet.logoText)) {
+                continue;
+              }
+
+              const rawTitle = itemXml.match(/<title>([\s\S]*?)<\/title>/i)?.[1] || '';
+              const rawLink = itemXml.match(/<link>([\s\S]*?)<\/link>/i)?.[1] || '';
+              const rawPubDate = itemXml.match(/<pubDate>([\s\S]*?)<\/pubDate>/i)?.[1]?.trim() || '';
+              const rawDesc = itemXml.match(/<description>([\s\S]*?)<\/description>/i)?.[1] || '';
+
+              if (rawPubDate && !isWithinLast24Hours(rawPubDate, now)) {
+                continue;
+              }
+
+              let t = decodeHtmlEntities(rawTitle.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1'));
               t = t
                 .replace(new RegExp(`\\s*-\\s*${escapedOutlet}(?:\\s*뉴스)?\\s*$`, 'i'), '')
                 .replace(/\s*-\s*(?:KBS|MBC|SBS|YTN|JTBC)\s*뉴스\s*$/i, '')
                 .trim();
 
               let snip = decodeHtmlEntities(
-                m[4]
-                  .replace(/<!\[CDATA\[(.*?)\]\]>/g, '$1')
+                rawDesc
+                  .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
                   .replace(/<[^>]+>/g, ' ')
                   .replace(/https?:\/\/[^\s]+/g, ' ')
                   .replace(/[\r\n]+/g, ' ')
@@ -1515,15 +1693,16 @@ export async function fetchRealArticlesForOutlets(
                 snip = '';
               }
 
-              if (t && !articles.some((a) => a.title === t)) {
+              if (t && !articles.some((a) => areTitlesNearDuplicate(a.title, t))) {
                 articles.push({
                   outletId: outlet.id,
                   outletName: outlet.name,
                   title: t,
-                  link: m[2].replace(/&amp;/g, '&').trim(),
-                  pubDate: m[3],
+                  link: rawLink.replace(/&amp;/g, '&').trim(),
+                  pubDate: parseKstDateTimeString(rawPubDate) || rawPubDate || new Date().toISOString(),
                   snippet: snip,
                 });
+                secondaryAdded += 1;
               }
             }
           }
@@ -1532,47 +1711,62 @@ export async function fetchRealArticlesForOutlets(
         }
 
         if (articles.length > 0) {
+          recordOutletHealth(outlet.id, true);
+          outletCache.set(outlet.id, {
+            articles,
+            fetchedAt: Date.now(),
+            kstDate: todayKst,
+          });
           results[outlet.id] = articles;
+        } else {
+          recordOutletHealth(outlet.id, false);
         }
       })
     );
   }
 
-  if (Object.keys(results).length > 0) {
-    cachedArticles = { ...cachedArticles, ...results };
-    lastFetchedTime = now;
-  }
-
-  return cachedArticles;
+  return results;
 }
 
 const SECTOR_CONFIGS: {
-  sector: 'construction' | 'realestate' | 'finance';
+  sector: 'construction' | 'realestate' | 'urban' | 'finance';
   sectorLabel: string;
   pressSection: string;
   queries: string[];
   relevanceRegex: RegExp;
+  defaultTag: string;
 }[] = [
   {
     sector: 'construction',
     sectorLabel: '건설·SOC',
     pressSection: '건설·산업 면',
-    queries: ['건설 수주', '인프라 착공'],
-    relevanceRegex: /건설|수주|시공|착공|토목|플랜트|원전|GTX|철도|인프라|공사비|정비사업|재건축|현대건설|대우건설|삼성물산|GS건설|DL이앤씨|HDC/,
+    queries: ['건설 수주', '인프라 착공', '플랜트 원전 시공', 'GTX 철도 토목'],
+    relevanceRegex: /건설|수주|시공|착공|토목|플랜트|원전|GTX|철도|인프라|공사비|현대건설|대우건설|삼성물산|GS건설|DL이앤씨|HDC|시공사/,
+    defaultTag: '건설수주',
   },
   {
     sector: 'realestate',
     sectorLabel: '부동산·주택',
     pressSection: '부동산·정책 면',
-    queries: ['부동산 아파트', '재건축 청약'],
-    relevanceRegex: /부동산|아파트|청약|분양|집값|주택|전세|월세|재건축|재개발|신도시|임대|매매|빌딩|오피스텔|토지|공급/,
+    queries: ['부동산 아파트', '분양 청약 경쟁률', '전세 월세 집값', '주택공급 임대 매매'],
+    relevanceRegex: /부동산|아파트|청약|분양|집값|주택|전세|월세|임대|매매|빌딩|오피스텔|토지|공급|실거래가|거래량/,
+    defaultTag: '부동산시장',
+  },
+  {
+    sector: 'urban',
+    sectorLabel: '도시개발·정비',
+    pressSection: '도시개발·정비 면',
+    queries: ['재건축 재개발 정비사업', '신도시 택지개발 도시재생', '모아타운 신속통합기획', '역세권 복합개발 스마트시티'],
+    relevanceRegex: /도시개발|도시재생|재건축|재개발|정비사업|정비구역|신도시|택지|지구단위|신속통합|모아타운|복합개발|역세권|용적률|선도지구|스마트시티|노후계획도시/,
+    defaultTag: '도시개발',
   },
   {
     sector: 'finance',
     sectorLabel: '금융·금리',
     pressSection: '금융·증권 면',
-    queries: ['기준금리 대출', '부동산PF 금융'],
+    queries: ['기준금리 대출', '부동산PF 금융', '주담대 가계부채 은행', '환율 코스피 증권'],
     relevanceRegex: /금융|금리|은행|한국은행|기준금리|대출|주담대|PF|가계부채|금융위|금감원|증권|보험|밸류업|코스피|환율|펀드/,
+    defaultTag: '금융정책',
   },
 ];
 
@@ -1605,7 +1799,7 @@ function extractSectorHighlight(title: string, summaryText: string): {
   const highlightBadge = keyFigure ? keyFigure.trim() : undefined;
 
   const impactRating: 'Crucial' | 'High' | 'Medium' =
-    /긴급|최대|사상|전격|기준금리|부동산\s*PF|GTX|로또|유예|파장|쇼크/.test(combined)
+    /긴급|최대|사상|전격|기준금리|부동산\s*PF|GTX|로또|유예|파장|쇼크|선도지구|용적률/.test(combined)
       ? 'Crucial'
       : keyFigure
       ? 'High'
@@ -1615,11 +1809,18 @@ function extractSectorHighlight(title: string, summaryText: string): {
 }
 
 /**
- * Harvests live real-time Construction, Real Estate, and Finance articles from Naver News & origin press sites
+ * Harvests live real-time Construction, Real Estate, Urban Development, and Finance articles
+ * sorted by latest (sort=1) and strictly filtered to articles published within the last 24 hours.
  */
 export async function fetchSectorHeadlinesReal(forceRefresh = false): Promise<SectorHeadlineItem[]> {
   const now = Date.now();
-  if (!forceRefresh && cachedSectorHeadlines.length >= 6 && now - lastSectorFetchedTime < CACHE_TTL_MS) {
+  const todayKst = getKstDateKey();
+  if (
+    !forceRefresh &&
+    lastSectorFetchedKstDate === todayKst &&
+    cachedSectorHeadlines.length >= 6 &&
+    now - lastSectorFetchedTime < CACHE_TTL_MS
+  ) {
     return cachedSectorHeadlines;
   }
 
@@ -1635,17 +1836,17 @@ export async function fetchSectorHeadlinesReal(forceRefresh = false): Promise<Se
 
   const collected: SectorHeadlineItem[] = [];
   const seenNaverUrls = new Set<string>();
-  const seenTitles = new Set<string>();
+  const seenTitles: string[] = [];
 
   await Promise.allSettled(
     SECTOR_CONFIGS.map(async (cfg) => {
       const candidateLinks: string[] = [];
 
-      // Run 2 topic search queries in parallel for this sector
+      // Run 4 latest-sorted (sort=1) topic search queries in parallel for this sector
       const searchPages = await Promise.allSettled(
         cfg.queries.map((q) =>
           fetchHtmlFast(
-            `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(q)}`,
+            `https://search.naver.com/search.naver?where=news&sort=1&query=${encodeURIComponent(q)}`,
             3500
           )
         )
@@ -1664,8 +1865,8 @@ export async function fetchSectorHeadlinesReal(forceRefresh = false): Promise<Se
         }
       }
 
-      // Fetch up to 8 distinct Naver article pages in parallel
-      const targetLinks = candidateLinks.slice(0, 8);
+      // Fetch up to 10 distinct Naver article pages in parallel
+      const targetLinks = candidateLinks.slice(0, 10);
       const articleResponses = await Promise.allSettled(
         targetLinks.map(async (naverUrl) => {
           const res = await fetchHtmlFast(naverUrl, 3500);
@@ -1686,7 +1887,14 @@ export async function fetchSectorHeadlinesReal(forceRefresh = false): Promise<Se
           html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([\s\S]*?)["']/i)?.[1] ||
           '';
         const title = decodeHtmlEntities(rawTitle.replace(/<[^>]+>/g, '')).trim();
-        if (!title || title.length < 8 || seenTitles.has(title)) continue;
+        if (!title || title.length < 8) continue;
+        // Deduplicate wire-republished / syndicated near-identical titles across outlets
+        if (seenTitles.some((existing) => areTitlesNearDuplicate(existing, title))) continue;
+
+        const realPubDateIso = extractRealPubDateFromHtml(html);
+        if (realPubDateIso && !isWithinLast24Hours(realPubDateIso, now)) {
+          continue;
+        }
 
         const rawAuthor =
           html.match(/<meta[^>]+property=["']og:article:author["'][^>]+content=["']([^"']+)["']/i)?.[1] || '';
@@ -1701,10 +1909,6 @@ export async function fetchSectorHeadlinesReal(forceRefresh = false): Promise<Se
           html.match(/<em[^>]*class="media_end_head_journalist_name"[^>]*>([\s\S]*?)<\/em>/i)?.[1] || '';
         const reporterClean = decodeHtmlEntities(reporterRaw.replace(/<[^>]+>/g, '')).trim();
 
-        const datestampRaw =
-          html.match(/data-date-time="(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})/i)?.[1] || '';
-        const timePart = datestampRaw ? datestampRaw.split(/\s+/)[1] : nowKstShort;
-
         const extracted = extractArticleTextAndSummary(html, [], '', naverUrl);
         if (!cfg.relevanceRegex.test(`${title} ${extracted.sentences.join(' ')}`)) {
           continue;
@@ -1718,12 +1922,7 @@ export async function fetchSectorHeadlinesReal(forceRefresh = false): Promise<Se
         );
         const bodyText = (extracted.fullBody || baseSummary.join('\n\n')).trim();
         const rawTags = extractSearchKeywords(title).split(' ').filter((w) => w.length >= 2);
-        const tags = Array.from(
-          new Set([
-            ...rawTags,
-            cfg.sector === 'construction' ? '건설수주' : cfg.sector === 'realestate' ? '부동산시장' : '금융정책',
-          ])
-        ).slice(0, 4);
+        const tags = Array.from(new Set([...rawTags, cfg.defaultTag])).slice(0, 4);
 
         const { highlightBadge, keyFigure, impactRating } = extractSectorHighlight(
           title,
@@ -1731,7 +1930,7 @@ export async function fetchSectorHeadlinesReal(forceRefresh = false): Promise<Se
         );
 
         seenNaverUrls.add(naverUrl);
-        seenTitles.add(title);
+        seenTitles.push(title);
         sectorAdded += 1;
 
         collected.push({
@@ -1744,7 +1943,7 @@ export async function fetchSectorHeadlinesReal(forceRefresh = false): Promise<Se
           summary: baseSummary[0] || title,
           baseSummary,
           leadSummary: baseSummary,
-          publishedAt: `${todayFormatted} ${timePart} 수집`,
+          publishedAt: formatPublishedAtFromRaw(realPubDateIso, todayFormatted, nowKstShort),
           originalUrl: directOriginUrl || naverUrl,
           naverUrl,
           tags,
@@ -1758,6 +1957,7 @@ export async function fetchSectorHeadlinesReal(forceRefresh = false): Promise<Se
           reporter: reporterClean || extracted.reporter || `${outletName} 취재기자`,
           pressSection: cfg.pressSection,
           sourceType: 'live',
+          isFallback: false,
         });
       }
     })
@@ -1767,10 +1967,11 @@ export async function fetchSectorHeadlinesReal(forceRefresh = false): Promise<Se
   if (collected.length > 0) {
     cachedSectorHeadlines = collected;
     lastSectorFetchedTime = now;
+    lastSectorFetchedKstDate = todayKst;
     return collected;
   }
 
-  return cachedSectorHeadlines;
+  return lastSectorFetchedKstDate === todayKst ? cachedSectorHeadlines : [];
 }
 
 /**
@@ -1863,12 +2064,14 @@ export function generate3LineSummaryFromSnippet(
 }
 
 function inferTopicFromText(title: string): string {
-  if (/증시|코스피|코스닥|주가|외국인|매도|매수|투자|금리|환율|FTA|경제/.test(title)) return '금융·경제';
-  if (/부동산|아파트|집값|반포|전세|청약|분양/.test(title)) return '부동산·정책';
-  if (/트럼프|시진핑|푸틴|APEC|한한령|중국|미국|정상/.test(title)) return '외교·국제';
-  if (/엔비디아|AI|반도체|삼성|하이닉스|빅테크/.test(title)) return 'IT·반도체';
-  if (/법원|무죄|구형|특검|국힘|與|野|대통령|국회|청문|재판/.test(title)) return '정치·사법';
-  if (/수능|세무사|살인|경찰|신생아|교육|교사/.test(title)) return '사회·교육';
+  if (/도시개발|도시재생|재건축|재개발|정비사업|신도시|택지|모아타운|신속통합|선도지구|스마트시티/.test(title)) return '도시개발·정비';
+  if (/부동산|아파트|집값|전세|월세|청약|분양|주택공급|임대|토지/.test(title)) return '부동산·정책';
+  if (/건설|수주|시공|착공|플랜트|토목|GTX|철도|인프라|공사비/.test(title)) return '건설·인프라';
+  if (/증시|코스피|코스닥|주가|외국인|매도|매수|투자|금리|환율|대출|은행|PF|경제/.test(title)) return '금융·경제';
+  if (/트럼프|시진핑|푸틴|APEC|외교|중국|미국|정상회담|관세|통상|안보/.test(title)) return '외교·국제';
+  if (/엔비디아|AI|반도체|삼성|하이닉스|빅테크|클라우드|배터리/.test(title)) return 'IT·반도체';
+  if (/법원|무죄|구형|특검|국힘|與|野|대통령|국회|청문|재판|검찰|헌재/.test(title)) return '정치·사법';
+  if (/수능|경찰|교육|교사|의료|노동|파업|기후|사고/.test(title)) return '사회·교육';
   return '종합·1면 톱';
 }
 
@@ -1971,11 +2174,33 @@ function extractClusterTokens(text: string): string[] {
   return Array.from(new Set(tokens));
 }
 
+function computeTfIdfCosine(
+  aWeights: Map<string, number>,
+  bWeights: Map<string, number>
+): number {
+  if (aWeights.size === 0 || bWeights.size === 0) return 0;
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (const [term, w] of aWeights.entries()) {
+    normA += w * w;
+    const bw = bWeights.get(term);
+    if (bw !== undefined) dot += w * bw;
+  }
+  for (const w of bWeights.values()) {
+    normB += w * w;
+  }
+  if (normA === 0 || normB === 0) return 0;
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
 function computeArticlePairSimilarity(
   aTitleTokens: Set<string>,
   aBodyTokens: Set<string>,
+  aTfIdf: Map<string, number>,
   bTitleTokens: Set<string>,
-  bBodyTokens: Set<string>
+  bBodyTokens: Set<string>,
+  bTfIdf: Map<string, number>
 ): { score: number; sharedKeywords: string[] } {
   if (aTitleTokens.size === 0 || bTitleTokens.size === 0) {
     return { score: 0, sharedKeywords: [] };
@@ -2005,18 +2230,10 @@ function computeArticlePairSimilarity(
   const titleMinSize = Math.min(aTitleTokens.size, bTitleTokens.size);
   const titleJaccard = titleUnionSize > 0 ? sharedTitle.length / titleUnionSize : 0;
   const titleOverlap = titleMinSize > 0 ? sharedTitle.length / titleMinSize : 0;
+  const tfIdfCosine = computeTfIdfCosine(aTfIdf, bTfIdf);
 
-  const aAll = new Set([...aTitleTokens, ...aBodyTokens]);
-  const bAll = new Set([...bTitleTokens, ...bBodyTokens]);
-  let allInter = 0;
-  for (const t of aAll) {
-    if (bAll.has(t)) allInter += 1;
-  }
-  const allUnion = new Set([...aAll, ...bAll]).size;
-  const bodyJaccard = allUnion > 0 ? allInter / allUnion : 0;
-
-  // Weighted similarity in [0, 1]
-  const combined = titleOverlap * 0.55 + titleJaccard * 0.3 + bodyJaccard * 0.15;
+  // Weighted TF-IDF cosine + title Jaccard/overlap in [0, 1]
+  const combined = tfIdfCosine * 0.45 + titleOverlap * 0.35 + titleJaccard * 0.2;
   return {
     score: Math.min(1, combined),
     sharedKeywords,
@@ -2043,10 +2260,11 @@ export function buildRealBriefing(
   });
   const shortTime = nowKstTime.slice(0, 5);
 
-  // 1. Build FrontPage stories in selectedOutletIds order
+  // 1. Build FrontPage stories in selectedOutletIds order (strictly isolated to requested outlets)
   const frontPageStories: NewsStory[] = [];
   const allKeywords: string[] = [];
   const targetIds = selectedOutletIds.length > 0 ? selectedOutletIds : DEFAULT_10_OUTLETS;
+  const targetIdSet = new Set(targetIds);
 
   for (const outletId of targetIds) {
     const articles = articlesByOutlet[outletId];
@@ -2089,8 +2307,19 @@ export function buildRealBriefing(
     });
   }
 
-  // 2. Real Cross-Outlet Similarity Clustering (NO hardcoded regex buckets, NO unrelated front-page fallback)
-  const allCollected = Object.values(articlesByOutlet).flat();
+  // 2. Real TF-IDF + Jaccard Cross-Outlet Clustering (STRICTLY >= 3 distinct outlets, only selectedOutletIds)
+  const allCollected: RawRSSArticle[] = [];
+  for (const outletId of targetIdSet) {
+    const outletArts = articlesByOutlet[outletId] || [];
+    const seenForOutlet: string[] = [];
+    for (const art of outletArts) {
+      if (!seenForOutlet.some((t) => areTitlesNearDuplicate(t, art.title))) {
+        seenForOutlet.push(art.title);
+        allCollected.push(art);
+      }
+    }
+  }
+
   const overlappingStories: NewsStory[] = [];
 
   const buildClusterIntegratedOneLineSummary = (
@@ -2118,24 +2347,60 @@ export function buildRealBriefing(
     art: RawRSSArticle;
     titleTokens: Set<string>;
     bodyTokens: Set<string>;
+    tfIdf: Map<string, number>;
     timestampMs: number | null;
+  }
+
+  const rawTokenSets = allCollected.map((art) => {
+    const titleList = extractClusterTokens(art.title);
+    const bodyList = extractClusterTokens(
+      `${(art.leadSentences || []).slice(0, 3).join(' ')} ${(art.fullBody || art.snippet || '').slice(0, 450)}`
+    );
+    return {
+      titleList,
+      bodyList,
+      titleSet: new Set(titleList),
+      bodySet: new Set(bodyList),
+    };
+  });
+
+  // Compute corpus-wide IDF across all collected articles
+  const docFreq = new Map<string, number>();
+  const totalDocs = Math.max(1, rawTokenSets.length);
+  for (const item of rawTokenSets) {
+    const uniqueDocTerms = new Set([...item.titleSet, ...item.bodySet]);
+    for (const term of uniqueDocTerms) {
+      docFreq.set(term, (docFreq.get(term) || 0) + 1);
+    }
   }
 
   const indexed: IndexedArticle[] = allCollected.map((art, idx) => {
     const parsedTime = art.pubDate ? Date.parse(art.pubDate) : Number.NaN;
+    const { titleSet, bodySet } = rawTokenSets[idx];
+    const tfIdf = new Map<string, number>();
+    // Weight title terms 2.5x higher than opening-paragraph body terms
+    for (const term of titleSet) {
+      const df = docFreq.get(term) || 1;
+      const idf = Math.log((totalDocs + 1) / (df + 1)) + 1;
+      tfIdf.set(term, 2.5 * idf);
+    }
+    for (const term of bodySet) {
+      const df = docFreq.get(term) || 1;
+      const idf = Math.log((totalDocs + 1) / (df + 1)) + 1;
+      tfIdf.set(term, (tfIdf.get(term) || 0) + 1.0 * idf);
+    }
     return {
       idx,
       art,
-      titleTokens: new Set(extractClusterTokens(art.title)),
-      bodyTokens: new Set(
-        extractClusterTokens(`${(art.leadSentences || []).slice(0, 2).join(' ')} ${art.snippet || ''}`)
-      ),
+      titleTokens: titleSet,
+      bodyTokens: bodySet,
+      tfIdf,
       timestampMs: Number.isNaN(parsedTime) ? null : parsedTime,
     };
   });
 
-  const PAIR_SIMILARITY_THRESHOLD = 0.36;
-  const MAX_TIME_WINDOW_MS = 36 * 60 * 60 * 1000;
+  const PAIR_SIMILARITY_THRESHOLD = 0.30;
+  const MAX_TIME_WINDOW_MS = 24 * 60 * 60 * 1000;
 
   interface PairEdge {
     i: number;
@@ -2145,6 +2410,9 @@ export function buildRealBriefing(
   }
 
   const edges: PairEdge[] = [];
+  // Track max cross-outlet similarity per article for exclusive cross-verification
+  const maxOtherOutletSimilarity = new Map<number, number>();
+
   for (let i = 0; i < indexed.length; i += 1) {
     for (let j = i + 1; j < indexed.length; j += 1) {
       if (indexed[i].art.outletId === indexed[j].art.outletId) continue;
@@ -2159,9 +2427,19 @@ export function buildRealBriefing(
       const sim = computeArticlePairSimilarity(
         indexed[i].titleTokens,
         indexed[i].bodyTokens,
+        indexed[i].tfIdf,
         indexed[j].titleTokens,
-        indexed[j].bodyTokens
+        indexed[j].bodyTokens,
+        indexed[j].tfIdf
       );
+
+      if (sim.score > (maxOtherOutletSimilarity.get(i) || 0)) {
+        maxOtherOutletSimilarity.set(i, sim.score);
+      }
+      if (sim.score > (maxOtherOutletSimilarity.get(j) || 0)) {
+        maxOtherOutletSimilarity.set(j, sim.score);
+      }
+
       if (sim.score >= PAIR_SIMILARITY_THRESHOLD) {
         edges.push({ i, j, score: sim.score, sharedKeywords: sim.sharedKeywords });
       }
@@ -2182,7 +2460,6 @@ export function buildRealBriefing(
   for (const edge of edges) {
     if (assignedArticles.has(edge.i) && assignedArticles.has(edge.j)) continue;
 
-    // Try attaching to an existing cluster if one endpoint is already a member
     let targetCluster: RawCluster | undefined;
     let candidateIdx: number | null = null;
 
@@ -2201,15 +2478,16 @@ export function buildRealBriefing(
       );
       if (alreadyHasOutlet) continue;
 
-      // Verify candidate matches cluster seed too so unrelated articles don't chain-drift
       const seed = targetCluster.members[0];
       const seedSim = computeArticlePairSimilarity(
         seed.titleTokens,
         seed.bodyTokens,
+        seed.tfIdf,
         candidate.titleTokens,
-        candidate.bodyTokens
+        candidate.bodyTokens,
+        candidate.tfIdf
       );
-      if (seedSim.score < PAIR_SIMILARITY_THRESHOLD) continue;
+      if (seedSim.score < PAIR_SIMILARITY_THRESHOLD * 0.9) continue;
 
       targetCluster.members.push(candidate);
       targetCluster.pairScores.push(seedSim.score);
@@ -2230,18 +2508,27 @@ export function buildRealBriefing(
     }
   }
 
-  builtClusters.sort((a, b) => {
+  // Strictly require 3+ distinct outlets for "공통 보도"
+  const qualifiedClusters = builtClusters.filter((c) => c.members.length >= 3);
+  qualifiedClusters.sort((a, b) => {
     if (b.members.length !== a.members.length) return b.members.length - a.members.length;
     const avgA = a.pairScores.reduce((s, v) => s + v, 0) / Math.max(1, a.pairScores.length);
     const avgB = b.pairScores.reduce((s, v) => s + v, 0) / Math.max(1, b.pairScores.length);
     return avgB - avgA;
   });
 
-  for (let cIdx = 0; cIdx < Math.min(5, builtClusters.length); cIdx += 1) {
-    const cluster = builtClusters[cIdx];
+  // Track all article indices belonging to any multi-outlet cluster (>= 2 outlets)
+  const multiOutletClusterIndices = new Set<number>();
+  for (const c of builtClusters) {
+    if (c.members.length >= 2) {
+      c.members.forEach((m) => multiOutletClusterIndices.add(m.idx));
+    }
+  }
+
+  for (let cIdx = 0; cIdx < Math.min(5, qualifiedClusters.length); cIdx += 1) {
+    const cluster = qualifiedClusters[cIdx];
     const uniqueByOutlet = cluster.members.map((m) => m.art);
     const uniqueOutlets = uniqueByOutlet.map((m) => m.outletName);
-    if (uniqueOutlets.length < 2) continue;
 
     const avgSim =
       cluster.pairScores.reduce((sum, v) => sum + v, 0) / Math.max(1, cluster.pairScores.length);
@@ -2290,10 +2577,11 @@ export function buildRealBriefing(
     const primaryWithBody =
       uniqueByOutlet.find((m) => m.fullBody && m.fullBody.length >= 120) || representative;
 
-    const integratedOneLineSummary =
-      uniqueOutlets.length >= 3
-        ? buildClusterIntegratedOneLineSummary(sharedKeywords, uniqueOutlets, clusterTitle)
-        : undefined;
+    const integratedOneLineSummary = buildClusterIntegratedOneLineSummary(
+      sharedKeywords,
+      uniqueOutlets,
+      clusterTitle
+    );
 
     overlappingStories.push({
       id: `ol-cluster-${cIdx + 1}-${Date.now().toString(36)}`,
@@ -2326,11 +2614,15 @@ export function buildRealBriefing(
     });
   }
 
-  // 3. Exclusive stories: ONLY include articles with an explicit exclusive marker in the title.
-  // Never match '기획'/'포착' and never backfill generic articles when none exist.
-  const realExclusives = allCollected
-    .filter((a) => EXPLICIT_EXCLUSIVE_TITLE_REGEX.test(a.title.trim()))
-    .filter((art, idx, arr) => arr.findIndex((x) => x.outletId === art.outletId && x.title === art.title) === idx)
+  // 3. Exclusive stories: strictly require explicit [단독] marker in title
+  //    AND verify that NO other outlet covered the same story (not in any multi-outlet cluster & low cross-outlet similarity).
+  const EXCLUSIVE_CROSS_COVERAGE_CUTOFF = 0.34;
+  const realExclusives = indexed
+    .filter((item) => EXPLICIT_EXCLUSIVE_TITLE_REGEX.test(item.art.title.trim()))
+    .filter((item) => !multiOutletClusterIndices.has(item.idx))
+    .filter((item) => (maxOtherOutletSimilarity.get(item.idx) || 0) < EXCLUSIVE_CROSS_COVERAGE_CUTOFF)
+    .map((item) => item.art)
+    .filter((art, idx, arr) => arr.findIndex((x) => x.outletId === art.outletId && areTitlesNearDuplicate(x.title, art.title)) === idx)
     .slice(0, 6);
 
   const exclusiveStories: NewsStory[] = realExclusives.map((art, idx) => {
@@ -2373,12 +2665,16 @@ export function buildRealBriefing(
     Math.max(10, targetIds.length)
   );
 
+  const hasLiveFrontPage = frontPageStories.length > 0;
+  const hasLiveSector = resolvedSectorHeadlines.length > 0;
+
   const rawBriefing: DailyBriefing = {
     id: `briefing-real-${Date.now()}`,
     briefingDate: todayFormatted,
-    briefingTime: `${nowKstTime} 수집`,
-    sourceType: frontPageStories.length > 0 ? 'live' : 'cached',
-    sectorSourceType: 'live',
+    briefingTime: hasLiveFrontPage ? `${nowKstTime} 수집` : '수집 실패',
+    sourceType: hasLiveFrontPage ? 'live' : 'mock',
+    sectorSourceType: hasLiveSector ? 'live' : 'mock',
+    isFallback: !hasLiveFrontPage,
     collectedAt: collectedAtIso,
     topKeywords,
     keywordTrends,
@@ -2386,8 +2682,9 @@ export function buildRealBriefing(
     selectedOutletIds: targetIds,
     frontPageOutletIds: targetIds,
     overlappingOutletIds: targetIds,
-    summaryNote:
-      '선택한 대한민국 주요 언론사 공식 홈페이지 첫화면 및 뉴스 피드에서 수집한 최신 기사를 요약했습니다.',
+    summaryNote: hasLiveFrontPage
+      ? '선택한 대한민국 주요 언론사 공식 홈페이지 첫화면 및 뉴스 피드에서 수집한 최신 기사를 요약했습니다.'
+      : '외부 언론사 피드 수집에 실패하여 실시간 기사를 불러오지 못했습니다. 잠시 후 [실시간 갱신]을 다시 시도해주세요.',
     frontPageStories,
     overlappingStories,
     exclusiveStories,

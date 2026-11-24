@@ -448,7 +448,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     const ok = await copyToClipboardSafe(formattedText);
     if (ok) {
       setCopiedText(true);
-      showToast('기사 본문 전문(텍스트)이 클립보드에 복사되었습니다.');
+      showToast('기사 주요 발췌 텍스트가 클립보드에 복사되었습니다.');
       setTimeout(() => setCopiedText(false), 2400);
     } else {
       showToast('텍스트 복사에 실패했습니다.');
@@ -484,7 +484,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                 <span className="text-xs font-bold text-slate-900 dark:text-white">
                   {isCluster
                     ? '언론사 공통 원문 클러스터 확인'
-                    : '원기사 전문 및 실시간 포털 확인'}
+                    : '원기사 주요 발췌 및 실시간 포털 확인'}
                 </span>
                 <span
                   className={`text-[10px] font-bold px-2 py-0.5 rounded ${
@@ -814,11 +814,11 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                 <BookOpen className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                 <span>
                   {isCluster && currentClusterItem
-                    ? `${currentClusterItem.outletName} 보도 원문 전문`
-                    : '원기사 보도 전문'}
+                    ? `${currentClusterItem.outletName} 보도 주요 발췌`
+                    : '원기사 주요 발췌'}
                 </span>
                 <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
-                  {photoCount > 0 ? `원문·사진 ${photoCount}장` : '원문 전문'}
+                  {photoCount > 0 ? `발췌·사진 ${photoCount}장` : '원문 발췌'}
                 </span>
               </h4>
 
@@ -951,12 +951,12 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                 {copiedText ? (
                   <>
                     <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                    <span className="text-emerald-700 dark:text-emerald-300">전문 복사됨!</span>
+                    <span className="text-emerald-700 dark:text-emerald-300">발췌 복사됨!</span>
                   </>
                 ) : (
                   <>
                     <Copy className="w-3 h-3" />
-                    <span>기사 전문 텍스트 복사</span>
+                    <span>기사 발췌 텍스트 복사</span>
                   </>
                 )}
               </button>

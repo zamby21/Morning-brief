@@ -107,8 +107,8 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
   onScrollToTop,
   onOpenOutletSettings,
   isMobileView = false,
-  minCoverageRatio = 50,
-  minSimilarityScore = 70,
+  minCoverageRatio = 20,
+  minSimilarityScore = 35,
   onChangeThresholds,
   onSaveThresholds,
   totalSelectedOutletsCount = 10,
@@ -151,8 +151,8 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
     setTimeout(() => setSavedBadge(false), 2800);
   };
 
-  // Minimum required outlets count calculated dynamically based on current coverage ratio
-  const minRequiredOutlets = Math.max(1, Math.ceil(totalSelectedOutletsCount * (minCoverageRatio / 100)));
+  // Minimum required outlets count calculated dynamically based on current coverage ratio (minimum 3 distinct outlets)
+  const minRequiredOutlets = Math.max(3, Math.ceil(totalSelectedOutletsCount * (minCoverageRatio / 100)));
 
   return (
     <section id="section-overlapping" className="bg-gradient-to-b from-purple-50/80 via-purple-50/40 to-white/90 dark:from-purple-950/35 dark:via-slate-900/90 dark:to-slate-900 border border-purple-200/80 dark:border-purple-900/60 rounded-3xl p-4 sm:p-6 space-y-4 scroll-mt-24 shadow-2xs transition-colors">
@@ -292,16 +292,16 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
               <button
                 type="button"
                 onClick={() => {
-                  if (onChangeThresholds) onChangeThresholds(50, 70);
-                  if (onSaveThresholds) onSaveThresholds(50, 70);
+                  if (onChangeThresholds) onChangeThresholds(20, 35);
+                  if (onSaveThresholds) onSaveThresholds(20, 35);
                   setSavedBadge(true);
                   setTimeout(() => setSavedBadge(false), 2400);
                 }}
                 className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold transition cursor-pointer flex items-center gap-1 active:scale-95 border border-slate-200 dark:border-slate-700"
-                title="기본값 (언론사 50% / 유사도 70%)으로 복원 및 저장"
+                title="기본값 (언론사 20% / 유사도 35%)으로 복원 및 저장"
               >
                 <RotateCcw className="w-3 h-3 text-slate-500 dark:text-slate-400" />
-                <span>기본값(50%/70%) 리셋</span>
+                <span>기본값(20%/35%) 리셋</span>
               </button>
             </div>
           </div>
@@ -341,8 +341,8 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
                   className="w-full accent-purple-600 cursor-pointer h-2 bg-slate-200 dark:bg-slate-700 rounded-lg"
                 />
                 <div className="flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500 font-medium">
-                  <span>20% (완화·다수 노출)</span>
-                  <span>50% (기본 권장)</span>
+                  <span>20% (권장 기본·3개사↑)</span>
+                  <span>50% (다수 집중)</span>
                   <span>80% (초집중·소수 엄선)</span>
                 </div>
               </div>
@@ -351,9 +351,9 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
               <div className="flex items-center gap-1.5 pt-1">
                 <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mr-1">빠른 선택:</span>
                 {[
+                  { label: '20% (권장 기본)', val: 20 },
                   { label: '30% (폭넓게)', val: 30 },
-                  { label: '50% (표준 기본)', val: 50 },
-                  { label: '70% (집중 어젠다)', val: 70 },
+                  { label: '50% (집중 어젠다)', val: 50 },
                 ].map((item) => (
                   <button
                     key={item.val}
@@ -401,17 +401,17 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
               <div className="space-y-1">
                 <input
                   type="range"
-                  min={50}
-                  max={90}
+                  min={25}
+                  max={85}
                   step={5}
                   value={minSimilarityScore}
                   onChange={(e) => onChangeThresholds && onChangeThresholds(minCoverageRatio, Number(e.target.value))}
                   className="w-full accent-emerald-600 cursor-pointer h-2 bg-slate-200 dark:bg-slate-700 rounded-lg"
                 />
                 <div className="flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500 font-medium">
-                  <span>50% (포괄적 매칭)</span>
-                  <span>70% (표준 유사도)</span>
-                  <span>90% (초고도 일치)</span>
+                  <span>25% (폭넓은 매칭)</span>
+                  <span>35% (권장 기본)</span>
+                  <span>85% (초고도 일치)</span>
                 </div>
               </div>
 
@@ -419,9 +419,9 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
               <div className="flex items-center gap-1.5 pt-1">
                 <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mr-1">빠른 선택:</span>
                 {[
-                  { label: '60% (유연)', val: 60 },
-                  { label: '70% (표준 기본)', val: 70 },
-                  { label: '80% (정밀 엄격)', val: 80 },
+                  { label: '25% (유연)', val: 25 },
+                  { label: '35% (표준 기본)', val: 35 },
+                  { label: '50% (엄격)', val: 50 },
                 ].map((item) => (
                   <button
                     key={item.val}
@@ -495,16 +495,16 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
           </div>
           <div className="flex items-center justify-center gap-2 pt-1">
             <button
-              onClick={() => onChangeThresholds && onChangeThresholds(30, 60)}
+              onClick={() => onChangeThresholds && onChangeThresholds(20, 25)}
               className="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-xs transition active:scale-95 cursor-pointer"
             >
-              기준 완화하기 (30% / 60% 적용)
+              기준 완화하기 (20% / 25% 적용)
             </button>
             <button
-              onClick={() => onChangeThresholds && onChangeThresholds(50, 70)}
+              onClick={() => onChangeThresholds && onChangeThresholds(20, 35)}
               className="px-3.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-slate-700 transition cursor-pointer"
             >
-              기본값(50% / 70%) 복원
+              기본값(20% / 35%) 복원
             </button>
           </div>
         </div>

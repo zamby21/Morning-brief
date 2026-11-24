@@ -112,6 +112,7 @@ export interface DailyBriefing {
   briefingTime: string; // e.g. "09:00 AM"
   sourceType?: DataSourceType;
   sectorSourceType?: DataSourceType;
+  isFallback?: boolean;
   collectedAt?: string; // ISO timestamp of actual collection
   topKeywords: string[];
   keywordTrends?: Record<string, KeywordTrendData>;
@@ -119,7 +120,7 @@ export interface DailyBriefing {
   frontPageStories: NewsStory[];
   overlappingStories: NewsStory[];
   exclusiveStories: NewsStory[];
-  sectorHeadlines?: SectorHeadlineItem[]; // 4번째 기능: 건설·부동산·금융 특화 헤드라인
+  sectorHeadlines?: SectorHeadlineItem[]; // 4번째 기능: 건설·부동산·도시개발·금융 특화 헤드라인
   selectedOutletIds: string[];
   frontPageOutletIds?: string[];
   overlappingOutletIds?: string[];
@@ -142,6 +143,7 @@ export interface WeeklyIssue {
 export interface WeeklyReport {
   weekRange: string;
   sourceType?: DataSourceType;
+  isFallback?: boolean;
   overallDiagnosis: string;
   topTrendKeywords: { keyword: string; count: number }[];
   timeline: WeeklyIssue[];
@@ -153,12 +155,14 @@ export interface WeeklyReport {
   outlookNextWeek: string[];
 }
 
-export type RealEstateFinanceSector = 'all' | 'construction' | 'realestate' | 'finance';
+export type SectorCategoryKey = 'construction' | 'realestate' | 'urban' | 'finance';
+
+export type RealEstateFinanceSector = 'all' | SectorCategoryKey;
 
 export interface SectorHeadlineItem {
   id: string;
-  sector: 'construction' | 'realestate' | 'finance';
-  sectorLabel: string; // e.g. '건설·SOC' | '부동산·주택' | '금융·금리'
+  sector: SectorCategoryKey;
+  sectorLabel: string; // e.g. '건설·SOC' | '부동산·주택' | '도시개발·정비' | '금융·금리'
   outletId: string;
   outletName: string;
   title: string;
@@ -180,17 +184,18 @@ export interface SectorHeadlineItem {
   reporter?: string;
   pressSection?: string;
   sourceType?: DataSourceType;
+  isFallback?: boolean;
 }
 
 export interface SectorPreferences {
-  enabledSectors: ('construction' | 'realestate' | 'finance')[]; // 사용자가 활성화한 관심 섹터
+  enabledSectors: SectorCategoryKey[]; // 사용자가 활성화한 관심 섹터
   favoriteKeywords: string[]; // 사용자가 집중 구독하는 세부 키워드/태그
   defaultSector: RealEstateFinanceSector; // 기본 선택 탭
   onlyCrucialOrHigh?: boolean; // 중요도 높은 핵심 기사 우선 보기
 }
 
 export const DEFAULT_SECTOR_PREFERENCES: SectorPreferences = {
-  enabledSectors: ['construction', 'realestate', 'finance'],
+  enabledSectors: ['construction', 'realestate', 'urban', 'finance'],
   favoriteKeywords: [],
   defaultSector: 'all',
   onlyCrucialOrHigh: false,

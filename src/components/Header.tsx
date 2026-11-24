@@ -7,18 +7,15 @@ import {
   Calendar,
   Settings,
 } from 'lucide-react';
-import { UserPreferences } from '../types/news';
+import { UserPreferences, DataSourceType } from '../types/news';
 import { getCurrentKoreanDateString } from '../utils/dateUtils';
-import {
-  formatKoreanTimeLabel,
-  formatScheduleDaysSummary,
-  getTimezoneShortLabel,
-} from '../utils/emailScheduler';
 
 interface HeaderProps {
   preferences: UserPreferences;
   briefingDate?: string;
   briefingTime?: string;
+  sourceType?: DataSourceType;
+  isFallback?: boolean;
   onResetHome?: () => void;
   onToggleSidebar: () => void;
   isSidebarOpen: boolean;
@@ -31,9 +28,11 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  preferences,
+  preferences: _preferences,
   briefingDate,
   briefingTime,
+  sourceType,
+  isFallback,
   onResetHome,
   onToggleSidebar,
   isSidebarOpen,
@@ -44,6 +43,7 @@ export const Header: React.FC<HeaderProps> = ({
   isLoading,
   subNav,
 }) => {
+  const isMockOrFallback = Boolean(isFallback) || sourceType === 'mock';
 
   return (
     <header className="bg-white/95 dark:bg-slate-900/95 text-slate-800 dark:text-slate-100 border-b border-slate-200/90 dark:border-slate-800 sticky top-0 z-30 shadow-xs backdrop-blur-md transition-colors duration-200">
@@ -51,39 +51,33 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="bg-gradient-to-r from-blue-50 via-indigo-50/60 to-slate-50 dark:from-slate-900 dark:via-indigo-950/40 dark:to-slate-900 border-b border-blue-100/80 dark:border-slate-800 px-3 sm:px-4 py-0.5 sm:py-1 text-[11px] sm:text-xs text-slate-600 dark:text-slate-300">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden">
           <div className="flex items-center gap-1.5 min-w-0">
-            <span className="inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 shrink-0">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse mr-1.5"></span>
-              실시간 자동 갱신 {briefingTime ? `(${briefingTime})` : 'LIVE'}
-            </span>
+            {isMockOrFallback ? (
+              <span className="inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300/70 dark:border-amber-700/70 shrink-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5"></span>
+                수집 실패 · 샘플 데이터
+              </span>
+            ) : (
+              <span className="inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 shrink-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse mr-1.5"></span>
+                실시간 연동 ({briefingTime || 'LIVE'})
+              </span>
+            )}
             <span className="hidden sm:inline text-slate-300 dark:text-slate-700">|</span>
             <span className="hidden sm:inline text-slate-600 dark:text-slate-300 font-medium truncate">
-              각 언론사 홈페이지 첫화면 중앙 1면 톱기사 실시간 연동 요약
+              {isMockOrFallback
+                ? '실시간 기사 수집 실패 시 참고용 샘플 데이터를 구분해 표시합니다'
+                : '각 언론사 홈페이지 첫화면 중앙 1면 톱기사 실시간 연동 요약'}
             </span>
           </div>
 
           <div className="flex items-center gap-2 text-[10px] sm:text-xs shrink-0">
-            <span className="text-slate-500 dark:text-slate-400 hidden md:inline font-mono tabular-nums">
-              <span className="font-sans">수신 예약:</span>{' '}
-              <strong className="text-slate-800 dark:text-slate-200 font-sans">
-                {formatScheduleDaysSummary(preferences.deliveryDays)} {formatKoreanTimeLabel(preferences.deliveryTime)} ({getTimezoneShortLabel(preferences.deliveryTimezone)})
-              </strong>{' '}
-              {preferences.recipientEmail ? (
-                <span className="font-sans">({preferences.recipientEmail})</span>
-              ) : (
-                <span className="font-sans text-amber-700 dark:text-amber-300">(수신 메일 미설정)</span>
-              )}
-            </span>
             <button
               type="button"
               onClick={onOpenDashboard}
-              title="이메일 자동 발송 스케줄 설정 열기"
-              className={`inline-flex items-center gap-1 font-semibold text-[10px] sm:text-[11px] px-1.5 sm:px-2 py-0.5 rounded-full border shrink-0 cursor-pointer transition ${
-                preferences.autoEmailEnabled
-                  ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200/60 dark:border-emerald-800/70 hover:bg-emerald-100 dark:hover:bg-emerald-900/70'
-                  : 'text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
+              title="이메일 뉴스레터 HTML 미리보기 열기 (실제 자동 발송 미연동)"
+              className="inline-flex items-center gap-1 font-semibold text-[10px] sm:text-[11px] px-2 py-0.5 rounded-full border shrink-0 cursor-pointer transition text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700"
             >
-              <span>{preferences.autoEmailEnabled ? '자동 발송 ON' : '자동 발송 OFF'}</span>
+              <span>뉴스레터 미리보기</span>
             </button>
           </div>
         </div>
@@ -139,10 +133,16 @@ export const Header: React.FC<HeaderProps> = ({
                   <Calendar className="w-2.5 h-2.5 text-blue-600 dark:text-blue-400" />
                   <span>{(briefingDate || getCurrentKoreanDateString()).replace(/^\d{4}[년\.\-]\s*/, '')}</span>
                 </span>
-                <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-600 text-white shadow-2xs">
-                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
-                  LIVE
-                </span>
+                {isMockOrFallback ? (
+                  <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-amber-500 text-white shadow-2xs">
+                    샘플
+                  </span>
+                ) : (
+                  <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-600 text-white shadow-2xs">
+                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                    LIVE
+                  </span>
+                )}
               </div>
             </div>
           </button>

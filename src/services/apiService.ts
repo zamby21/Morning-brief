@@ -1,8 +1,6 @@
 import { DailyBriefing, EmailDispatchLog, WeeklyReport, BriefingTone } from '../types/news';
 import { INITIAL_DAILY_BRIEFING, MOCK_WEEKLY_REPORT } from '../data/mockNewsData';
 import { transformBriefingTone } from '../utils/toneTransformer';
-import { getCurrentKoreanDateString } from '../utils/dateUtils';
-import { ensureFrontPageStories } from '../utils/outletStories';
 import { escapeHtml, sanitizeHttpUrl } from '../utils/htmlSanitizer';
 
 // In-memory preview logs for offline/static client sessions (external mail provider not connected)
@@ -115,14 +113,12 @@ export async function fetchSummary(
     console.warn('API /api/summarize unreachable or failed, using local sample fallback:', err);
   }
 
-  // Graceful client-side sample fallback (explicitly marked as mock)
+  // Graceful client-side sample fallback (explicitly marked as mock + isFallback, no forged dates or synthetic stories)
   const fallback = transformBriefingTone(
-    { ...INITIAL_DAILY_BRIEFING, sourceType: 'mock', sectorSourceType: 'mock' },
+    { ...INITIAL_DAILY_BRIEFING, sourceType: 'mock', sectorSourceType: 'mock', isFallback: true },
     tone
   );
-  fallback.briefingDate = getCurrentKoreanDateString();
   fallback.selectedOutletIds = outletIds && outletIds.length > 0 ? outletIds : fallback.selectedOutletIds;
-  fallback.frontPageStories = ensureFrontPageStories(fallback.frontPageStories, fallback.selectedOutletIds);
 
   return {
     data: fallback,
@@ -138,7 +134,11 @@ export async function rewriteTone(
     const res = await fetch('/api/rewrite-tone', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ currentBriefing, targetTone }),
+      body: JSON.stringify({
+        briefingId: currentBriefing?.id,
+        currentBriefing,
+        targetTone,
+      }),
     });
     if (res.ok) {
       const data = await res.json();
@@ -169,7 +169,7 @@ export async function fetchWeeklyReport(): Promise<WeeklyReport> {
     console.warn('API /api/weekly-report unreachable, using local sample report:', err);
   }
 
-  return { ...MOCK_WEEKLY_REPORT, sourceType: 'mock' };
+  return { ...MOCK_WEEKLY_REPORT, sourceType: 'mock', isFallback: true };
 }
 
 export async function sendEmailBriefing(
@@ -190,7 +190,12 @@ export async function sendEmailBriefing(
     const res = await fetch('/api/send-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ recipient: targetEmail, briefing, scheduledTime }),
+      body: JSON.stringify({
+        recipient: targetEmail,
+        briefingId: briefing?.id,
+        briefing,
+        scheduledTime,
+      }),
     });
     if (res.ok) {
       const data = await res.json();

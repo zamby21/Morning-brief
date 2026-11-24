@@ -73,7 +73,7 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
               )}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              다른 언론사에는 없는 해당 언론사만의 단독 취재 및 차별화된 심층 기획 보도입니다.
+              제목에 [단독]이 명시되고 타 언론사 중복 보도가 없는 기사만 엄선합니다.
             </p>
           </div>
         </div>
@@ -136,7 +136,7 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
         </div>
       ) : stories.length === 0 ? (
         <div className="text-center py-10 bg-white dark:bg-slate-900/90 rounded-2xl border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 text-sm shadow-xs">
-          선택하신 필터에 해당하는 단독 기사가 없습니다.
+          현재 수집된 기사 중 타사 중복 없이 확인된 [단독] 보도가 없습니다.
         </div>
       ) : (
         <div className={isMobileView ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 lg:grid-cols-2 gap-4"}>
@@ -203,7 +203,7 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
                         ? 'text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300'
                         : 'text-slate-900 dark:text-slate-100 group-hover:text-rose-600 dark:group-hover:text-rose-400'
                     }`}
-                    title={isRead ? '읽은 기사 · 클릭하여 다시 확인' : '원기사 전문 및 포털 확인'}
+                    title={isRead ? '읽은 기사 · 클릭하여 다시 확인' : '원기사 발췌 및 포털 확인'}
                   >
                     {story.title}
                   </h3>

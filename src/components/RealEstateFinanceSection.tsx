@@ -25,6 +25,7 @@ import {
 import {
   SectorHeadlineItem,
   RealEstateFinanceSector,
+  SectorCategoryKey,
   NewsStory,
   SectorPreferences,
   BriefingTone,
@@ -48,6 +49,8 @@ const PRESET_KEYWORDS = [
   '분상제·로또청약',
   '1기신도시·선도지구',
   '재건축·정비사업',
+  '도시개발·복합개발',
+  '모아타운·신속통합',
   '주택공급대책',
   '기준금리인하',
   '부동산PF·정상화',
@@ -161,12 +164,22 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
       all: headlines.length,
       construction: headlines.filter((h) => h.sector === 'construction').length,
       realestate: headlines.filter((h) => h.sector === 'realestate').length,
+      urban: headlines.filter((h) => h.sector === 'urban').length,
       finance: headlines.filter((h) => h.sector === 'finance').length,
       myFavoritesCount: headlines.filter((h) =>
         doesItemMatchFavorites(h, prefs.favoriteKeywords)
       ).length,
     };
   }, [headlines, prefs.favoriteKeywords]);
+
+  const latestBySector = useMemo(() => {
+    return {
+      construction: headlines.find((h) => h.sector === 'construction'),
+      realestate: headlines.find((h) => h.sector === 'realestate'),
+      urban: headlines.find((h) => h.sector === 'urban'),
+      finance: headlines.find((h) => h.sector === 'finance'),
+    };
+  }, [headlines]);
 
   // Filtered and sorted headlines based on sector tab, preferences, keywords, search
   const filteredHeadlines = useMemo(() => {
@@ -248,9 +261,9 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
   };
 
   // Toggle Sector in preferences
-  const handleToggleSector = (sector: 'construction' | 'realestate' | 'finance') => {
-    const current = prefs.enabledSectors || ['construction', 'realestate', 'finance'];
-    let next: ('construction' | 'realestate' | 'finance')[];
+  const handleToggleSector = (sector: SectorCategoryKey) => {
+    const current = prefs.enabledSectors || ['construction', 'realestate', 'urban', 'finance'];
+    let next: SectorCategoryKey[];
     if (current.includes(sector)) {
       if (current.length === 1) {
         // Prevent deselecting all
@@ -345,6 +358,8 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
         ? '건설·SOC 인프라 시장에서는 대형 수주 물량과 공사비 정상화 여부가 업계 수익성을 좌우할 핵심 변수로 꼽힌다.'
         : item.sector === 'realestate'
         ? '주택·부동산 시장에서는 입지별 수급 불균형과 대출·세제 정책 변화가 실수요자의 매수 심리에 직접적인 영향을 미치고 있다.'
+        : item.sector === 'urban'
+        ? '도시개발·정비 시장에서는 재건축·재개발 인허가 속도와 신도시·역세권 복합개발 계획이 향후 도심 공급의 핵심 축으로 작용하고 있다.'
         : '금융·자본시장에서는 기준금리 경로와 가계부채·부동산 PF 건전성 관리 속도가 향후 투자 흐름의 분수령이 될 전망이다.';
 
     return [
@@ -363,6 +378,8 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
         ? '건설·산업부'
         : item.sector === 'realestate'
         ? '부동산부'
+        : item.sector === 'urban'
+        ? '도시개발·정비부'
         : '금융부';
 
     return {
@@ -387,12 +404,12 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
       articleBlocks: item.articleBlocks,
       leadImage: item.leadImage,
       leadImageCaption: item.leadImageCaption,
-      reactions: { insightful: 32, important: 75, surprising: 12 },
+      reactions: { insightful: 0, important: 0, surprising: 0 },
     };
   };
 
   const isCustomized =
-    prefs.enabledSectors.length < 3 ||
+    prefs.enabledSectors.length < 4 ||
     prefs.favoriteKeywords.length > 0 ||
     prefs.onlyCrucialOrHigh ||
     prefs.defaultSector !== 'all';
@@ -437,7 +454,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                 )}
               </div>
               <h2 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight flex flex-wrap items-center gap-2">
-                <span>4. 건설 · 부동산 · 금융 실시간 헤드라인 모아보기</span>
+                <span>4. 건설 · 부동산 · 도시개발 · 금융 실시간 헤드라인 모아보기</span>
                 <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-500 text-white shadow-xs">
                   총 {headlines.length}건 집계
                 </span>
@@ -449,7 +466,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                 )}
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                건설 수주 및 SOC 국책사업, 수도권 청약/부동산 대책, 기준금리 및 부동산 PF 구조조정 헤드라인을 섹터별로 한눈에 정리합니다.
+                건설 수주 및 SOC 사업, 부동산·청약 대책, 도시개발·재건축·신도시 정비, 기준금리 및 부동산 PF 헤드라인을 섹터별로 한눈에 정리합니다.
               </p>
             </div>
           </div>
@@ -458,7 +475,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
           <div className="flex items-center gap-2 self-start sm:self-center shrink-0 flex-wrap">
             <SectionAudioButton
               sectionId="realestate-finance"
-              sectionLabel="건설·부동산·금융 헤드라인"
+              sectionLabel="건설·부동산·도시개발·금융 헤드라인"
               items={speechItems}
               accent="amber"
             />
@@ -527,7 +544,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                     <SlidersHorizontal className="w-4 h-4 text-amber-700 dark:text-amber-400" />
                     <div>
                       <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                        건설 · 부동산 · 금융 관심분야 개인 맞춤 설정 (영구 저장)
+                        건설 · 부동산 · 도시개발 · 금융 관심분야 개인 맞춤 설정 (영구 저장)
                       </h4>
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                         원하시는 섹터와 키워드를 지정하면 브라우저에 자동 저장되어 다음 방문 시에도 동일하게 유지됩니다.
@@ -585,11 +602,11 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                       <span>① 활성화할 관심 섹터 (원하는 섹터만 선택 가능)</span>
                     </span>
                     <span className="text-[11px] text-slate-500 dark:text-slate-400 font-normal">
-                      선택된 섹터: {prefs.enabledSectors.length}개 / 3개
+                      선택된 섹터: {prefs.enabledSectors.length}개 / 4개
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                     {/* Construction */}
                     <label
                       onClick={() => handleToggleSector('construction')}
@@ -610,7 +627,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                           <span>🏗️ 건설·시공·SOC</span>
                         </div>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
-                          GTX 민자사업, 토목 수주, K-원전·플랜트 해외수주, 공사비 현실화 등
+                          GTX·SOC 민자사업, 토목·해외 플랜트 수주, 공사비 현실화 등
                         </p>
                       </div>
                     </label>
@@ -632,10 +649,35 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                       />
                       <div className="text-left text-xs">
                         <div className="font-bold text-emerald-900 dark:text-emerald-300 flex items-center gap-1">
-                          <span>🏢 부동산·청약·정비</span>
+                          <span>🏢 부동산·청약·주택</span>
                         </div>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
-                          강남 분상제 로또청약, 1기 신도시 선도지구, 3기 신도시, 재건축·재개발 등
+                          수도권 분양·청약, 전월세·주택 공급 대책, 대출·세제 정책 등
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* Urban Development */}
+                    <label
+                      onClick={() => handleToggleSector('urban')}
+                      className={`p-3 rounded-2xl border transition cursor-pointer flex items-start gap-3 select-none ${
+                        prefs.enabledSectors.includes('urban')
+                          ? 'bg-white dark:bg-slate-800 border-cyan-400 dark:border-cyan-500 shadow-xs ring-1 ring-cyan-300 dark:ring-cyan-500/40'
+                          : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 opacity-60 hover:opacity-100'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={prefs.enabledSectors.includes('urban')}
+                        onChange={() => {}}
+                        className="mt-0.5 w-4 h-4 text-cyan-600 rounded cursor-pointer pointer-events-none"
+                      />
+                      <div className="text-left text-xs">
+                        <div className="font-bold text-cyan-900 dark:text-cyan-300 flex items-center gap-1">
+                          <span>🏙️ 도시개발·정비·신도시</span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+                          재건축·재개발 정비구역, 1·3기 신도시, 역세권 복합개발·모아타운 등
                         </p>
                       </div>
                     </label>
@@ -660,7 +702,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                           <span>📈 금융·금리·부동산PF</span>
                         </div>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
-                          한은 기준금리 피벗, 20조 PF 정상화펀드, 스트레스 DSR, 리츠 배당 등
+                          기준금리·통화정책, 부동산 PF 정상화, 스트레스 DSR, 금융시장 동향 등
                         </p>
                       </div>
                     </label>
@@ -758,6 +800,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                         { id: 'all', label: '전체' },
                         { id: 'construction', label: '건설' },
                         { id: 'realestate', label: '부동산' },
+                        { id: 'urban', label: '도시개발' },
                         { id: 'finance', label: '금융' },
                       ] as const
                     ).map((tab) => (
@@ -814,12 +857,12 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
               </div>
             )}
 
-            {/* Top 3-Sector Key Takeaway Cards */}
+            {/* Top 4-Sector Live Key Takeaway Cards (Dynamic from collected headlines) */}
             <div
               className={
                 isMobileView
                   ? 'grid grid-cols-1 gap-2.5'
-                  : 'grid grid-cols-1 md:grid-cols-3 gap-3'
+                  : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3'
               }
             >
               {/* Construction Card */}
@@ -827,15 +870,16 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                 <div className="bg-gradient-to-br from-amber-50/80 to-white dark:from-amber-950/35 dark:to-slate-900 border border-amber-200/80 dark:border-amber-800/60 rounded-2xl p-3.5 shadow-2xs">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-bold text-amber-900 dark:text-amber-300 flex items-center gap-1.5">
-                      <span className="text-base">🏗️</span> 건설·SOC 인프라 동향
+                      <span className="text-base">🏗️</span> 건설·SOC 동향
                     </span>
                     <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-200 dark:bg-amber-900/80 text-amber-900 dark:text-amber-200">
                       {sectorCounts.construction}건
                     </span>
                   </div>
-                  <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-                    수도권 <strong>GTX 복선전철 민자 수주</strong>와{' '}
-                    <strong>K-원전·플랜트 해외 200억 달러</strong> 파이프라인 가동으로 하반기 수주 반등 조짐이 나타나고 있습니다.
+                  <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed line-clamp-2">
+                    {latestBySector.construction
+                      ? `[${latestBySector.construction.outletName}] ${latestBySector.construction.title}`
+                      : '수집된 최신 건설·SOC 기사가 없습니다.'}
                   </p>
                 </div>
               )}
@@ -851,9 +895,29 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                       {sectorCounts.realestate}건
                     </span>
                   </div>
-                  <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-                    서울 강남권 <strong>분상제 로또 청약 쏠림(최고 380:1)</strong>과{' '}
-                    <strong>1기 신도시 선도지구 특별정비계획(용적률 450%)</strong> 심의가 핵심 쟁점입니다.
+                  <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed line-clamp-2">
+                    {latestBySector.realestate
+                      ? `[${latestBySector.realestate.outletName}] ${latestBySector.realestate.title}`
+                      : '수집된 최신 부동산·주택 기사가 없습니다.'}
+                  </p>
+                </div>
+              )}
+
+              {/* Urban Development Card */}
+              {prefs.enabledSectors.includes('urban') && (
+                <div className="bg-gradient-to-br from-cyan-50/80 to-white dark:from-cyan-950/35 dark:to-slate-900 border border-cyan-200/80 dark:border-cyan-800/60 rounded-2xl p-3.5 shadow-2xs">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-cyan-900 dark:text-cyan-300 flex items-center gap-1.5">
+                      <span className="text-base">🏙️</span> 도시개발·정비 동향
+                    </span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-cyan-200 dark:bg-cyan-900/80 text-cyan-900 dark:text-cyan-200">
+                      {sectorCounts.urban}건
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed line-clamp-2">
+                    {latestBySector.urban
+                      ? `[${latestBySector.urban.outletName}] ${latestBySector.urban.title}`
+                      : '수집된 최신 도시개발·정비 기사가 없습니다.'}
                   </p>
                 </div>
               )}
@@ -869,9 +933,10 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                       {sectorCounts.finance}건
                     </span>
                   </div>
-                  <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-                    한국은행 <strong>추가 기준금리 인하 검토</strong>와{' '}
-                    <strong>20조 원 부동산 PF 정상화 펀드</strong> 가동으로 부실 사업장 구조조정이 속도를 내고 있습니다.
+                  <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed line-clamp-2">
+                    {latestBySector.finance
+                      ? `[${latestBySector.finance.outletName}] ${latestBySector.finance.title}`
+                      : '수집된 최신 금융·금리·PF 기사가 없습니다.'}
                   </p>
                 </div>
               )}
@@ -941,6 +1006,28 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                       }`}
                     >
                       {sectorCounts.realestate}
+                    </span>
+                  </button>
+                )}
+
+                {prefs.enabledSectors.includes('urban') && (
+                  <button
+                    onClick={() => setSelectedSector('urban')}
+                    className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                      selectedSector === 'urban'
+                        ? 'bg-cyan-600 text-white shadow-xs'
+                        : 'bg-white dark:bg-slate-800 text-cyan-800 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800/70 hover:bg-cyan-50 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    <span>🏙️ 도시개발·정비</span>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                        selectedSector === 'urban'
+                          ? 'bg-cyan-800 text-white'
+                          : 'bg-cyan-100 dark:bg-cyan-950/70 text-cyan-800 dark:text-cyan-300'
+                      }`}
+                    >
+                      {sectorCounts.urban}
                     </span>
                   </button>
                 )}
@@ -1044,7 +1131,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                     <span>개인 관심설정 적용:</span>
                   </span>
                   <span className="text-slate-600 dark:text-slate-300">
-                    섹터 ({prefs.enabledSectors.map((s) => s === 'construction' ? '건설' : s === 'realestate' ? '부동산' : '금융').join(', ')})
+                    섹터 ({prefs.enabledSectors.map((s) => s === 'construction' ? '건설' : s === 'realestate' ? '부동산' : s === 'urban' ? '도시개발' : '금융').join(', ')})
                   </span>
                   {prefs.favoriteKeywords.length > 0 && (
                     <span className="text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/70 px-2 py-0.5 rounded-full font-medium text-[11px]">
@@ -1093,6 +1180,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                 {filteredHeadlines.map((item) => {
                   const isConstruction = item.sector === 'construction';
                   const isRealEstate = item.sector === 'realestate';
+                  const isUrban = item.sector === 'urban';
                   const outletMeta = PRESS_OUTLETS.find(
                     (p) => p.id === item.outletId || p.name === item.outletName
                   );
@@ -1102,12 +1190,16 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                     ? 'border-l-amber-500'
                     : isRealEstate
                     ? 'border-l-emerald-500'
+                    : isUrban
+                    ? 'border-l-cyan-500'
                     : 'border-l-indigo-500';
 
                   const badgeBg = isConstruction
                     ? 'bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 border-amber-200 dark:border-amber-800'
                     : isRealEstate
                     ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-900 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                    : isUrban
+                    ? 'bg-cyan-100 dark:bg-cyan-950/70 text-cyan-900 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800'
                     : 'bg-indigo-100 dark:bg-indigo-950/70 text-indigo-900 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800';
 
                   const isRead = isArticleRead(readArticleKeys, item);
@@ -1187,7 +1279,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                               ? 'text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300'
                               : 'text-slate-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400'
                           }`}
-                          title={isRead ? '읽은 기사 · 클릭하여 다시 확인' : '원기사 전문 및 포털 확인'}
+                          title={isRead ? '읽은 기사 · 클릭하여 다시 확인' : '원기사 발췌 및 포털 확인'}
                         >
                           {item.title}
                         </h3>
