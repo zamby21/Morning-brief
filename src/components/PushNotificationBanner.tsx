@@ -17,16 +17,29 @@ export const PushNotificationBanner: React.FC<PushNotificationBannerProps> = ({
   pushMessage,
 }) => {
   if (pushMessage) {
+    const isLocalRegionAlert = pushMessage.startsWith('[내 지역 뉴스 알림');
     return (
       <div className="fixed bottom-5 right-5 z-50 max-w-sm w-full bg-white dark:bg-slate-900 border border-purple-300 dark:border-purple-700 rounded-2xl p-4 shadow-xl animate-in slide-in-from-bottom-5 duration-300 text-slate-800 dark:text-slate-100">
         <div className="flex items-start gap-3">
-          <div className="p-2 rounded-xl bg-purple-600 text-white shrink-0 shadow-xs">
+          <div
+            className={`p-2 rounded-xl text-white shrink-0 shadow-xs ${
+              isLocalRegionAlert ? 'bg-amber-600' : 'bg-purple-600'
+            }`}
+          >
             <Bell className="w-5 h-5 animate-bounce" />
           </div>
           <div className="flex-1">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-purple-700 dark:text-purple-300">
-                [모닝브리프 AI 모바일 푸시 알림]
+              <span
+                className={`text-xs font-bold ${
+                  isLocalRegionAlert
+                    ? 'text-amber-700 dark:text-amber-300'
+                    : 'text-purple-700 dark:text-purple-300'
+                }`}
+              >
+                {isLocalRegionAlert
+                  ? '[내 지역 뉴스 실시간 알림]'
+                  : '[모닝브리프 AI 모바일 푸시 알림]'}
               </span>
               <button
                 onClick={onClose}
@@ -40,7 +53,11 @@ export const PushNotificationBanner: React.FC<PushNotificationBannerProps> = ({
             </p>
             <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1.5 flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-              <span>오전 09:00 정각 알림 시스템 연동됨</span>
+              <span>
+                {isLocalRegionAlert
+                  ? '선택 지자체 주요 기사 실시간 감지됨'
+                  : '오전 09:00 정각 알림 시스템 연동됨'}
+              </span>
             </div>
           </div>
         </div>

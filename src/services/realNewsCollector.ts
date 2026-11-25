@@ -8,7 +8,7 @@ import type {
   SectorHeadlineItem,
   ArticleContentBlock,
 } from '../types/news.ts';
-import { PRESS_OUTLETS, DEFAULT_10_OUTLETS } from '../data/mockNewsData.ts';
+import { PRESS_OUTLETS, DEFAULT_10_OUTLETS, SAMPLE_DATA_SNAPSHOT_DATE } from '../data/mockNewsData.ts';
 import { getCurrentKoreanDateString } from '../utils/dateUtils.ts';
 import { extractSearchKeywords, getOfficialOutletHomepage } from '../utils/linkUtils.ts';
 import { transformBriefingTone } from '../utils/toneTransformer.ts';
@@ -2670,11 +2670,12 @@ export function buildRealBriefing(
 
   const rawBriefing: DailyBriefing = {
     id: `briefing-real-${Date.now()}`,
-    briefingDate: todayFormatted,
+    briefingDate: hasLiveFrontPage ? todayFormatted : `샘플 시점 (${SAMPLE_DATA_SNAPSHOT_DATE})`,
     briefingTime: hasLiveFrontPage ? `${nowKstTime} 수집` : '수집 실패',
     sourceType: hasLiveFrontPage ? 'live' : 'mock',
     sectorSourceType: hasLiveSector ? 'live' : 'mock',
     isFallback: !hasLiveFrontPage,
+    ...(hasLiveFrontPage ? {} : { sampleSnapshotDate: SAMPLE_DATA_SNAPSHOT_DATE }),
     collectedAt: collectedAtIso,
     topKeywords,
     keywordTrends,

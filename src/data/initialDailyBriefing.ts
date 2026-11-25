@@ -2,17 +2,20 @@ import type { DailyBriefing } from '../types/news.ts';
 const DEFAULT_10_OUTLETS = ['chosun', 'joongang', 'donga', 'hani', 'khan', 'mk', 'hankyung', 'sedaily', 'herald', 'asiae'];
 import { MOCK_SECTOR_HEADLINES } from './mockSectorHeadlines.ts';
 
-const SAMPLE_TIMESTAMP = '샘플 데이터';
+export const SAMPLE_DATA_SNAPSHOT_DATE = '2026-11-12';
+
+const SAMPLE_TIMESTAMP = `샘플 (${SAMPLE_DATA_SNAPSHOT_DATE})`;
 
 const getCurrentKoreanDateString = () => SAMPLE_TIMESTAMP;
 
 export const INITIAL_DAILY_BRIEFING: DailyBriefing = {
   id: 'briefing-sample-fallback',
-  briefingDate: '샘플 브리핑',
-  briefingTime: '샘플 데이터',
+  briefingDate: `샘플 시점 (${SAMPLE_DATA_SNAPSHOT_DATE})`,
+  briefingTime: `샘플 (${SAMPLE_DATA_SNAPSHOT_DATE})`,
   sourceType: 'mock',
   sectorSourceType: 'mock',
   isFallback: true,
+  sampleSnapshotDate: SAMPLE_DATA_SNAPSHOT_DATE,
   topKeywords: [
     '#짙은안개출근길',
     '#엔비디아젠슨황',

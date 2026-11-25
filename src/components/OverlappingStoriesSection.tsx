@@ -17,6 +17,7 @@ import { NewsStory } from '../types/news';
 import { isArticleRead } from '../utils/readArticles';
 import { SectionAudioButton, useActiveSectionSpeechItemId } from './SectionAudioButton';
 import type { SpeechBriefingItem } from '../utils/sectionSpeechPlayer';
+import { FallbackBadge } from './FallbackNotice';
 
 interface OverlappingStoriesSectionProps {
   stories: NewsStory[];
@@ -35,6 +36,7 @@ interface OverlappingStoriesSectionProps {
   totalSelectedOutletsCount?: number;
   totalAvailableStoriesCount?: number;
   readArticleKeys?: ReadonlySet<string>;
+  isFallback?: boolean;
 }
 
 const getBundledArticleCount = (story: NewsStory): number =>
@@ -114,6 +116,7 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
   totalSelectedOutletsCount = 10,
   totalAvailableStoriesCount,
   readArticleKeys,
+  isFallback = false,
 }) => {
   const [isAdjustPanelOpen, setIsAdjustPanelOpen] = useState(false);
   const [savedBadge, setSavedBadge] = useState(false);
@@ -155,7 +158,14 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
   const minRequiredOutlets = Math.max(3, Math.ceil(totalSelectedOutletsCount * (minCoverageRatio / 100)));
 
   return (
-    <section id="section-overlapping" className="bg-gradient-to-b from-purple-50/80 via-purple-50/40 to-white/90 dark:from-purple-950/35 dark:via-slate-900/90 dark:to-slate-900 border border-purple-200/80 dark:border-purple-900/60 rounded-3xl p-4 sm:p-6 space-y-4 scroll-mt-24 shadow-2xs transition-colors">
+    <section
+      id="section-overlapping"
+      className={`rounded-3xl p-4 sm:p-6 space-y-4 scroll-mt-24 shadow-2xs transition-colors border ${
+        isFallback
+          ? 'bg-gradient-to-b from-amber-50/55 via-white to-white dark:from-amber-950/20 dark:via-slate-900/95 dark:to-slate-900 border-amber-300/90 dark:border-amber-700/70'
+          : 'bg-gradient-to-b from-purple-50/80 via-purple-50/40 to-white/90 dark:from-purple-950/35 dark:via-slate-900/90 dark:to-slate-900 border-purple-200/80 dark:border-purple-900/60'
+      }`}
+    >
       {/* Section Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-purple-200/80 dark:border-purple-900/60">
         <div className="flex items-center gap-2.5">
@@ -170,6 +180,9 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
                 주요 {stories.length}대 어젠다
               </span>
+              {isFallback && (
+                <FallbackBadge label="수집 실패 · 샘플 데이터" size="xs" variant="solid" />
+              )}
               {readCount > 0 && (
                 <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
                   <Check className="w-3 h-3" />
@@ -602,11 +615,15 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
                         </span>
                       )}
                     </div>
-                    <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">
-                      {(story.publishedAt && story.publishedAt.includes(' ')
-                        ? story.publishedAt.split(' ')[1]
-                        : story.publishedAt) || '09:00'} 집계
-                    </span>
+                    {isFallback ? (
+                      <FallbackBadge label="샘플 데이터" size="xs" variant="outline" />
+                    ) : (
+                      <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">
+                        {(story.publishedAt && story.publishedAt.includes(' ')
+                          ? story.publishedAt.split(' ')[1]
+                          : story.publishedAt) || '09:00'} 집계
+                      </span>
+                    )}
                   </div>
 
                   {/* Covered Outlet Badges */}

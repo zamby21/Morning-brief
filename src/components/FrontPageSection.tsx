@@ -12,6 +12,7 @@ import { PRESS_OUTLETS } from '../data/mockNewsData';
 import { isArticleRead } from '../utils/readArticles';
 import { SectionAudioButton, useActiveSectionSpeechItemId } from './SectionAudioButton';
 import type { SpeechBriefingItem } from '../utils/sectionSpeechPlayer';
+import { FallbackBadge } from './FallbackNotice';
 
 interface FrontPageSectionProps {
   stories: NewsStory[];
@@ -25,6 +26,7 @@ interface FrontPageSectionProps {
   isMobileView?: boolean;
   lastSyncedTime?: string;
   readArticleKeys?: ReadonlySet<string>;
+  isFallback?: boolean;
 }
 
 export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
@@ -39,6 +41,7 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
   isMobileView = false,
   lastSyncedTime,
   readArticleKeys,
+  isFallback = false,
 }) => {
   const readCount = stories.filter((story) => isArticleRead(readArticleKeys, story)).length;
   const activeSpeechItemId = useActiveSectionSpeechItemId('frontpage');
@@ -56,7 +59,14 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
   );
 
   return (
-    <section id="section-frontpage" className="bg-gradient-to-b from-blue-50/80 via-blue-50/40 to-white/90 dark:from-blue-950/35 dark:via-slate-900/90 dark:to-slate-900 border border-blue-200/80 dark:border-blue-900/60 rounded-3xl p-4 sm:p-6 space-y-4 scroll-mt-24 shadow-2xs transition-colors">
+    <section
+      id="section-frontpage"
+      className={`rounded-3xl p-4 sm:p-6 space-y-4 scroll-mt-24 shadow-2xs transition-colors border ${
+        isFallback
+          ? 'bg-gradient-to-b from-amber-50/60 via-white to-white dark:from-amber-950/25 dark:via-slate-900/95 dark:to-slate-900 border-amber-300/90 dark:border-amber-700/70'
+          : 'bg-gradient-to-b from-blue-50/80 via-blue-50/40 to-white/90 dark:from-blue-950/35 dark:via-slate-900/90 dark:to-slate-900 border-blue-200/80 dark:border-blue-900/60'
+      }`}
+    >
       {/* Section Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-blue-200/80 dark:border-blue-900/60">
         <div className="flex items-center gap-2.5">
@@ -77,13 +87,18 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
                   <span>읽음 {readCount}</span>
                 </span>
               )}
-              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>{lastSyncedTime || '실시간 자동 갱신'}</span>
-              </span>
+              {isFallback ? (
+                <FallbackBadge label="수집 실패 · 샘플 데이터" size="xs" variant="solid" />
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                  <span>{lastSyncedTime || '실시간 연동'}</span>
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              각 언론사 공식 홈페이지 첫화면 중앙에 가장 크게 떠있는 톱기사를 알림 시각과 무관하게 실시간으로 계속 갱신·요약합니다.
+              {isFallback
+                ? '실시간 1면 수집에 실패하여 화면 구조 확인용 샘플 기사를 표시하고 있습니다.'
+                : '각 언론사 공식 홈페이지 첫화면 중앙에 가장 크게 떠있는 톱기사를 알림 시각과 무관하게 실시간으로 계속 갱신·요약합니다.'}
             </p>
           </div>
         </div>
@@ -177,8 +192,14 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
                       >
                         {outletMeta?.logoText || story.outletName}
                       </span>
-                      <span className="text-[11px] font-bold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/70 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
-                        첫화면 중앙 톱
+                      <span
+                        className={`text-[11px] font-bold px-2 py-0.5 rounded border ${
+                          isFallback
+                            ? 'text-amber-900 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/70 border-amber-300 dark:border-amber-700'
+                            : 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/70 border-blue-200 dark:border-blue-800'
+                        }`}
+                      >
+                        {isFallback ? '샘플 예시' : '첫화면 중앙 톱'}
                       </span>
                       {story.topic && (
                         <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
@@ -200,11 +221,15 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
                     </div>
 
                     <div className="flex items-center gap-1.5 shrink-0">
-                      <span className="text-[11px] text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 px-2 py-0.5 rounded font-semibold border border-emerald-200/70 dark:border-emerald-800/70">
-                        {(story.publishedAt && story.publishedAt.includes(' ')
-                          ? story.publishedAt.split(' ').slice(1).join(' ')
-                          : story.publishedAt) || '실시간'}
-                      </span>
+                      {isFallback ? (
+                        <FallbackBadge label="샘플 데이터" size="xs" variant="outline" />
+                      ) : (
+                        <span className="text-[11px] text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 px-2 py-0.5 rounded font-semibold border border-emerald-200/70 dark:border-emerald-800/70">
+                          {(story.publishedAt && story.publishedAt.includes(' ')
+                            ? story.publishedAt.split(' ').slice(1).join(' ')
+                            : story.publishedAt) || '실시간'}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -216,7 +241,7 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
                         ? 'text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300'
                         : 'text-slate-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400'
                     }`}
-                    title={isRead ? '읽은 기사 · 클릭하여 다시 확인' : '원기사 전문 및 포털 확인'}
+                    title={isRead ? '읽은 기사 · 클릭하여 다시 확인' : '원기사 발췌 및 포털 확인'}
                   >
                     {story.title}
                   </h3>

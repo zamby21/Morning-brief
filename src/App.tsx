@@ -3,7 +3,7 @@ import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { KeywordTags } from './components/KeywordTags';
 import { ToneModal } from './components/ToneModal';
-import { TopicFilter } from './components/TopicFilter';
+import { TopicFilter, SUBSCRIBED_ONLY_TOPIC } from './components/TopicFilter';
 import { FrontPageSection } from './components/FrontPageSection';
 import { OverlappingStoriesSection } from './components/OverlappingStoriesSection';
 import { ExclusiveStoriesSection } from './components/ExclusiveStoriesSection';
@@ -16,6 +16,7 @@ import { ArticleModal } from './components/ArticleModal';
 import { PushNotificationBanner } from './components/PushNotificationBanner';
 import { ThemeModal } from './components/ThemeModal';
 import { EmailScheduleValues } from './components/EmailSchedulerPanel';
+import { FallbackNoticeBanner, FallbackBadge } from './components/FallbackNotice';
 
 import {
   INITIAL_DAILY_BRIEFING,
@@ -23,8 +24,10 @@ import {
   MOCK_WEEKLY_REPORT,
   DEFAULT_10_OUTLETS,
   PRESS_OUTLETS,
+  SAMPLE_DATA_SNAPSHOT_DATE,
+  AVAILABLE_TOPICS,
 } from './data/mockNewsData';
-import { getCurrentKoreanDateString } from './utils/dateUtils';
+import { getCurrentKoreanDateString, getCurrentYMD } from './utils/dateUtils';
 import {
   DailyBriefing,
   UserPreferences,
@@ -33,9 +36,11 @@ import {
   NewsStory,
   BriefingTone,
   SectorPreferences,
+  SectorHeadlineItem,
   ThemeMode,
   DEFAULT_SECTOR_PREFERENCES,
 } from './types/news';
+import { getRegionByCode, matchesRegionFilter } from './utils/koreanRegions';
 import {
   applyThemeToDocument,
   formatTimeHHMM,
@@ -71,7 +76,7 @@ import {
   ChevronDown,
   ChevronUp,
   Building,
-  AlertTriangle,
+  Info,
   RefreshCw,
 } from 'lucide-react';
 
@@ -144,6 +149,15 @@ const loadSavedPreferences = (): UserPreferences => {
                 : [],
               defaultSector: parsed.sectorPreferences.defaultSector || 'all',
               onlyCrucialOrHigh: !!parsed.sectorPreferences.onlyCrucialOrHigh,
+              localNewsAlertEnabled: !!parsed.sectorPreferences.localNewsAlertEnabled,
+              selectedRegionSido:
+                typeof parsed.sectorPreferences.selectedRegionSido === 'string'
+                  ? parsed.sectorPreferences.selectedRegionSido
+                  : 'all',
+              selectedRegionSigungu:
+                typeof parsed.sectorPreferences.selectedRegionSigungu === 'string'
+                  ? parsed.sectorPreferences.selectedRegionSigungu
+                  : 'all',
             }
           : DEFAULT_SECTOR_PREFERENCES;
 
@@ -152,12 +166,17 @@ const loadSavedPreferences = (): UserPreferences => {
           ? parsed.theme
           : storedDirectTheme;
 
+        const validCustomTopics = Array.isArray(parsed.customTopics)
+          ? parsed.customTopics.filter((t: unknown): t is string => typeof t === 'string' && t.trim().length > 0 && t !== '전체')
+          : AVAILABLE_TOPICS.filter((t) => t !== '전체');
+
         return {
           ...INITIAL_USER_PREFERENCES,
           ...parsed,
           preferredTone: parsed.toneExplicitlySelected && parsed.preferredTone ? parsed.preferredTone : 'insight',
           toneExplicitlySelected: Boolean(parsed.toneExplicitlySelected),
           theme: resolvedPrefTheme,
+          customTopics: validCustomTopics,
           recipientEmail: targetEmail,
           savedRecipientEmails: savedEmails,
           deliveryTimezone:
@@ -193,6 +212,7 @@ export default function App() {
       ...INITIAL_DAILY_BRIEFING,
       sourceType: 'mock',
       isFallback: true,
+      sampleSnapshotDate: INITIAL_DAILY_BRIEFING.sampleSnapshotDate || SAMPLE_DATA_SNAPSHOT_DATE,
       selectedOutletIds: combined,
       frontPageOutletIds: frontOutlets,
       overlappingOutletIds: overlapOutlets,
@@ -370,8 +390,43 @@ export default function App() {
     setArticleModalStory(story);
   };
 
-  // Track last live sync time for smart visibility refresh
+  // Track last live sync time and seen sector headlines for local region push alerts
   const lastLiveSyncRef = React.useRef<number>(0);
+  const sectorPrefsRef = React.useRef<SectorPreferences>(
+    preferences.sectorPreferences || DEFAULT_SECTOR_PREFERENCES
+  );
+  useEffect(() => {
+    sectorPrefsRef.current = preferences.sectorPreferences || DEFAULT_SECTOR_PREFERENCES;
+  }, [preferences.sectorPreferences]);
+
+  const seenSectorKeysRef = React.useRef<Set<string>>(
+    new Set((INITIAL_DAILY_BRIEFING.sectorHeadlines || []).map((h) => h.title.trim()))
+  );
+  const hasInitializedLiveSectorBaselineRef = React.useRef<boolean>(false);
+
+  const dispatchLocalRegionPush = React.useCallback(
+    (headline: SectorHeadlineItem, regionLabel: string, extraCount = 0) => {
+      const suffix = extraCount > 0 ? ` 외 ${extraCount}건` : '';
+      const pushText = `[내 지역 뉴스 알림 · ${regionLabel}] [${headline.outletName}] ${headline.title}${suffix}`;
+      setPushToast(pushText);
+
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification(`모닝브리프 · ${regionLabel} 새 주요 기사`, {
+            body: `[${headline.outletName}] ${headline.title}${suffix}`,
+            icon: '/favicon.ico',
+          });
+        } catch {
+          // Ignore browser Notification construction errors
+        }
+      }
+
+      setTimeout(() => {
+        setPushToast((prev) => (prev === pushText ? null : prev));
+      }, 6500);
+    },
+    []
+  );
 
   // Core live sync helper (fetches actual center homepage stories in real time)
   const syncLiveNews = React.useCallback(
@@ -407,13 +462,71 @@ export default function App() {
             result.source === 'client_sample_fallback' ||
             result.source === 'collection-empty' ||
             result.source === 'fallback';
+          const resolvedSampleDate = result.data.sampleSnapshotDate || SAMPLE_DATA_SNAPSHOT_DATE;
           const updatedBriefing: DailyBriefing = {
             ...result.data,
-            briefingDate: result.data.briefingDate || todayFormatted,
+            briefingDate: isFallbackResponse
+              ? `샘플 시점 (${resolvedSampleDate})`
+              : (result.data.briefingDate || todayFormatted),
             frontPageStories: liveFront,
             isFallback: isFallbackResponse,
             sourceType: isFallbackResponse ? 'mock' : (result.data.sourceType || 'live'),
+            ...(isFallbackResponse ? { sampleSnapshotDate: resolvedSampleDate } : {}),
           };
+
+          // Detect newly arrived major regional headlines when '내 지역 뉴스 알림' is enabled
+          const incomingSector = updatedBriefing.sectorHeadlines || [];
+          const activeSectorPrefs = sectorPrefsRef.current;
+          const alertSido = activeSectorPrefs.selectedRegionSido || 'all';
+          const alertSigungu = activeSectorPrefs.selectedRegionSigungu || 'all';
+
+          if (!isFallbackResponse && incomingSector.length > 0) {
+            if (!hasInitializedLiveSectorBaselineRef.current) {
+              incomingSector.forEach((h) => {
+                if (h.id) seenSectorKeysRef.current.add(h.id);
+                if (h.title) seenSectorKeysRef.current.add(h.title.trim());
+              });
+              hasInitializedLiveSectorBaselineRef.current = true;
+            } else {
+              const newlyAdded = incomingSector.filter((h) => {
+                if (h.isFallback || h.sourceType === 'mock') return false;
+                const seenById = h.id && seenSectorKeysRef.current.has(h.id);
+                const seenByTitle = h.title && seenSectorKeysRef.current.has(h.title.trim());
+                return !seenById && !seenByTitle;
+              });
+
+              incomingSector.forEach((h) => {
+                if (h.id) seenSectorKeysRef.current.add(h.id);
+                if (h.title) seenSectorKeysRef.current.add(h.title.trim());
+              });
+
+              if (activeSectorPrefs.localNewsAlertEnabled && alertSido !== 'all' && newlyAdded.length > 0) {
+                const regionMatches = newlyAdded.filter((h) =>
+                  matchesRegionFilter(h, alertSido, alertSigungu)
+                );
+                const majorMatches = regionMatches.filter(
+                  (h) => h.impactRating === 'Crucial' || h.impactRating === 'High'
+                );
+                const candidates =
+                  majorMatches.length > 0
+                    ? majorMatches
+                    : activeSectorPrefs.onlyCrucialOrHigh
+                    ? []
+                    : regionMatches;
+
+                if (candidates.length > 0) {
+                  const regionMeta = getRegionByCode(alertSido);
+                  const regionLabel = regionMeta
+                    ? alertSigungu !== 'all'
+                      ? `${regionMeta.shortName} · ${alertSigungu}`
+                      : regionMeta.name
+                    : alertSido;
+                  dispatchLocalRegionPush(candidates[0], regionLabel, candidates.length - 1);
+                }
+              }
+            }
+          }
+
           setBriefing(updatedBriefing);
           lastLiveSyncRef.current = Date.now();
           if (!silent && result.source !== 'client_cache') {
@@ -433,7 +546,12 @@ export default function App() {
         if (!silent) setIsLoading(false);
       }
     },
-    [preferences.selectedOutlets, preferences.preferredTone, preferences.subscribedTopics]
+    [
+      preferences.selectedOutlets,
+      preferences.preferredTone,
+      preferences.subscribedTopics,
+      dispatchLocalRegionPush,
+    ]
   );
 
   // Immediate real-time homepage fetch on mount + Continuous 60s live auto-refresh
@@ -668,30 +786,161 @@ export default function App() {
   };
 
   // 3-3. 건설·부동산·도시개발·금융 관심분야 설정 영구 저장 핸들러
-  const handleSaveSectorPreferences = (newSectorPrefs: SectorPreferences) => {
-    const updated: UserPreferences = {
-      ...preferences,
-      sectorPreferences: newSectorPrefs,
-    };
-    setPreferences(updated);
-    try {
-      localStorage.setItem(STORAGE_KEY_PREFERENCES, JSON.stringify(updated));
-      localStorage.setItem('morning_brief_sector_preferences_v1', JSON.stringify(newSectorPrefs));
-    } catch (e) {
-      console.warn('Failed to save sector preferences to localStorage', e);
+  const handleSaveSectorPreferences = (
+    newSectorPrefs: SectorPreferences,
+    options?: { silent?: boolean; notifyMessage?: string }
+  ) => {
+    setPreferences((prev) => {
+      const updated: UserPreferences = {
+        ...prev,
+        sectorPreferences: newSectorPrefs,
+      };
+      try {
+        localStorage.setItem(STORAGE_KEY_PREFERENCES, JSON.stringify(updated));
+        localStorage.setItem('morning_brief_sector_preferences_v1', JSON.stringify(newSectorPrefs));
+      } catch (e) {
+        console.warn('Failed to save sector preferences to localStorage', e);
+      }
+      return updated;
+    });
+    if (!options?.silent) {
+      triggerNotification(
+        options?.notifyMessage ||
+          '건설·부동산·도시개발·금융 관심분야 맞춤 설정이 브라우저에 저장되었습니다.'
+      );
     }
-    triggerNotification('건설·부동산·도시개발·금융 관심분야 맞춤 설정이 브라우저에 저장되었습니다.');
   };
 
-  // 4. Update Topic subscriptions
-  const handleToggleSubscribedTopic = (topic: string) => {
+  const handleToggleLocalNewsAlert = (
+    enabled: boolean,
+    sidoOverride?: string,
+    sigunguOverride?: string
+  ) => {
+    if (
+      enabled &&
+      typeof window !== 'undefined' &&
+      'Notification' in window &&
+      Notification.permission === 'default'
+    ) {
+      Notification.requestPermission().catch(() => {});
+    }
+    const currentSector = preferences.sectorPreferences || DEFAULT_SECTOR_PREFERENCES;
+    const nextSido = sidoOverride ?? currentSector.selectedRegionSido ?? 'all';
+    const nextSigungu = sigunguOverride ?? currentSector.selectedRegionSigungu ?? 'all';
+    const regionMeta = getRegionByCode(nextSido);
+    const regionLabel = regionMeta
+      ? nextSigungu !== 'all'
+        ? `${regionMeta.shortName} · ${nextSigungu}`
+        : regionMeta.name
+      : '';
+
+    handleSaveSectorPreferences(
+      {
+        ...currentSector,
+        localNewsAlertEnabled: enabled,
+        selectedRegionSido: nextSido,
+        selectedRegionSigungu: nextSigungu,
+      },
+      {
+        notifyMessage: enabled
+          ? regionLabel
+            ? `'${regionLabel}' 내 지역 뉴스 실시간 푸시 알림이 활성화되었습니다.`
+            : "'내 지역 뉴스 알림'이 활성화되었습니다. 알림을 받을 지자체를 선택해주세요."
+          : "'내 지역 뉴스 알림'이 비활성화되었습니다.",
+      }
+    );
+  };
+
+  const handleChangeAlertRegion = (sidoCode: string, sigungu: string) => {
+    const currentSector = preferences.sectorPreferences || DEFAULT_SECTOR_PREFERENCES;
+    handleSaveSectorPreferences(
+      {
+        ...currentSector,
+        selectedRegionSido: sidoCode,
+        selectedRegionSigungu: sigungu,
+      },
+      { silent: true }
+    );
+  };
+
+  const handleTestLocalNewsAlert = (sidoCode: string, sigungu: string) => {
+    if (!sidoCode || sidoCode === 'all') {
+      triggerNotification('먼저 알림을 받을 지자체를 선택해주세요.');
+      return;
+    }
+    if (
+      typeof window !== 'undefined' &&
+      'Notification' in window &&
+      Notification.permission === 'default'
+    ) {
+      Notification.requestPermission().catch(() => {});
+    }
+    const regionMeta = getRegionByCode(sidoCode);
+    const regionLabel = regionMeta
+      ? sigungu && sigungu !== 'all'
+        ? `${regionMeta.shortName} · ${sigungu}`
+        : regionMeta.name
+      : sidoCode;
+    const matching = (briefing.sectorHeadlines || []).find((h) =>
+      matchesRegionFilter(h, sidoCode, sigungu)
+    );
+    const sampleItem: SectorHeadlineItem = matching || {
+      id: `local-alert-test-${Date.now()}`,
+      sector: 'urban',
+      sectorLabel: '도시개발',
+      outletId: 'hankyung',
+      outletName: '한국경제',
+      title: `${regionLabel} 주요 도시개발·부동산 핵심 브리핑이 업데이트되었습니다.`,
+      summary: `${regionLabel} 내 지역 뉴스 실시간 푸시 알림 테스트 메시지입니다.`,
+      publishedAt: '방금 전',
+      originalUrl: '',
+      tags: [regionLabel, '내지역뉴스알림'],
+      impactRating: 'High',
+    };
+    dispatchLocalRegionPush(sampleItem, regionLabel, 0);
+  };
+
+  const handleSaveTopicPersonalization = (
+    nextTopics: string[],
+    nextSubscribed: string[],
+    silent = false
+  ) => {
     setPreferences((prev) => {
-      const exists = prev.subscribedTopics.includes(topic);
-      const next = exists
-        ? prev.subscribedTopics.filter((t) => t !== topic)
-        : [...prev.subscribedTopics, topic];
-      return { ...prev, subscribedTopics: next };
+      const updated: UserPreferences = {
+        ...prev,
+        customTopics: nextTopics,
+        subscribedTopics: nextSubscribed,
+      };
+      try {
+        localStorage.setItem(STORAGE_KEY_PREFERENCES, JSON.stringify(updated));
+      } catch (e) {
+        console.warn('Failed to save topic personalization to localStorage', e);
+      }
+      return updated;
     });
+    if (!silent) {
+      triggerNotification(
+        `관심 주제 필터(${nextTopics.length}개 · 구독 ${nextSubscribed.length}개)가 로컬 스토리지에 저장되었습니다.`
+      );
+    }
+  };
+
+  const handleResetTopicPersonalization = () => {
+    const defaultTopics = AVAILABLE_TOPICS.filter((t) => t !== '전체');
+    const defaultSubscribed = INITIAL_USER_PREFERENCES.subscribedTopics;
+    const updated: UserPreferences = {
+      ...preferences,
+      customTopics: defaultTopics,
+      subscribedTopics: defaultSubscribed,
+    };
+    setPreferences(updated);
+    setSelectedTopic('전체');
+    try {
+      localStorage.setItem(STORAGE_KEY_PREFERENCES, JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Failed to reset topic personalization in localStorage', e);
+    }
+    triggerNotification('관심 주제 필터가 기본값으로 복원되었습니다.');
   };
 
   // 5. Generate Email Newsletter Preview (Preview-only unless mail provider is configured)
@@ -801,24 +1050,78 @@ export default function App() {
     triggerNotification('공감 반응이 등록되었습니다.');
   };
 
+  const matchesSingleTopic = (
+    targetTopic: string,
+    title: string,
+    summaryArr: string[],
+    keywords: string[],
+    articleTopic: string
+  ): boolean => {
+    const TOPIC_SYNONYMS: Record<string, string[]> = {
+      '반도체·AI': ['반도체', 'ai', '인공지능', '엔비디아', 'hbm', '하이닉스', '삼성전자', '칩'],
+      '금융·거시경제': ['금융', '거시', '금리', '기준금리', '한국은행', '은행', '대출', '가계부채', '환율', '경제'],
+      '증시·투자': ['증시', '투자', '코스피', '코스닥', '주식', '증권', 'etf', '외국인', '밸류업'],
+      '정치·정책': ['정치', '정책', '국회', '정부', '대통령', '여야', '법안', '특검', '총리'],
+      '부동산·건설': ['부동산', '건설', '도시개발', '주택', '아파트', '분양', '청약', '재건축', '재개발', '신도시', 'gtx', '시공'],
+      '글로벌·외교': ['글로벌', '외교', '미국', '중국', 'apec', '아세안', '순방', '정상', '수출', '통상'],
+      '사회·노동': ['사회', '노동', '노사', '근로', '이주노동', '날씨', '교육', '의료', '복지'],
+      '에너지·원전': ['에너지', '원전', '원자력', '전력', '신재생', '태양광', '가스', '석유', '배터리'],
+      '도시개발·정비': ['도시개발', '정비', '재건축', '재개발', '신도시', '모아타운', '역세권', '복합개발', '선도지구'],
+      '바이오·헬스케어': ['바이오', '헬스케어', '제약', '신약', '의료', '임상', '셀트리온', '삼성바이오'],
+      '로봇·모빌리티': ['로봇', '모빌리티', '자율주행', '전기차', '현대차', '기아', 'uam', '휴머노이드'],
+      '방산·우주': ['방산', 'k방산', '우주', '항공', '무기', '수주', '한화에어로', 'lig넥스원', '현대로템'],
+      '이차전지·소재': ['이차전지', '배터리', '양극재', '음극재', '리튬', '소재', '에코프로', 'lg에너지솔루션'],
+      '가상자산·핀테크': ['가상자산', '비트코인', '코인', '암호화폐', '블록체인', '핀테크', '스테이블코인', '토큰증권'],
+      '유통·소비': ['유통', '소비', '백화점', '이커머스', '쿠팡', '내수', '소매', '면세점'],
+      '환율·수출': ['환율', '원달러', '수출', '무역', '관세', '경상수지', '달러'],
+    };
+
+    const rawTrimmed = targetTopic.trim().toLowerCase();
+    if (!rawTrimmed) return true;
+
+    const splitTokens = rawTrimmed
+      .split(/[·,/|\s]+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length >= 2);
+
+    const tokens = TOPIC_SYNONYMS[targetTopic] || (splitTokens.length > 0 ? splitTokens : [rawTrimmed]);
+
+    const haystack = [
+      articleTopic,
+      title,
+      ...(keywords || []),
+      ...summaryArr,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    return tokens.some((tok) => haystack.includes(tok));
+  };
+
   // 8. Filter Logic: Separate rules for 1면 핵심 vs 공통이슈
   const matchesKeywordAndTopic = (title: string, summary: string[] | string, keywords: string[] = [], topic = '') => {
+    const summaryArr = Array.isArray(summary) ? summary : [summary];
+
     // Keyword filter
     if (selectedKeyword) {
       const cleanKw = selectedKeyword.replace('#', '');
       const matchInKeywords = keywords?.some((k) => k && k.includes(cleanKw));
       const matchInTitle = title && title.includes(cleanKw);
-      const summaryArr = Array.isArray(summary) ? summary : [summary];
       const matchInSummary = summaryArr.some((l) => l && l.includes(cleanKw));
       if (!matchInKeywords && !matchInTitle && !matchInSummary) return false;
     }
 
     // Topic filter
+    if (selectedTopic === SUBSCRIBED_ONLY_TOPIC) {
+      if (preferences.subscribedTopics.length === 0) return true;
+      return preferences.subscribedTopics.some((sub) =>
+        matchesSingleTopic(sub, title, summaryArr, keywords, topic)
+      );
+    }
+
     if (selectedTopic !== '전체') {
-      const topicKeyword = selectedTopic.split('·')[0];
-      if (topic && !topic.includes(topicKeyword)) {
-        return false;
-      }
+      return matchesSingleTopic(selectedTopic, title, summaryArr, keywords, topic);
     }
 
     return true;
@@ -878,8 +1181,17 @@ export default function App() {
   // 4번째 기능: 건설·부동산·도시개발·금융 헤드라인 필터링
   const rawSectorHeadlines = briefing.sectorHeadlines ?? [];
   const filteredSectorHeadlines = rawSectorHeadlines.filter((h) => {
-    return matchesKeywordAndTopic(h.title, h.summary, h.tags, h.sectorLabel);
+    const combinedSummary = [h.summary, ...(h.leadSummary || [])].filter(Boolean);
+    return matchesKeywordAndTopic(h.title, combinedSummary, h.tags, h.sectorLabel);
   });
+
+  const isBriefingFallback = Boolean(briefing.isFallback) || briefing.sourceType === 'mock';
+  const isSectorFallback =
+    isBriefingFallback ||
+    briefing.sectorSourceType === 'mock' ||
+    rawSectorHeadlines.some((h) => Boolean(h.isFallback) || h.sourceType === 'mock');
+  const sampleSnapshotDate = briefing.sampleSnapshotDate || SAMPLE_DATA_SNAPSHOT_DATE;
+  const todayYmd = getCurrentYMD();
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans antialiased selection:bg-blue-600 selection:text-white transition-colors duration-200">
@@ -920,6 +1232,7 @@ export default function App() {
         onToggleMobilePreview={() => setIsMobilePreview(!isMobilePreview)}
         selectedTopic={selectedTopic}
         onSelectTopic={(t) => setSelectedTopic(t)}
+        availableTopics={preferences.customTopics}
         subscribedTopics={preferences.subscribedTopics}
         frontPageCount={preferences.frontPageOutlets?.length || preferences.selectedOutlets?.length || 10}
         overlappingCount={preferences.overlappingOutlets?.length || preferences.selectedOutlets?.length || 10}
@@ -936,7 +1249,8 @@ export default function App() {
           briefingDate={briefing.briefingDate}
           briefingTime={briefing.briefingTime}
           sourceType={briefing.sourceType}
-          isFallback={briefing.isFallback}
+          isFallback={isBriefingFallback}
+          sampleSnapshotDate={sampleSnapshotDate}
           onResetHome={() => {
             setSelectedKeyword(null);
             setSelectedTopic('전체');
@@ -1075,27 +1389,12 @@ export default function App() {
           )}
 
           <main className="space-y-4 sm:space-y-5">
-            {(briefing.isFallback || briefing.sourceType === 'mock') && (
-              <div className="bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-700/80 rounded-2xl px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-amber-950 dark:text-amber-200 shadow-xs">
-                <div className="flex items-start sm:items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
-                  <div>
-                    <span className="font-bold">수집 실패 · 샘플 데이터 표시 중</span>
-                    <span className="text-amber-800 dark:text-amber-300 ml-1.5">
-                      실시간 언론사 수집이 완료되지 않았거나 일시적으로 연결할 수 없어 참고용 샘플 기사를 표시하고 있습니다.
-                    </span>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleRefreshLive}
-                  disabled={isLoading}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold text-xs shrink-0 self-start sm:self-auto cursor-pointer transition active:scale-95"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-                  <span>실시간 다시 시도</span>
-                </button>
-              </div>
+            {isBriefingFallback && (
+              <FallbackNoticeBanner
+                sampleSnapshotDate={sampleSnapshotDate}
+                onRetry={handleRefreshLive}
+                isLoading={isLoading}
+              />
             )}
 
             {/* 1. Keyword Tags + Weekly Report Shortcut (태그 필터링 + 24h 트렌드 + 주간 종합 리포트) */}
@@ -1108,41 +1407,15 @@ export default function App() {
               isMobileView={isMobilePreview}
             />
 
-            {/* 2. Topic Subscription Filtering */}
+            {/* 2. Topic Subscription Filtering (Personalized) */}
             <TopicFilter
               selectedTopic={selectedTopic}
               onSelectTopic={(t) => setSelectedTopic(t)}
+              topics={preferences.customTopics}
               subscribedTopics={preferences.subscribedTopics}
-              onToggleSubscribedTopic={handleToggleSubscribedTopic}
+              onSavePersonalization={handleSaveTopicPersonalization}
+              onResetPersonalization={handleResetTopicPersonalization}
             />
-
-            {/* Active Filter State Notice */}
-            {(selectedKeyword || selectedTopic !== '전체') && (
-              <div className="bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-2 flex items-center justify-between text-xs text-blue-900 dark:text-blue-200 shadow-xs">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">현재 필터 적용 중:</span>
-                  {selectedKeyword && (
-                    <span className="font-bold bg-blue-600 text-white px-2 py-0.5 rounded">
-                      키워드: {selectedKeyword}
-                    </span>
-                  )}
-                  {selectedTopic !== '전체' && (
-                    <span className="font-bold bg-cyan-600 text-white px-2 py-0.5 rounded">
-                      주제: {selectedTopic}
-                    </span>
-                  )}
-                </div>
-                <button
-                  onClick={() => {
-                    setSelectedKeyword(null);
-                    setSelectedTopic('전체');
-                  }}
-                  className="text-xs text-blue-700 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white underline font-bold cursor-pointer"
-                >
-                  필터 초기화
-                </button>
-              </div>
-            )}
 
             {/* 3. Section 1: 각 언론사 신문 첫페이지 (1면) 핵심 내용 먼저 제시 */}
             <FrontPageSection
@@ -1157,6 +1430,7 @@ export default function App() {
               isMobileView={isMobilePreview}
               lastSyncedTime={briefing.briefingTime}
               readArticleKeys={readArticleKeys}
+              isFallback={isBriefingFallback}
             />
 
             {/* 4. Section 2: 언론사들에서 중복적으로 낸 공통 핵심 기사 */}
@@ -1177,6 +1451,7 @@ export default function App() {
               totalSelectedOutletsCount={activeOverlapOutlets.length}
               totalAvailableStoriesCount={briefing.overlappingStories.length}
               readArticleKeys={readArticleKeys}
+              isFallback={isBriefingFallback}
             />
 
             {/* 5. Section 3: 각 언론사만의 단독 및 특별 기사 */}
@@ -1190,9 +1465,10 @@ export default function App() {
               onScrollToTop={scrollToTop}
               isMobileView={isMobilePreview}
               readArticleKeys={readArticleKeys}
+              isFallback={isBriefingFallback}
             />
 
-            {/* 6. Section 4: 건설, 부동산, 금융 관련 주제 기사들 제목 모아보기 및 핵심 정리 */}
+            {/* 6. Section 4: 건설, 부동산, 도시개발, 금융 관련 주제 기사들 제목 모아보기 및 핵심 정리 */}
             <RealEstateFinanceSection
               headlines={filteredSectorHeadlines}
               tone={briefing.tone}
@@ -1204,14 +1480,80 @@ export default function App() {
               isMobileView={isMobilePreview}
               sectorPreferences={preferences.sectorPreferences || DEFAULT_SECTOR_PREFERENCES}
               onSaveSectorPreferences={handleSaveSectorPreferences}
+              onTestLocalNewsAlert={handleTestLocalNewsAlert}
               readArticleKeys={readArticleKeys}
               onMarkArticleRead={handleMarkArticleRead}
+              isFallback={isSectorFallback}
+              onRetryLive={handleRefreshLive}
+              isLoading={isLoading}
             />
 
           </main>
 
+          {/* Explicit Bottom Footnote Annotation when Fallback Sample Data is Loaded */}
+          {(isBriefingFallback || isSectorFallback) && (
+            <aside
+              role="note"
+              aria-label="폴백 샘플 데이터 기준 시점 주석"
+              className="mt-8 rounded-2xl border border-amber-300/90 dark:border-amber-700/75 bg-amber-50/90 dark:bg-amber-950/45 px-4 py-3.5 sm:px-5 sm:py-4 text-left shadow-2xs transition-colors"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-1.5 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1 text-[11px] font-extrabold text-amber-900 dark:text-amber-200 tracking-tight">
+                      <Info className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400 shrink-0" aria-hidden="true" />
+                      <span>※ 주석 · 데이터 기준 시점 안내</span>
+                    </span>
+                    <FallbackBadge label="수집 실패 · 샘플 데이터" size="xs" variant="outline" />
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold font-mono tabular-nums bg-amber-200/80 dark:bg-amber-900/70 text-amber-950 dark:text-amber-100 border border-amber-300 dark:border-amber-700/80">
+                      샘플 데이터 시점: {sampleSnapshotDate}
+                    </span>
+                  </div>
+                  <p className="text-xs text-amber-950 dark:text-amber-100 leading-relaxed">
+                    {isBriefingFallback ? (
+                      <>
+                        현재 표시된 폴백 브리핑 데이터는 오늘 날짜(
+                        <span className="font-mono tabular-nums font-semibold">{todayYmd}</span>
+                        ) 기준의 실시간 기사가 아니며,{' '}
+                        <strong className="font-extrabold underline decoration-amber-500/70 underline-offset-2">
+                          샘플 데이터 시점(
+                          <span className="font-mono tabular-nums">{sampleSnapshotDate}</span>)
+                        </strong>
+                        에 저장된 참고용 예시 데이터입니다.
+                      </>
+                    ) : (
+                      <>
+                        일부 섹터 영역에 표시된 폴백 데이터는 오늘 날짜(
+                        <span className="font-mono tabular-nums font-semibold">{todayYmd}</span>
+                        ) 기준의 실시간 기사가 아니며,{' '}
+                        <strong className="font-extrabold underline decoration-amber-500/70 underline-offset-2">
+                          샘플 데이터 시점(
+                          <span className="font-mono tabular-nums">{sampleSnapshotDate}</span>)
+                        </strong>
+                        에 저장된 참고용 예시 데이터입니다.
+                      </>
+                    )}
+                  </p>
+                  <p className="text-[11px] text-amber-900/85 dark:text-amber-200/85">
+                    * 실시간 보도로 오해하지 않도록 하단 주석으로 고지합니다. 최신 당일 기사를 불러오려면 [실시간 다시 시도]를 눌러 주세요.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleRefreshLive}
+                  disabled={isLoading}
+                  className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-700 hover:bg-amber-800 dark:bg-amber-500 dark:hover:bg-amber-400 text-white dark:text-slate-950 font-bold text-xs shrink-0 self-start sm:self-center cursor-pointer transition active:scale-95 disabled:opacity-60 shadow-2xs whitespace-nowrap"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
+                  <span>{isLoading ? '다시 수집 중...' : '실시간 다시 시도'}</span>
+                </button>
+              </div>
+            </aside>
+          )}
+
           {/* Footer */}
-          <footer className="mt-12 pt-8 border-t border-slate-200 dark:border-slate-800 text-center text-xs text-slate-500 dark:text-slate-400 space-y-2">
+          <footer className="mt-8 pt-8 border-t border-slate-200 dark:border-slate-800 text-center text-xs text-slate-500 dark:text-slate-400 space-y-2">
             <p>
               <strong className="text-slate-800 dark:text-slate-200">모닝브리프</strong> | 대한민국 주요 언론사 1면 톱기사·공통 핵심이슈·단독 보도 및 건설·부동산·도시개발·금융 실시간 헤드라인 요약 브리핑 플랫폼
             </p>
@@ -1253,6 +1595,12 @@ export default function App() {
           );
         }}
         onTestPush={handleTestPush}
+        localNewsAlertEnabled={Boolean(preferences.sectorPreferences?.localNewsAlertEnabled)}
+        selectedRegionSido={preferences.sectorPreferences?.selectedRegionSido || 'all'}
+        selectedRegionSigungu={preferences.sectorPreferences?.selectedRegionSigungu || 'all'}
+        onToggleLocalNewsAlert={handleToggleLocalNewsAlert}
+        onChangeAlertRegion={handleChangeAlertRegion}
+        onTestLocalNewsAlert={handleTestLocalNewsAlert}
         emailLogs={emailLogs}
         onSendEmail={handleSendEmail}
         onSaveRecipientEmail={handleSaveRecipientEmail}
@@ -1284,7 +1632,7 @@ export default function App() {
         }}
       />
 
-      {/* Verified Full Article & Cluster Viewer Modal */}
+      {/* Verified Article Excerpt & Cluster Viewer Modal */}
       <ArticleModal
         isOpen={!!articleModalStory}
         onClose={() => setArticleModalStory(null)}
@@ -1292,6 +1640,7 @@ export default function App() {
         onOpenShare={(s) => setShareStory(s)}
         isRead={articleModalStory ? isArticleRead(readArticleKeys, articleModalStory) : false}
         onToggleReadStatus={handleToggleArticleRead}
+        isFallback={isBriefingFallback}
       />
 
       {/* Tone Personalization Modal */}

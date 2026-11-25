@@ -12,6 +12,7 @@ import { PRESS_OUTLETS } from '../data/mockNewsData';
 import { isArticleRead } from '../utils/readArticles';
 import { SectionAudioButton, useActiveSectionSpeechItemId } from './SectionAudioButton';
 import type { SpeechBriefingItem } from '../utils/sectionSpeechPlayer';
+import { FallbackBadge } from './FallbackNotice';
 
 interface ExclusiveStoriesSectionProps {
   stories: NewsStory[];
@@ -23,6 +24,7 @@ interface ExclusiveStoriesSectionProps {
   onScrollToTop?: () => void;
   isMobileView?: boolean;
   readArticleKeys?: ReadonlySet<string>;
+  isFallback?: boolean;
 }
 
 export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = ({
@@ -35,6 +37,7 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
   onScrollToTop,
   isMobileView = false,
   readArticleKeys,
+  isFallback = false,
 }) => {
   const readCount = stories.filter((story) => isArticleRead(readArticleKeys, story)).length;
   const activeSpeechItemId = useActiveSectionSpeechItemId('exclusive');
@@ -52,7 +55,14 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
   );
 
   return (
-    <section id="section-exclusive" className="bg-gradient-to-b from-rose-50/80 via-rose-50/40 to-white/90 dark:from-rose-950/35 dark:via-slate-900/90 dark:to-slate-900 border border-rose-200/80 dark:border-rose-900/60 rounded-3xl p-4 sm:p-6 space-y-4 scroll-mt-24 shadow-2xs transition-colors">
+    <section
+      id="section-exclusive"
+      className={`rounded-3xl p-4 sm:p-6 space-y-4 scroll-mt-24 shadow-2xs transition-colors border ${
+        isFallback
+          ? 'bg-gradient-to-b from-amber-50/55 via-white to-white dark:from-amber-950/20 dark:via-slate-900/95 dark:to-slate-900 border-amber-300/90 dark:border-amber-700/70'
+          : 'bg-gradient-to-b from-rose-50/80 via-rose-50/40 to-white/90 dark:from-rose-950/35 dark:via-slate-900/90 dark:to-slate-900 border-rose-200/80 dark:border-rose-900/60'
+      }`}
+    >
       {/* Section Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-rose-200/80 dark:border-rose-900/60">
         <div className="flex items-center gap-2.5">
@@ -65,6 +75,9 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300">
                 특종·단독 {stories.length}건
               </span>
+              {isFallback && (
+                <FallbackBadge label="수집 실패 · 샘플 데이터" size="xs" variant="solid" />
+              )}
               {readCount > 0 && (
                 <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
                   <Check className="w-3 h-3" />
@@ -73,7 +86,9 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
               )}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              제목에 [단독]이 명시되고 타 언론사 중복 보도가 없는 기사만 엄선합니다.
+              {isFallback
+                ? '실시간 기사 수집에 실패하여 예시 단독 보도 샘플을 표시하고 있습니다.'
+                : '제목에 [단독]이 명시되고 타 언론사 중복 보도가 없는 기사만 엄선합니다.'}
             </p>
           </div>
         </div>
@@ -188,11 +203,15 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
                         </span>
                       )}
                     </div>
-                    <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium shrink-0">
-                      {(story.publishedAt && story.publishedAt.includes(' ')
-                        ? story.publishedAt.split(' ')[1]
-                        : story.publishedAt) || '09:00'} 집계
-                    </span>
+                    {isFallback ? (
+                      <FallbackBadge label="샘플 데이터" size="xs" variant="outline" />
+                    ) : (
+                      <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium shrink-0">
+                        {(story.publishedAt && story.publishedAt.includes(' ')
+                          ? story.publishedAt.split(' ')[1]
+                          : story.publishedAt) || '09:00'} 집계
+                      </span>
+                    )}
                   </div>
 
                   {/* Headline */}

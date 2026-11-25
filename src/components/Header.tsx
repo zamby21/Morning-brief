@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { UserPreferences, DataSourceType } from '../types/news';
 import { getCurrentKoreanDateString } from '../utils/dateUtils';
+import { FallbackBadge } from './FallbackNotice';
 
 interface HeaderProps {
   preferences: UserPreferences;
@@ -16,6 +17,7 @@ interface HeaderProps {
   briefingTime?: string;
   sourceType?: DataSourceType;
   isFallback?: boolean;
+  sampleSnapshotDate?: string;
   onResetHome?: () => void;
   onToggleSidebar: () => void;
   isSidebarOpen: boolean;
@@ -33,6 +35,7 @@ export const Header: React.FC<HeaderProps> = ({
   briefingTime,
   sourceType,
   isFallback,
+  sampleSnapshotDate,
   onResetHome,
   onToggleSidebar,
   isSidebarOpen,
@@ -44,28 +47,38 @@ export const Header: React.FC<HeaderProps> = ({
   subNav,
 }) => {
   const isMockOrFallback = Boolean(isFallback) || sourceType === 'mock';
+  const fallbackDateLabel = sampleSnapshotDate ? `샘플 ${sampleSnapshotDate}` : (briefingDate || '샘플 데이터');
+  const liveDateLabel = briefingDate || getCurrentKoreanDateString();
 
   return (
     <header className="bg-white/95 dark:bg-slate-900/95 text-slate-800 dark:text-slate-100 border-b border-slate-200/90 dark:border-slate-800 sticky top-0 z-30 shadow-xs backdrop-blur-md transition-colors duration-200">
       {/* Top Thin Notification Strip (Bright, Ultra-Compact & Zero Line Wrap on Mobile) */}
-      <div className="bg-gradient-to-r from-blue-50 via-indigo-50/60 to-slate-50 dark:from-slate-900 dark:via-indigo-950/40 dark:to-slate-900 border-b border-blue-100/80 dark:border-slate-800 px-3 sm:px-4 py-0.5 sm:py-1 text-[11px] sm:text-xs text-slate-600 dark:text-slate-300">
+      <div
+        className={`border-b px-3 sm:px-4 py-1 text-[11px] sm:text-xs transition-colors ${
+          isMockOrFallback
+            ? 'bg-amber-100/95 dark:bg-amber-950/70 border-amber-300 dark:border-amber-700/80 text-amber-950 dark:text-amber-100'
+            : 'bg-gradient-to-r from-blue-50 via-indigo-50/60 to-slate-50 dark:from-slate-900 dark:via-indigo-950/40 dark:to-slate-900 border-blue-100/80 dark:border-slate-800 text-slate-600 dark:text-slate-300'
+        }`}
+      >
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden">
-          <div className="flex items-center gap-1.5 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
             {isMockOrFallback ? (
-              <span className="inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300/70 dark:border-amber-700/70 shrink-0">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5"></span>
-                수집 실패 · 샘플 데이터
-              </span>
+              <FallbackBadge label="수집 실패 · 샘플 데이터" size="xs" variant="solid" />
             ) : (
               <span className="inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 shrink-0">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse mr-1.5"></span>
                 실시간 연동 ({briefingTime || 'LIVE'})
               </span>
             )}
             <span className="hidden sm:inline text-slate-300 dark:text-slate-700">|</span>
-            <span className="hidden sm:inline text-slate-600 dark:text-slate-300 font-medium truncate">
+            <span
+              className={`hidden sm:inline font-semibold truncate ${
+                isMockOrFallback
+                  ? 'text-amber-950 dark:text-amber-200'
+                  : 'text-slate-600 dark:text-slate-300 font-medium'
+              }`}
+            >
               {isMockOrFallback
-                ? '실시간 기사 수집 실패 시 참고용 샘플 데이터를 구분해 표시합니다'
+                ? '실시간 기사 수집에 실패하여 참고용 샘플 데이터를 표시하고 있습니다'
                 : '각 언론사 홈페이지 첫화면 중앙 1면 톱기사 실시간 연동 요약'}
             </span>
           </div>
@@ -124,22 +137,36 @@ export const Header: React.FC<HeaderProps> = ({
                   모닝브리프
                 </h1>
                 {/* Desktop Full Date Badge */}
-                <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border border-blue-200/90 dark:border-blue-800 shadow-2xs">
-                  <Calendar className="w-3 h-3 text-blue-600 dark:text-blue-400" />
-                  <span>{briefingDate || getCurrentKoreanDateString()}</span>
-                </span>
-                {/* Mobile Date Badge (Clean, without year prefix, fully visible without crowding) */}
-                <span className="inline-flex sm:hidden items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border border-blue-200/90 dark:border-blue-800 shrink-0">
-                  <Calendar className="w-2.5 h-2.5 text-blue-600 dark:text-blue-400" />
-                  <span>{(briefingDate || getCurrentKoreanDateString()).replace(/^\d{4}[년\.\-]\s*/, '')}</span>
-                </span>
                 {isMockOrFallback ? (
-                  <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-amber-500 text-white shadow-2xs">
-                    샘플
+                  <span
+                    title="오늘 날짜가 아닌 참고용 샘플 데이터 기준 시점입니다"
+                    className="hidden sm:inline-flex items-center gap-1 text-[11px] font-bold font-mono tabular-nums px-2 py-0.5 rounded-lg bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700/80 shadow-2xs"
+                  >
+                    <Calendar className="w-3 h-3 text-amber-700 dark:text-amber-400" />
+                    <span>{fallbackDateLabel}</span>
                   </span>
                 ) : (
+                  <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border border-blue-200/90 dark:border-blue-800 shadow-2xs">
+                    <Calendar className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                    <span>{liveDateLabel}</span>
+                  </span>
+                )}
+                {/* Mobile Date Badge */}
+                {isMockOrFallback ? (
+                  <span className="inline-flex sm:hidden items-center gap-1 text-[10px] font-bold font-mono tabular-nums px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700/80 shrink-0">
+                    <Calendar className="w-2.5 h-2.5 text-amber-700 dark:text-amber-400" />
+                    <span>{sampleSnapshotDate || '샘플'}</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex sm:hidden items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border border-blue-200/90 dark:border-blue-800 shrink-0">
+                    <Calendar className="w-2.5 h-2.5 text-blue-600 dark:text-blue-400" />
+                    <span>{liveDateLabel.replace(/^\d{4}[년\.\-]\s*/, '')}</span>
+                  </span>
+                )}
+                {isMockOrFallback ? (
+                  <FallbackBadge label="샘플 데이터" size="xs" variant="solid" className="hidden sm:inline-flex" />
+                ) : (
                   <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-600 text-white shadow-2xs">
-                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
                     LIVE
                   </span>
                 )}

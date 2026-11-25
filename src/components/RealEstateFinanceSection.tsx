@@ -21,6 +21,9 @@ import {
   CheckCircle2,
   BookmarkCheck,
   Volume2,
+  MapPin,
+  Clock,
+  Bell,
 } from 'lucide-react';
 import {
   SectorHeadlineItem,
@@ -37,8 +40,58 @@ import { formatLeadSummaryByTone } from '../utils/toneTransformer';
 import { isArticleRead, ReadableArticleRef } from '../utils/readArticles';
 import { SectionAudioButton, useActiveSectionSpeechItemId } from './SectionAudioButton';
 import type { SpeechBriefingItem } from '../utils/sectionSpeechPlayer';
+import { FallbackBadge, FallbackNoticeBanner } from './FallbackNotice';
+import { KOREAN_REGIONS, getRegionByCode, matchesRegionFilter } from '../utils/koreanRegions';
 
 const STORAGE_KEY_SECTOR_PREFS = 'morning_brief_sector_preferences_v1';
+const STORAGE_KEY_RECENT_REGIONS = 'morning_brief_recent_regions_v1';
+const MAX_RECENT_REGIONS = 3;
+
+interface RecentRegionItem {
+  sidoCode: string;
+  sigungu: string; // 'all' or specific 시/군/구 name
+  label: string;
+}
+
+const formatRegionLabel = (sidoCode: string, sigungu: string): string => {
+  const region = getRegionByCode(sidoCode);
+  if (!region) return '';
+  if (!sigungu || sigungu === 'all') return region.name;
+  return `${region.shortName} · ${sigungu}`;
+};
+
+const loadRecentRegions = (): RecentRegionItem[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_RECENT_REGIONS);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const seen = new Set<string>();
+    const valid: RecentRegionItem[] = [];
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== 'object') continue;
+      const sidoCode = typeof entry.sidoCode === 'string' ? entry.sidoCode : '';
+      const sigungu = typeof entry.sigungu === 'string' && entry.sigungu ? entry.sigungu : 'all';
+      const region = getRegionByCode(sidoCode);
+      if (!region) continue;
+      if (sigungu !== 'all' && !region.sigungu.includes(sigungu)) continue;
+      const key = `${sidoCode}:${sigungu}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      valid.push({
+        sidoCode,
+        sigungu,
+        label: formatRegionLabel(sidoCode, sigungu),
+      });
+      if (valid.length >= MAX_RECENT_REGIONS) break;
+    }
+    return valid;
+  } catch (e) {
+    console.warn('Failed to load recent regions from localStorage', e);
+    return [];
+  }
+};
 
 const PRESET_KEYWORDS = [
   'GTX',
@@ -68,9 +121,16 @@ interface RealEstateFinanceSectionProps {
   onOpenShareModal: (story: NewsStory) => void;
   isMobileView?: boolean;
   sectorPreferences?: SectorPreferences;
-  onSaveSectorPreferences?: (prefs: SectorPreferences) => void;
+  onSaveSectorPreferences?: (
+    prefs: SectorPreferences,
+    options?: { silent?: boolean; notifyMessage?: string }
+  ) => void;
+  onTestLocalNewsAlert?: (sidoCode: string, sigungu: string) => void;
   readArticleKeys?: ReadonlySet<string>;
   onMarkArticleRead?: (article: ReadableArticleRef) => void;
+  isFallback?: boolean;
+  onRetryLive?: () => void;
+  isLoading?: boolean;
 }
 
 const loadLocalSectorPrefs = (propPrefs?: SectorPreferences): SectorPreferences => {
@@ -95,6 +155,15 @@ const loadLocalSectorPrefs = (propPrefs?: SectorPreferences): SectorPreferences 
               : [],
             defaultSector: parsed.defaultSector || 'all',
             onlyCrucialOrHigh: !!parsed.onlyCrucialOrHigh,
+            localNewsAlertEnabled: !!parsed.localNewsAlertEnabled,
+            selectedRegionSido:
+              typeof parsed.selectedRegionSido === 'string'
+                ? parsed.selectedRegionSido
+                : 'all',
+            selectedRegionSigungu:
+              typeof parsed.selectedRegionSigungu === 'string'
+                ? parsed.selectedRegionSigungu
+                : 'all',
           };
         }
       }
@@ -116,8 +185,12 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
   isMobileView = false,
   sectorPreferences,
   onSaveSectorPreferences,
+  onTestLocalNewsAlert,
   readArticleKeys,
   onMarkArticleRead,
+  isFallback = false,
+  onRetryLive,
+  isLoading = false,
 }) => {
   // Personalized Sector Preferences
   const [prefs, setPrefs] = useState<SectorPreferences>(() =>
@@ -128,6 +201,12 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
   useEffect(() => {
     if (sectorPreferences && sectorPreferences.enabledSectors?.length) {
       setPrefs(sectorPreferences);
+      if (typeof sectorPreferences.selectedRegionSido === 'string') {
+        setSelectedSido(sectorPreferences.selectedRegionSido);
+      }
+      if (typeof sectorPreferences.selectedRegionSigungu === 'string') {
+        setSelectedSigungu(sectorPreferences.selectedRegionSigungu);
+      }
     }
   }, [sectorPreferences]);
 
@@ -141,6 +220,81 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
   const [saveSuccessBadge, setSaveSuccessBadge] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'latest' | 'impact'>('latest');
+  const [selectedSido, setSelectedSido] = useState<string>(
+    () => prefs.selectedRegionSido || 'all'
+  );
+  const [selectedSigungu, setSelectedSigungu] = useState<string>(
+    () => prefs.selectedRegionSigungu || 'all'
+  );
+  const [recentRegions, setRecentRegions] = useState<RecentRegionItem[]>(() =>
+    loadRecentRegions()
+  );
+
+  const activeSidoRegion = useMemo(() => getRegionByCode(selectedSido), [selectedSido]);
+  const sigunguOptions = activeSidoRegion?.sigungu || [];
+
+  const alertTargetSido = selectedSido !== 'all' ? selectedSido : (prefs.selectedRegionSido || 'all');
+  const alertTargetSigungu =
+    selectedSido !== 'all' ? selectedSigungu : (prefs.selectedRegionSigungu || 'all');
+  const alertTargetLabel = formatRegionLabel(alertTargetSido, alertTargetSigungu);
+
+  const recordRecentRegion = (sidoCode: string, sigungu: string = 'all') => {
+    if (!sidoCode || sidoCode === 'all') return;
+    const label = formatRegionLabel(sidoCode, sigungu);
+    if (!label) return;
+    setRecentRegions((prev) => {
+      const next: RecentRegionItem[] = [
+        { sidoCode, sigungu, label },
+        ...prev.filter(
+          (item) => !(item.sidoCode === sidoCode && item.sigungu === sigungu)
+        ),
+      ].slice(0, MAX_RECENT_REGIONS);
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(STORAGE_KEY_RECENT_REGIONS, JSON.stringify(next));
+        } catch (e) {
+          console.warn('Failed to save recent regions to localStorage', e);
+        }
+      }
+      return next;
+    });
+  };
+
+  const handleSelectRegion = (sidoCode: string, sigungu: string = 'all') => {
+    setSelectedSido(sidoCode);
+    setSelectedSigungu(sigungu);
+    if (sidoCode !== 'all') {
+      recordRecentRegion(sidoCode, sigungu);
+      handleSavePreferences(
+        {
+          ...prefs,
+          selectedRegionSido: sidoCode,
+          selectedRegionSigungu: sigungu,
+        },
+        { silent: true }
+      );
+    } else if (!prefs.localNewsAlertEnabled) {
+      handleSavePreferences(
+        {
+          ...prefs,
+          selectedRegionSido: 'all',
+          selectedRegionSigungu: 'all',
+        },
+        { silent: true }
+      );
+    }
+  };
+
+  const handleClearRecentRegions = () => {
+    setRecentRegions([]);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem(STORAGE_KEY_RECENT_REGIONS);
+      } catch (e) {
+        console.warn('Failed to clear recent regions from localStorage', e);
+      }
+    }
+  };
 
   // Helper: check if an item matches user's favorite keywords
   const doesItemMatchFavorites = (
@@ -216,7 +370,14 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
         }
       }
 
-      // 4. Free-text Search Query
+      // 4. Local Government (Si/Do, Si/Gun/Gu) Region Filter
+      if (selectedSido !== 'all') {
+        if (!matchesRegionFilter(item, selectedSido, selectedSigungu)) {
+          return false;
+        }
+      }
+
+      // 5. Free-text Search Query
       if (searchQuery.trim()) {
         const q = searchQuery.trim().toLowerCase();
         const matchesTitle = item.title.toLowerCase().includes(q);
@@ -241,10 +402,13 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
     }
 
     return result;
-  }, [headlines, selectedSector, prefs, onlyMyKeywordsActive, searchQuery, sortBy]);
+  }, [headlines, selectedSector, prefs, onlyMyKeywordsActive, selectedSido, selectedSigungu, searchQuery, sortBy]);
 
   // Save Settings handler
-  const handleSavePreferences = (newPrefs: SectorPreferences) => {
+  const handleSavePreferences = (
+    newPrefs: SectorPreferences,
+    options?: { silent?: boolean; notifyMessage?: string }
+  ) => {
     setPrefs(newPrefs);
     if (typeof window !== 'undefined') {
       try {
@@ -254,10 +418,42 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
       }
     }
     if (onSaveSectorPreferences) {
-      onSaveSectorPreferences(newPrefs);
+      onSaveSectorPreferences(newPrefs, options);
     }
-    setSaveSuccessBadge(true);
-    setTimeout(() => setSaveSuccessBadge(false), 2600);
+    if (!options?.silent) {
+      setSaveSuccessBadge(true);
+      setTimeout(() => setSaveSuccessBadge(false), 2600);
+    }
+  };
+
+  const handleToggleLocalNewsAlert = (enabled: boolean) => {
+    if (
+      enabled &&
+      typeof window !== 'undefined' &&
+      'Notification' in window &&
+      Notification.permission === 'default'
+    ) {
+      Notification.requestPermission().catch(() => {});
+    }
+
+    const nextSido = alertTargetSido;
+    const nextSigungu = alertTargetSigungu;
+    const regionText = formatRegionLabel(nextSido, nextSigungu);
+
+    const updated: SectorPreferences = {
+      ...prefs,
+      localNewsAlertEnabled: enabled,
+      selectedRegionSido: nextSido,
+      selectedRegionSigungu: nextSigungu,
+    };
+
+    const notifyMessage = enabled
+      ? regionText
+        ? `'${regionText}' 내 지역 뉴스 실시간 푸시 알림이 활성화되었습니다.`
+        : "'내 지역 뉴스 알림'이 활성화되었습니다. 알림을 받을 지자체를 선택해주세요."
+      : "'내 지역 뉴스 알림'이 비활성화되었습니다.";
+
+    handleSavePreferences(updated, { notifyMessage });
   };
 
   // Toggle Sector in preferences
@@ -304,6 +500,8 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
     handleSavePreferences(DEFAULT_SECTOR_PREFERENCES);
     setSelectedSector('all');
     setOnlyMyKeywordsActive(false);
+    setSelectedSido('all');
+    setSelectedSigungu('all');
   };
 
   const getSectorLeadLines = (item: SectorHeadlineItem): string[] => {
@@ -429,10 +627,21 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
     [filteredHeadlines, tone]
   );
 
+  const hasFallbackItems = useMemo(
+    () => isFallback || headlines.some((h) => Boolean(h.isFallback) || h.sourceType === 'mock'),
+    [isFallback, headlines]
+  );
+
   return (
     <section id="section-realestate-finance" className="space-y-4 pt-2">
       {/* Section Header Card */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 sm:p-6 shadow-xs relative overflow-hidden transition-all duration-300">
+      <div
+        className={`rounded-3xl p-4 sm:p-6 shadow-xs relative overflow-hidden transition-all duration-300 border ${
+          hasFallbackItems
+            ? 'bg-gradient-to-b from-amber-50/55 via-white to-white dark:from-amber-950/25 dark:via-slate-900 dark:to-slate-900 border-amber-300/90 dark:border-amber-700/70'
+            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+        }`}
+      >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-start sm:items-center gap-3">
             <div className="p-3 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-md shadow-orange-500/20 shrink-0">
@@ -446,6 +655,9 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                 <span className="text-xs font-bold text-slate-400 dark:text-slate-400">
                   경제 5대지 및 주요 종합지 집중 취재
                 </span>
+                {hasFallbackItems && (
+                  <FallbackBadge label="수집 실패 · 샘플 데이터" size="xs" variant="solid" />
+                )}
                 {isCustomized && (
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 flex items-center gap-1">
                     <ShieldCheck className="w-3 h-3 text-amber-600 dark:text-amber-400" />
@@ -466,7 +678,9 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                 )}
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                건설 수주 및 SOC 사업, 부동산·청약 대책, 도시개발·재건축·신도시 정비, 기준금리 및 부동산 PF 헤드라인을 섹터별로 한눈에 정리합니다.
+                {hasFallbackItems
+                  ? '실시간 섹터 기사 수집에 실패하여 참고용 샘플 헤드라인이 포함되어 있습니다.'
+                  : '건설 수주 및 SOC 사업, 부동산·청약 대책, 도시개발·재건축·신도시 정비, 기준금리 및 부동산 PF 헤드라인을 섹터별로 한눈에 정리합니다.'}
               </p>
             </div>
           </div>
@@ -536,6 +750,14 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
         {/* Collapsible Content */}
         {!isCollapsed && (
           <div className="mt-5 space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+            {hasFallbackItems && !isFallback && (
+              <FallbackNoticeBanner
+                compact
+                title="건설·부동산·도시개발·금융 일부 섹터 수집에 실패하여 샘플 헤드라인이 포함되어 있습니다."
+                onRetry={onRetryLive}
+                isLoading={isLoading}
+              />
+            )}
             {/* Personalized Sector Settings Control Panel */}
             {isSettingsOpen && (
               <div className="bg-gradient-to-br from-amber-50/70 via-orange-50/40 to-white dark:from-amber-950/30 dark:via-slate-900 dark:to-slate-900 border border-amber-200 dark:border-amber-800/70 rounded-3xl p-4 sm:p-5 shadow-xs space-y-4 animate-in fade-in duration-200">
@@ -837,6 +1059,69 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                   </label>
                 </div>
 
+                {/* 4. Local Region News Real-time Push Alert Toggle */}
+                <div className="pt-2 border-t border-amber-100 dark:border-amber-900/50">
+                  <div className="rounded-2xl bg-white/90 dark:bg-slate-900/90 border border-amber-200/80 dark:border-amber-800/70 p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 shrink-0">
+                        <Bell className="w-4 h-4" aria-hidden="true" />
+                      </div>
+                      <div className="space-y-0.5 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-bold text-slate-900 dark:text-white">
+                            내 지역 뉴스 알림
+                          </span>
+                          {alertTargetLabel ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-amber-50 dark:bg-amber-950/70 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
+                              <MapPin className="w-2.5 h-2.5" aria-hidden="true" />
+                              <span>{alertTargetLabel}</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                              지자체 미선택
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                          {alertTargetLabel
+                            ? `선택한 '${alertTargetLabel}' 지역에서 새로운 주요 기사가 업데이트되면 실시간 푸시 알림을 받습니다.`
+                            : '아래 지자체 드롭다운에서 시/도 또는 시/군/구를 선택하면 해당 지역 신규 주요 기사 알림을 받을 수 있습니다.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 self-end sm:self-center shrink-0">
+                      {onTestLocalNewsAlert && alertTargetSido !== 'all' && (
+                        <button
+                          type="button"
+                          onClick={() => onTestLocalNewsAlert(alertTargetSido, alertTargetSigungu)}
+                          className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-50 dark:bg-amber-950/70 hover:bg-amber-100 dark:hover:bg-amber-900 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800 transition cursor-pointer whitespace-nowrap"
+                        >
+                          알림 테스트
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={!!prefs.localNewsAlertEnabled}
+                        aria-label="내 지역 뉴스 알림"
+                        onClick={() => handleToggleLocalNewsAlert(!prefs.localNewsAlertEnabled)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500/40 ${
+                          prefs.localNewsAlertEnabled
+                            ? 'bg-amber-600 dark:bg-amber-500'
+                            : 'bg-slate-300 dark:bg-slate-700'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition-transform ${
+                            prefs.localNewsAlertEnabled ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Panel Footer Notice */}
                 <div className="pt-2 border-t border-amber-200/60 dark:border-amber-800/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
                   <div className="flex items-center gap-1.5">
@@ -942,8 +1227,9 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
               )}
             </div>
 
-            {/* Filter and Search Bar */}
-            <div className="bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-2xl p-2.5 sm:p-3 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 text-xs">
+            {/* Filter, Local Government Dropdown & Search Bar */}
+            <div className="bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-2xl p-2.5 sm:p-3 space-y-2.5 text-xs">
+              <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
               {/* Sector Tabs */}
               <div className="flex flex-wrap items-center gap-1.5">
                 <button
@@ -1120,6 +1406,146 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                   <span>{sortBy === 'latest' ? '최신순' : '파급도순'}</span>
                 </button>
               </div>
+              </div>
+
+              {/* Local Government (지자체: 시/도 · 시/군/구) Dropdown Filter Row */}
+              <div className="pt-2 border-t border-slate-200/80 dark:border-slate-700/80 space-y-2">
+                {/* Recent 3 Looked-up Regions (Quick Re-select Bar above dropdowns) */}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap mr-0.5">
+                      <Clock className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" aria-hidden="true" />
+                      <span>최근 조회</span>
+                    </span>
+
+                    {recentRegions.length > 0 ? (
+                      recentRegions.map((item) => {
+                        const isActive =
+                          selectedSido === item.sidoCode && selectedSigungu === item.sigungu;
+                        return (
+                          <button
+                            key={`${item.sidoCode}:${item.sigungu}`}
+                            type="button"
+                            onClick={() => handleSelectRegion(item.sidoCode, item.sigungu)}
+                            aria-pressed={isActive}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-semibold border transition cursor-pointer whitespace-nowrap ${
+                              isActive
+                                ? 'bg-amber-600 text-white border-amber-600 shadow-2xs font-bold'
+                                : 'bg-white dark:bg-slate-800 hover:bg-amber-50 dark:hover:bg-amber-950/60 text-slate-700 dark:text-slate-200 border-slate-300/90 dark:border-slate-700 hover:border-amber-300 dark:hover:border-amber-700'
+                            }`}
+                            title={`${item.label} 지역 기사 빠르게 다시 보기`}
+                          >
+                            <MapPin
+                              className={`w-3 h-3 shrink-0 ${
+                                isActive ? 'text-white' : 'text-amber-600 dark:text-amber-400'
+                              }`}
+                              aria-hidden="true"
+                            />
+                            <span>{item.label}</span>
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                        아래에서 지자체를 선택하면 최근 3개 지역이 자동 기록됩니다.
+                      </span>
+                    )}
+                  </div>
+
+                  {recentRegions.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleClearRecentRegions}
+                      className="text-[11px] font-medium text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-200 transition cursor-pointer whitespace-nowrap"
+                      title="최근 조회 지자체 기록 비우기"
+                    >
+                      기록 비우기
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap">
+                    <MapPin className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" aria-hidden="true" />
+                    <span>지자체별 모아보기</span>
+                  </span>
+
+                  {/* Si/Do Dropdown */}
+                  <select
+                    value={selectedSido}
+                    onChange={(e) => {
+                      const nextSido = e.target.value;
+                      handleSelectRegion(nextSido, 'all');
+                    }}
+                    aria-label="시/도 지자체 선택"
+                    className={`px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer focus:outline-none focus:border-amber-500 ${
+                      selectedSido !== 'all'
+                        ? 'bg-amber-50 dark:bg-amber-950/70 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200'
+                        : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200'
+                    }`}
+                  >
+                    <option value="all">시/도 전체 (전국)</option>
+                    {KOREAN_REGIONS.map((region) => (
+                      <option key={region.code} value={region.code}>
+                        {region.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* Si/Gun/Gu Dropdown */}
+                  <select
+                    value={selectedSigungu}
+                    onChange={(e) => {
+                      const nextSigungu = e.target.value;
+                      handleSelectRegion(selectedSido, nextSigungu);
+                    }}
+                    disabled={selectedSido === 'all' || sigunguOptions.length === 0}
+                    aria-label="시/군/구 지자체 선택"
+                    className={`px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition focus:outline-none focus:border-amber-500 ${
+                      selectedSido === 'all'
+                        ? 'bg-slate-100 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed'
+                        : selectedSigungu !== 'all'
+                        ? 'bg-amber-50 dark:bg-amber-950/70 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 cursor-pointer'
+                        : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 cursor-pointer'
+                    }`}
+                  >
+                    <option value="all">
+                      {selectedSido === 'all'
+                        ? '시/도 먼저 선택'
+                        : `${activeSidoRegion?.shortName || ''} 시/군/구 전체`}
+                    </option>
+                    {sigunguOptions.map((sg) => (
+                      <option key={sg} value={sg}>
+                        {sg}
+                      </option>
+                    ))}
+                  </select>
+
+                  {selectedSido !== 'all' && (
+                    <button
+                      type="button"
+                      onClick={() => handleSelectRegion('all', 'all')}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-700 text-[11px] font-bold transition cursor-pointer whitespace-nowrap"
+                    >
+                      <X className="w-3 h-3" aria-hidden="true" />
+                      <span>지역 초기화</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                  {selectedSido !== 'all' ? (
+                    <span className="font-semibold text-amber-800 dark:text-amber-300 font-mono tabular-nums">
+                      선택 지역: {activeSidoRegion?.name}
+                      {selectedSigungu !== 'all' ? ` · ${selectedSigungu}` : ''} ({filteredHeadlines.length}건)
+                    </span>
+                  ) : (
+                    <span>시/도 및 시/군/구 단위로 관련 기사를 필터링할 수 있습니다.</span>
+                  )}
+                </div>
+                </div>
+              </div>
             </div>
 
             {/* Active Preferences Indicator Banner */}
@@ -1150,24 +1576,43 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
 
             {/* Headlines Grid / List */}
             {filteredHeadlines.length === 0 ? (
-              <div className="py-12 text-center text-slate-400 dark:text-slate-500 bg-slate-50/50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 space-y-2">
+              <div className="py-12 text-center text-slate-400 dark:text-slate-500 bg-slate-50/50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 space-y-2 px-4">
                 <Building className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600" />
                 <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                  선택된 조건에 부합하는 기사가 없습니다.
+                  {selectedSido !== 'all'
+                    ? `${activeSidoRegion?.name || ''}${selectedSigungu !== 'all' ? ` ${selectedSigungu}` : ''} 관련 조건에 부합하는 기사가 없습니다.`
+                    : '선택된 조건에 부합하는 기사가 없습니다.'}
                 </p>
                 <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                  {onlyMyKeywordsActive
+                  {selectedSido !== 'all'
+                    ? '상위 광역 시/도 전체를 보거나 지역 필터를 초기화하면 모든 기사를 확인할 수 있습니다.'
+                    : onlyMyKeywordsActive
                     ? '내 관심 키워드 필터를 해제하거나 [관심분야 개인설정]에서 키워드를 추가해보세요.'
                     : '다른 섹터 탭을 클릭하거나 검색어를 비워보세요.'}
                 </p>
-                {onlyMyKeywordsActive && (
-                  <button
-                    onClick={() => setOnlyMyKeywordsActive(false)}
-                    className="mt-1 px-3 py-1 rounded-xl bg-amber-600 text-white font-bold text-xs transition cursor-pointer"
-                  >
-                    전체 기사 보기로 전환
-                  </button>
-                )}
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                  {selectedSido !== 'all' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedSido('all');
+                        setSelectedSigungu('all');
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition cursor-pointer"
+                    >
+                      지역 필터 초기화
+                    </button>
+                  )}
+                  {onlyMyKeywordsActive && (
+                    <button
+                      type="button"
+                      onClick={() => setOnlyMyKeywordsActive(false)}
+                      className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition cursor-pointer"
+                    >
+                      전체 기사 보기로 전환
+                    </button>
+                  )}
+                </div>
               </div>
             ) : (
               <div
@@ -1208,6 +1653,7 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                     item,
                     prefs.favoriteKeywords
                   );
+                  const isItemFallback = isFallback || Boolean(item.isFallback) || item.sourceType === 'mock';
                   const publishedTimeLabel =
                     item.publishedAt && item.publishedAt.includes(' ')
                       ? item.publishedAt.split(' ').slice(1).join(' ')
@@ -1267,9 +1713,13 @@ export const RealEstateFinanceSection: React.FC<RealEstateFinanceSectionProps> =
                               </span>
                             )}
                           </div>
-                          <span className="text-[11px] text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 px-2 py-0.5 rounded font-semibold border border-emerald-200/70 dark:border-emerald-800/70 shrink-0">
-                            {publishedTimeLabel}
-                          </span>
+                          {isItemFallback ? (
+                            <FallbackBadge label="샘플 데이터" size="xs" variant="outline" />
+                          ) : (
+                            <span className="text-[11px] text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 px-2 py-0.5 rounded font-semibold border border-emerald-200/70 dark:border-emerald-800/70 shrink-0">
+                              {publishedTimeLabel}
+                            </span>
+                          )}
                         </div>
 
                         {/* Title */}

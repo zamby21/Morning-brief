@@ -32,6 +32,7 @@ import {
   openExternalSafe,
 } from '../utils/linkUtils';
 import { stopSectionSpeech } from '../utils/sectionSpeechPlayer';
+import { FallbackBadge, FallbackNoticeBanner } from './FallbackNotice';
 
 interface ArticleModalProps {
   isOpen: boolean;
@@ -40,6 +41,7 @@ interface ArticleModalProps {
   onOpenShare: (story: NewsStory) => void;
   isRead?: boolean;
   onToggleReadStatus?: (story: NewsStory) => void;
+  isFallback?: boolean;
 }
 
 const ArticlePhoto: React.FC<{ url: string; caption?: string; alt: string }> = ({
@@ -89,6 +91,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   onOpenShare,
   isRead = true,
   onToggleReadStatus,
+  isFallback = false,
 }) => {
   const [copiedText, setCopiedText] = useState(false);
   const [copiedNaverQuery, setCopiedNaverQuery] = useState(false);
@@ -480,12 +483,17 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
               {story.category === 'exclusive' && <Zap className="w-5 h-5" />}
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-bold text-slate-900 dark:text-white">
-                  {isCluster
+                  {isFallback
+                    ? '샘플 기사 미리보기 (수집 실패 폴백)'
+                    : isCluster
                     ? '언론사 공통 원문 클러스터 확인'
                     : '원기사 주요 발췌 및 실시간 포털 확인'}
                 </span>
+                {isFallback && (
+                  <FallbackBadge label="수집 실패 · 샘플 데이터" size="xs" variant="solid" />
+                )}
                 <span
                   className={`text-[10px] font-bold px-2 py-0.5 rounded ${
                     story.category === 'frontpage'
@@ -498,6 +506,8 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                   {story.category === 'frontpage'
                     ? story.pressSection && story.pressSection !== '첫화면 중앙 톱'
                       ? story.exclusiveBadge || story.pressSection
+                      : isFallback
+                      ? '샘플 예시'
                       : '첫화면 중앙 1면 톱'
                     : isCluster
                     ? `${story.coveredOutlets?.length || '다수'}개 언론사 교차 클러스터`
@@ -505,7 +515,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                {story.outletName} · {story.publishedAt} 발행
+                {isFallback ? `${story.outletName} · 참고용 샘플 데이터` : `${story.outletName} · ${story.publishedAt} 발행`}
               </p>
             </div>
           </div>
@@ -537,6 +547,13 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
 
         {/* Content Body */}
         <div className="p-5 sm:p-6 overflow-y-auto space-y-5 text-slate-800 dark:text-slate-100 bg-slate-50/50 dark:bg-slate-950/40">
+          {isFallback && (
+            <FallbackNoticeBanner
+              compact
+              title="이 기사는 실시간 수집 실패로 표시된 참고용 샘플 데이터입니다."
+            />
+          )}
+
           {/* Article Title & Metadata */}
           <div>
             <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white leading-snug mb-2">

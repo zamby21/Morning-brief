@@ -31,6 +31,7 @@ interface SidebarProps {
   onToggleMobilePreview: () => void;
   selectedTopic: string;
   onSelectTopic: (topic: string) => void;
+  availableTopics?: string[];
   subscribedTopics: string[];
   frontPageCount?: number;
   overlappingCount?: number;
@@ -55,6 +56,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleMobilePreview,
   selectedTopic,
   onSelectTopic,
+  availableTopics,
   subscribedTopics,
   frontPageCount,
   overlappingCount,
@@ -398,7 +400,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Filter className="w-3 h-3 text-slate-400 dark:text-slate-500" />
               </div>
               <div className="space-y-1">
-                {AVAILABLE_TOPICS.map((topic) => {
+                {subscribedTopics.length > 0 && (
+                  <button
+                    onClick={() =>
+                      onSelectTopic(selectedTopic === '__SUBSCRIBED__' ? '전체' : '__SUBSCRIBED__')
+                    }
+                    className={`w-full px-2.5 py-1.5 rounded-lg text-xs font-medium text-left flex items-center justify-between transition cursor-pointer ${
+                      selectedTopic === '__SUBSCRIBED__'
+                        ? 'bg-amber-600 text-white font-bold shadow-xs'
+                        : 'text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/50'
+                    }`}
+                  >
+                    <span className="truncate">★ 구독 주제만 모아보기</span>
+                    <span className="text-[10px] font-mono tabular-nums opacity-85">
+                      {subscribedTopics.length}
+                    </span>
+                  </button>
+                )}
+                {[
+                  '전체',
+                  ...(Array.isArray(availableTopics)
+                    ? availableTopics
+                    : AVAILABLE_TOPICS.filter((t) => t !== '전체')),
+                ].map((topic) => {
                   const isSelected = selectedTopic === topic;
                   const isSubscribed = subscribedTopics.includes(topic);
                   return (

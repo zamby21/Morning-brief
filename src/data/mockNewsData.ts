@@ -1590,6 +1590,17 @@ export const AVAILABLE_TOPICS = [
   '에너지·원전',
 ];
 
+export const RECOMMENDED_CUSTOM_TOPICS = [
+  '도시개발·정비',
+  '바이오·헬스케어',
+  '로봇·모빌리티',
+  '방산·우주',
+  '이차전지·소재',
+  '가상자산·핀테크',
+  '유통·소비',
+  '환율·수출',
+];
+
 export const INITIAL_USER_PREFERENCES: UserPreferences = {
   recipientEmail: '',
   savedRecipientEmails: [],
@@ -1602,6 +1613,7 @@ export const INITIAL_USER_PREFERENCES: UserPreferences = {
   toneExplicitlySelected: false,
   theme: 'system',
   subscribedTopics: ['반도체·AI', '금융·거시경제', '증시·투자', '정치·정책', '부동산·건설'],
+  customTopics: AVAILABLE_TOPICS.filter((t) => t !== '전체'),
   selectedOutlets: DEFAULT_10_OUTLETS,
   frontPageOutlets: DEFAULT_10_OUTLETS,
   overlappingOutlets: DEFAULT_10_OUTLETS,
@@ -1610,7 +1622,7 @@ export const INITIAL_USER_PREFERENCES: UserPreferences = {
   sectorPreferences: DEFAULT_SECTOR_PREFERENCES,
 };
 
-export { INITIAL_DAILY_BRIEFING } from './initialDailyBriefing.ts';
+export { INITIAL_DAILY_BRIEFING, SAMPLE_DATA_SNAPSHOT_DATE } from './initialDailyBriefing.ts';
 
 // 7-day summarized database for weekly issue analysis report
 export const MOCK_WEEKLY_REPORT: WeeklyReport = {

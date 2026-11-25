@@ -113,6 +113,7 @@ export interface DailyBriefing {
   sourceType?: DataSourceType;
   sectorSourceType?: DataSourceType;
   isFallback?: boolean;
+  sampleSnapshotDate?: string; // Fixed YYYY-MM-DD snapshot date when fallback sample data is shown
   collectedAt?: string; // ISO timestamp of actual collection
   topKeywords: string[];
   keywordTrends?: Record<string, KeywordTrendData>;
@@ -192,6 +193,9 @@ export interface SectorPreferences {
   favoriteKeywords: string[]; // 사용자가 집중 구독하는 세부 키워드/태그
   defaultSector: RealEstateFinanceSector; // 기본 선택 탭
   onlyCrucialOrHigh?: boolean; // 중요도 높은 핵심 기사 우선 보기
+  localNewsAlertEnabled?: boolean; // 내 지역 뉴스 실시간 푸시 알림 활성화 여부
+  selectedRegionSido?: string; // 선택된 시/도 코드 ('all' 또는 지역 코드)
+  selectedRegionSigungu?: string; // 선택된 시/군/구 ('all' 또는 시군구명)
 }
 
 export const DEFAULT_SECTOR_PREFERENCES: SectorPreferences = {
@@ -199,6 +203,9 @@ export const DEFAULT_SECTOR_PREFERENCES: SectorPreferences = {
   favoriteKeywords: [],
   defaultSector: 'all',
   onlyCrucialOrHigh: false,
+  localNewsAlertEnabled: false,
+  selectedRegionSido: 'all',
+  selectedRegionSigungu: 'all',
 };
 
 export type ThemeMode = 'light' | 'dark' | 'system' | 'sun';
@@ -215,6 +222,7 @@ export interface UserPreferences {
   toneExplicitlySelected?: boolean;
   theme?: ThemeMode;
   subscribedTopics: string[];
+  customTopics?: string[]; // 사용자가 개인화하여 추가/삭제·저장한 관심 주제 목록
   selectedOutlets: string[]; // 전체 기본/호환 언론사 목록
   frontPageOutlets?: string[]; // 1면 핵심 기사 맞춤 언론사 목록
   overlappingOutlets?: string[]; // 공통 이슈 기사 맞춤 언론사 목록

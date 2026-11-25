@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Bell,
   Smartphone,
+  MapPin,
 } from 'lucide-react';
 import { DailyBriefing, EmailDispatchLog } from '../types/news';
 import { EmailSchedulerPanel, EmailScheduleValues } from './EmailSchedulerPanel';
@@ -25,6 +26,7 @@ import {
   formatScheduleDaysSummary,
   getTimezoneShortLabel,
 } from '../utils/emailScheduler';
+import { KOREAN_REGIONS, getRegionByCode } from '../utils/koreanRegions';
 
 interface EmailModalProps {
   isOpen: boolean;
@@ -39,6 +41,12 @@ interface EmailModalProps {
   pushNotificationEnabled?: boolean;
   onTogglePush?: (enabled: boolean) => void;
   onTestPush?: () => void;
+  localNewsAlertEnabled?: boolean;
+  selectedRegionSido?: string;
+  selectedRegionSigungu?: string;
+  onToggleLocalNewsAlert?: (enabled: boolean, sidoCode?: string, sigungu?: string) => void;
+  onChangeAlertRegion?: (sidoCode: string, sigungu: string) => void;
+  onTestLocalNewsAlert?: (sidoCode: string, sigungu: string) => void;
   emailLogs: EmailDispatchLog[];
   onSendEmail: (email: string) => Promise<string>;
   onSaveRecipientEmail?: (email: string, alsoAddToList?: boolean) => void;
@@ -59,6 +67,12 @@ export const EmailModal: React.FC<EmailModalProps> = ({
   pushNotificationEnabled = false,
   onTogglePush,
   onTestPush,
+  localNewsAlertEnabled = false,
+  selectedRegionSido = 'all',
+  selectedRegionSigungu = 'all',
+  onToggleLocalNewsAlert,
+  onChangeAlertRegion,
+  onTestLocalNewsAlert,
   emailLogs,
   onSendEmail,
   onSaveRecipientEmail,
@@ -450,6 +464,125 @@ export const EmailModal: React.FC<EmailModalProps> = ({
                       />
                     </div>
                   </div>
+
+                  {/* Local Region News Real-time Push Alert Toggle */}
+                  {onToggleLocalNewsAlert && (() => {
+                    const regionMeta = getRegionByCode(selectedRegionSido);
+                    const regionLabel = regionMeta
+                      ? selectedRegionSigungu && selectedRegionSigungu !== 'all'
+                        ? `${regionMeta.shortName} · ${selectedRegionSigungu}`
+                        : regionMeta.name
+                      : '';
+                    const sigunguOptions = regionMeta?.sigungu || [];
+
+                    return (
+                      <div className="p-3 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/70 space-y-2.5">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="flex items-start gap-3 min-w-0">
+                            <MapPin className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                                  내 지역 뉴스 알림
+                                </span>
+                                {regionLabel ? (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
+                                    {regionLabel}
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                                    지자체 미선택
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                선택한 지자체에서 새로운 주요 기사가 업데이트되면 실시간 푸시 알림 수신
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2.5 self-end sm:self-auto shrink-0">
+                            {onTestLocalNewsAlert && selectedRegionSido !== 'all' && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onTestLocalNewsAlert(selectedRegionSido, selectedRegionSigungu)
+                                }
+                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white dark:bg-slate-800 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900 transition cursor-pointer"
+                              >
+                                지역 알림 테스트
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={localNewsAlertEnabled}
+                              aria-label="내 지역 뉴스 알림"
+                              onClick={() =>
+                                onToggleLocalNewsAlert(
+                                  !localNewsAlertEnabled,
+                                  selectedRegionSido,
+                                  selectedRegionSigungu
+                                )
+                              }
+                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500/40 ${
+                                localNewsAlertEnabled
+                                  ? 'bg-amber-600 dark:bg-amber-500'
+                                  : 'bg-slate-300 dark:bg-slate-700'
+                              }`}
+                            >
+                              <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition-transform ${
+                                  localNewsAlertEnabled ? 'translate-x-6' : 'translate-x-1'
+                                }`}
+                              />
+                            </button>
+                          </div>
+                        </div>
+
+                        {onChangeAlertRegion && (
+                          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-amber-200/70 dark:border-amber-800/50 text-[11px]">
+                            <span className="font-semibold text-slate-600 dark:text-slate-300">
+                              알림 지자체 지정:
+                            </span>
+                            <select
+                              value={selectedRegionSido}
+                              onChange={(e) => onChangeAlertRegion(e.target.value, 'all')}
+                              aria-label="알림 시/도 지자체 선택"
+                              className="px-2 py-1 rounded-lg border border-amber-200 dark:border-amber-800 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold cursor-pointer focus:outline-none focus:border-amber-500"
+                            >
+                              <option value="all">지자체 선택...</option>
+                              {KOREAN_REGIONS.map((region) => (
+                                <option key={region.code} value={region.code}>
+                                  {region.name}
+                                </option>
+                              ))}
+                            </select>
+                            <select
+                              value={selectedRegionSigungu}
+                              onChange={(e) =>
+                                onChangeAlertRegion(selectedRegionSido, e.target.value)
+                              }
+                              disabled={selectedRegionSido === 'all' || sigunguOptions.length === 0}
+                              aria-label="알림 시/군/구 지자체 선택"
+                              className="px-2 py-1 rounded-lg border border-amber-200 dark:border-amber-800 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold disabled:opacity-50 cursor-pointer focus:outline-none focus:border-amber-500"
+                            >
+                              <option value="all">
+                                {selectedRegionSido === 'all'
+                                  ? '시/도 먼저 선택'
+                                  : `${regionMeta?.shortName || ''} 전체`}
+                              </option>
+                              {sigunguOptions.map((sg) => (
+                                <option key={sg} value={sg}>
+                                  {sg}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>
