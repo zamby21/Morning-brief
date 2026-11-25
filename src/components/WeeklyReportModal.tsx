@@ -17,17 +17,44 @@ import { FallbackBadge, FallbackNoticeBanner } from './FallbackNotice';
 interface WeeklyReportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  report: WeeklyReport;
+  report: WeeklyReport | null;
+  isLoading?: boolean;
 }
 
 export const WeeklyReportModal: React.FC<WeeklyReportModalProps> = ({
   isOpen,
   onClose,
   report,
+  isLoading = false,
 }) => {
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
 
   if (!isOpen) return null;
+
+  if (!report || isLoading) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in duration-200">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-3xl w-full max-w-lg p-6 shadow-2xl text-center space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-black text-slate-900 dark:text-white">
+              주간 종합 분석 리포트 불러오는 중...
+            </h3>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-xl text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer"
+              title="닫기"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+            누적된 일별 브리핑 기록을 바탕으로 주간 핵심 키워드와 언론사별 논조 비교 리포트를 구성하고 있습니다.
+          </p>
+          <div className="w-8 h-8 border-2 border-purple-600 border-t-transparent rounded-full animate-spin mx-auto" />
+        </div>
+      </div>
+    );
+  }
 
   const currentTimelineDay = report.timeline[selectedDayIndex] || report.timeline[0];
   const isFallbackReport = Boolean(report.isFallback) || report.sourceType !== 'live';

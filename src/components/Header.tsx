@@ -7,7 +7,7 @@ import {
   Calendar,
   Settings,
 } from 'lucide-react';
-import { UserPreferences, DataSourceType } from '../types/news';
+import { UserPreferences, DataSourceType, OperationalStatus } from '../types/news';
 import { getCurrentKoreanDateString } from '../utils/dateUtils';
 import { FallbackBadge } from './FallbackNotice';
 
@@ -18,6 +18,9 @@ interface HeaderProps {
   sourceType?: DataSourceType;
   isFallback?: boolean;
   isSyncingInitial?: boolean;
+  collectorStatus?: OperationalStatus;
+  aiStatus?: OperationalStatus;
+  aiErrorCode?: string;
   sampleSnapshotDate?: string;
   onResetHome?: () => void;
   onToggleSidebar: () => void;
@@ -31,6 +34,74 @@ interface HeaderProps {
   subNav?: React.ReactNode;
 }
 
+function getCollectorLabel(status?: OperationalStatus, isSyncing?: boolean): {
+  text: string;
+  toneClass: string;
+} {
+  if (isSyncing) {
+    return {
+      text: '기사 수집: 동기화 중',
+      toneClass: 'bg-blue-100 dark:bg-blue-950/80 text-blue-800 dark:text-blue-300',
+    };
+  }
+  if (status === 'unavailable') {
+    return {
+      text: '기사 수집: 실패',
+      toneClass: 'bg-amber-200/90 dark:bg-amber-900/80 text-amber-950 dark:text-amber-100',
+    };
+  }
+  if (status === 'degraded') {
+    return {
+      text: '기사 수집: 일부 지연',
+      toneClass: 'bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-200',
+    };
+  }
+  return {
+    text: '기사 수집: 정상',
+    toneClass: 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300',
+  };
+}
+
+function getAiStatusLabel(status?: OperationalStatus, errorCode?: string, isSyncing?: boolean): {
+  text: string;
+  toneClass: string;
+} {
+  if (isSyncing) {
+    return {
+      text: 'AI 요약: 대기',
+      toneClass: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300',
+    };
+  }
+  if (status === 'ok') {
+    return {
+      text: 'AI 요약: 정상',
+      toneClass: 'bg-indigo-100 dark:bg-indigo-950/80 text-indigo-800 dark:text-indigo-300',
+    };
+  }
+  if (errorCode === 'GEMINI_NOT_CONFIGURED') {
+    return {
+      text: 'AI 요약: 미연결',
+      toneClass: 'bg-slate-200/90 dark:bg-slate-800 text-slate-700 dark:text-slate-300',
+    };
+  }
+  if (errorCode === 'GEMINI_QUOTA_EXCEEDED') {
+    return {
+      text: 'AI 요약: 한도 초과',
+      toneClass: 'bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200',
+    };
+  }
+  if (status === 'degraded' || status === 'unavailable') {
+    return {
+      text: 'AI 요약: 일시 오류',
+      toneClass: 'bg-amber-100 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200',
+    };
+  }
+  return {
+    text: 'AI 요약: 원문 발췌 모드',
+    toneClass: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300',
+  };
+}
+
 export const Header: React.FC<HeaderProps> = ({
   preferences: _preferences,
   briefingDate,
@@ -38,6 +109,9 @@ export const Header: React.FC<HeaderProps> = ({
   sourceType,
   isFallback,
   isSyncingInitial = false,
+  collectorStatus,
+  aiStatus,
+  aiErrorCode,
   sampleSnapshotDate,
   onResetHome,
   onToggleSidebar,
@@ -51,13 +125,23 @@ export const Header: React.FC<HeaderProps> = ({
   subNav,
 }) => {
   const isMockOrFallback = (Boolean(isFallback) || sourceType === 'mock') && !isSyncingInitial;
-  const isInitialLoadingStrip = isSyncingInitial && (Boolean(isFallback) || sourceType === 'mock');
+  const isInitialLoadingStrip =
+    isSyncingInitial && (Boolean(isFallback) || sourceType === 'mock' || !briefingTime);
   const fallbackDateLabel = sampleSnapshotDate ? `샘플 ${sampleSnapshotDate}` : (briefingDate || '샘플 데이터');
-  const liveDateLabel = briefingDate || getCurrentKoreanDateString();
+  const liveDateLabel =
+    isInitialLoadingStrip || !briefingDate || briefingDate.includes('샘플')
+      ? getCurrentKoreanDateString()
+      : briefingDate;
+
+  const collectorBadge = getCollectorLabel(
+    isMockOrFallback ? 'unavailable' : collectorStatus,
+    isInitialLoadingStrip
+  );
+  const aiBadge = getAiStatusLabel(aiStatus, aiErrorCode, isInitialLoadingStrip);
 
   return (
     <header className="bg-white/95 dark:bg-slate-900/95 text-slate-800 dark:text-slate-100 border-b border-slate-200/90 dark:border-slate-800 sticky top-0 z-30 shadow-xs backdrop-blur-md transition-colors duration-200">
-      {/* Top Thin Notification Strip (Bright, Ultra-Compact & Zero Line Wrap on Mobile) */}
+      {/* Top Thin Notification Strip (Separated Collector & AI Operational Status) */}
       <div
         className={`border-b px-3 sm:px-4 py-1 text-[11px] sm:text-xs transition-colors ${
           isMockOrFallback
@@ -66,7 +150,7 @@ export const Header: React.FC<HeaderProps> = ({
         }`}
       >
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden">
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
             {isMockOrFallback ? (
               <FallbackBadge label="수집 실패 · 샘플 데이터" size="xs" variant="solid" />
             ) : isInitialLoadingStrip ? (
@@ -75,10 +159,13 @@ export const Header: React.FC<HeaderProps> = ({
                 <span>실시간 자동 수집 중</span>
               </span>
             ) : (
-              <span className="inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 shrink-0">
-                실시간 연동 ({briefingTime || 'LIVE'})
+              <span className={`inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold shrink-0 ${collectorBadge.toneClass}`}>
+                {collectorBadge.text} {briefingTime ? `(${briefingTime})` : ''}
               </span>
             )}
+            <span className={`hidden md:inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold shrink-0 ${aiBadge.toneClass}`}>
+              {aiBadge.text}
+            </span>
             <span className="hidden sm:inline text-slate-300 dark:text-slate-700">|</span>
             <span
               className={`hidden sm:inline font-semibold truncate ${
@@ -90,8 +177,8 @@ export const Header: React.FC<HeaderProps> = ({
               {isMockOrFallback
                 ? '실시간 기사 수집에 실패하여 참고용 샘플 데이터를 표시하고 있습니다'
                 : isInitialLoadingStrip
-                ? '첫 화면 로딩 중 · 각 언론사 실시간 1면 및 섹터 기사를 자동으로 불러오고 있습니다'
-                : '각 언론사 홈페이지 첫화면 중앙 1면 톱기사 실시간 연동 요약'}
+                ? '첫 화면 로딩 중 · 각 언론사 홈페이지 주요 및 섹터 기사를 자동으로 불러오고 있습니다'
+                : '각 언론사 홈페이지 첫화면 주요 기사 실시간 연동 요약'}
             </span>
           </div>
 
@@ -181,6 +268,10 @@ export const Header: React.FC<HeaderProps> = ({
                 )}
                 {isMockOrFallback ? (
                   <FallbackBadge label="샘플 데이터" size="xs" variant="solid" className="hidden sm:inline-flex" />
+                ) : isInitialLoadingStrip ? (
+                  <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-blue-600 text-white shadow-2xs">
+                    수집 중
+                  </span>
                 ) : (
                   <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-600 text-white shadow-2xs">
                     LIVE

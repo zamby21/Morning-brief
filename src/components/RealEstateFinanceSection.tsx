@@ -34,7 +34,7 @@ import {
   BriefingTone,
   DEFAULT_SECTOR_PREFERENCES,
 } from '../types/news';
-import { PRESS_OUTLETS } from '../data/mockNewsData';
+import { PRESS_OUTLETS } from '../data/pressMetadata';
 import { getNaverNewsUrl } from '../utils/linkUtils';
 import { formatLeadSummaryByTone } from '../utils/toneTransformer';
 import { isArticleRead, ReadableArticleRef } from '../utils/readArticles';

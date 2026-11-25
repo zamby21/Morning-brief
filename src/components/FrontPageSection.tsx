@@ -76,7 +76,7 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
-                1. 언론사 1면 핵심 보도
+                1. 언론사 홈페이지 첫화면 주요 기사
               </h2>
               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
                 총 {stories.length}건
@@ -97,8 +97,8 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {isFallback
-                ? '실시간 1면 수집에 실패하여 화면 구조 확인용 샘플 기사를 표시하고 있습니다.'
-                : '각 언론사 공식 홈페이지 첫화면 중앙에 가장 크게 떠있는 톱기사를 알림 시각과 무관하게 실시간으로 계속 갱신·요약합니다.'}
+                ? '실시간 기사 수집에 실패하여 화면 구조 확인용 샘플 기사를 표시하고 있습니다.'
+                : '각 언론사 공식 홈페이지 첫화면 중앙 주요 기사를 실시간으로 수집·요약합니다. (인쇄 신문 지면과 다를 수 있음)'}
             </p>
           </div>
         </div>
@@ -107,7 +107,7 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
         <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
           <SectionAudioButton
             sectionId="frontpage"
-            sectionLabel="1면 핵심 보도"
+            sectionLabel="첫화면 주요 기사"
             items={speechItems}
             accent="blue"
           />
@@ -152,7 +152,7 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
         >
           <div className="flex items-center gap-2">
             <Newspaper className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-            <span>신문 1면 핵심 보도 <strong>{stories.length}건</strong>이 접혀있습니다.</span>
+            <span>홈페이지 첫화면 주요 기사 <strong>{stories.length}건</strong>이 접혀있습니다.</span>
           </div>
           <span className="text-blue-600 dark:text-blue-400 font-bold group-hover:underline flex items-center gap-1">
             클릭하여 펼쳐보기
@@ -161,7 +161,7 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
         </div>
       ) : stories.length === 0 ? (
         <div className="text-center py-10 bg-white dark:bg-slate-900/90 rounded-2xl border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 text-sm shadow-xs">
-          선택하신 주제나 언론사에 해당하는 1면 기사가 없습니다. 필터를 해제해보세요.
+          선택하신 주제나 언론사에 해당하는 홈페이지 첫화면 기사가 없습니다. 필터를 해제해보세요.
         </div>
       ) : (
         <div className={isMobileView ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 lg:grid-cols-2 gap-4"}>
@@ -199,7 +199,7 @@ export const FrontPageSection: React.FC<FrontPageSectionProps> = ({
                             : 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/70 border-blue-200 dark:border-blue-800'
                         }`}
                       >
-                        {isFallback ? '샘플 예시' : '첫화면 중앙 톱'}
+                        {isFallback ? '샘플 예시' : '홈페이지 주요 톱'}
                       </span>
                       {story.topic && (
                         <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">

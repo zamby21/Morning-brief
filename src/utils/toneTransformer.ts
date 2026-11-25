@@ -13,12 +13,16 @@ export function stripSummaryDecorations(line: string): string {
     .trim();
 }
 
+export const INSUFFICIENT_EXCERPT_NOTICE =
+  '본문 발췌 부족 — 제목과 원문 링크만 제공';
+
 /**
  * Converts plain/news declarative endings (~다 / ~했다 / ~됐다 / ~이다) into formal honorific report style (~습니다 / ~입니다)
  */
 export function toFormalKorean(line: string): string {
   let s = stripSummaryDecorations(line);
   if (!s) return '';
+  if (s.startsWith('본문 발췌 부족')) return INSUFFICIENT_EXCERPT_NOTICE;
 
   // Remove leftover friendly/bullet endings back toward formal first
   s = s
@@ -111,6 +115,7 @@ export function toFormalKorean(line: string): string {
 export function toBulletKorean(line: string): string {
   let s = stripSummaryDecorations(line);
   if (!s) return '';
+  if (s.startsWith('본문 발췌 부족')) return INSUFFICIENT_EXCERPT_NOTICE;
 
   // Trim verbose journalistic filler phrases to create real telegraphic compression
   s = s
@@ -194,6 +199,7 @@ export function toBulletKorean(line: string): string {
 export function toFriendlyKorean(line: string, idx: number): string {
   let s = stripSummaryDecorations(line);
   if (!s) return '';
+  if (s.startsWith('본문 발췌 부족')) return INSUFFICIENT_EXCERPT_NOTICE;
 
   // First normalize plain endings to readable polite conversational forms
   const friendlyReplacements: [RegExp, string][] = [
@@ -307,24 +313,21 @@ export function buildArticleSpecificInsight(
  * - friendly: 3 lines in conversational explanatory style (~했어요/~이에요)
  */
 export function formatLeadSummaryByTone(
-  title: string,
+  _title: string,
   candidateLines: string[],
   targetTone: BriefingTone,
   _topic: string = '',
-  outletName: string = '',
+  _outletName: string = '',
   aiInsight?: string
 ): { baseSummary: string[]; leadSummary: string[] } {
-  const cleanBase = (candidateLines || []).map(stripSummaryDecorations).filter(Boolean);
-  while (cleanBase.length < 3) {
-    const fallbackLine =
-      cleanBase.length === 0
-        ? `${outletName ? `${outletName}이 ` : ''}"${title}" 사안을 주요 보도로 다뤘습니다.`
-        : cleanBase.length === 1
-        ? `관련 세부 내용은 언론사 원문 기사에서 확인할 수 있습니다.`
-        : `추가 경과 및 후속 보도는 공식 원문 링크를 참고하세요.`;
-    cleanBase.push(fallbackLine);
-  }
-  const preservedBase = cleanBase.slice(0, 3);
+  const cleanBase = (candidateLines || [])
+    .map(stripSummaryDecorations)
+    .filter((l) => Boolean(l) && !l.startsWith('본문 발췌 부족'));
+
+  const hasInsufficientExcerpt = cleanBase.length === 0;
+  const preservedBase = hasInsufficientExcerpt
+    ? [INSUFFICIENT_EXCERPT_NOTICE]
+    : cleanBase.slice(0, 3);
 
   let nextSummary: string[];
   if (targetTone === 'insight') {
@@ -333,10 +336,14 @@ export function formatLeadSummaryByTone(
       Boolean(aiInsight) &&
       aiInsight!.trim().length >= 8 &&
       !aiInsight!.includes('AI 분석 불가');
-    const insightLine = hasRealAiInsight
-      ? toBulletInsightLine(aiInsight!)
-      : UNAVAILABLE_AI_INSIGHT_LINE;
-    nextSummary = [...bulletLines, insightLine];
+    if (hasInsufficientExcerpt && !hasRealAiInsight) {
+      nextSummary = [INSUFFICIENT_EXCERPT_NOTICE];
+    } else {
+      const insightLine = hasRealAiInsight
+        ? toBulletInsightLine(aiInsight!)
+        : UNAVAILABLE_AI_INSIGHT_LINE;
+      nextSummary = [...bulletLines, insightLine];
+    }
   } else if (targetTone === 'bullet') {
     nextSummary = preservedBase.map((line) => toBulletKorean(line));
   } else if (targetTone === 'friendly') {

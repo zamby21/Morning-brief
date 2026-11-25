@@ -246,9 +246,9 @@ export function splitLongParagraphCleanly(text: string): string[] {
 }
 
 export function generate3LineSummaryFromSnippet(
-  title: string,
+  _title: string,
   snippet: string,
-  outletName: string,
+  _outletName: string,
   preExtractedSentences?: string[]
 ): string[] {
   const baseSentences = (preExtractedSentences || [])
@@ -276,58 +276,11 @@ export function generate3LineSummaryFromSnippet(
     if (combined.length >= 3) return combined.slice(0, 3);
   }
 
-  const t = (title || '').trim();
-  const cleanT = t
-    .replace(/\[.*?\]/g, '')
-    .replace(/“|”|"|'/g, '')
-    .replace(/\(.*?\)/g, '')
-    .trim();
-
-  let contextualLines: string[];
-  if (/수능|시험|부정행위|커닝|교육부|교사|학교|수험생/.test(t)) {
-    contextualLines = [
-      `${outletName} 첫화면 중앙 톱보도로 "${cleanT}" 사안이 긴급 보도되며 교육계와 수험생들의 이목이 집중되었습니다.`,
-      `시험 감독 기준 강화와 첨단 부정행위 차단 대책을 둘러싸고 교육 당국과 일선 학교 현장의 대응이 긴박하게 이어지고 있습니다.`,
-      `수능 당일 현장 운영 안정성과 후속 수사·제도 보완 결과가 향후 교육 정책의 주요 분수령이 될 전망입니다.`,
-    ];
-  } else if (/부동산|아파트|전세|분양|주택|청약|재건축|매매|보증금|집값|종부세|로또/.test(t)) {
-    contextualLines = [
-      `${outletName} 주요 보도로 "${cleanT}" 사안이 부각되며 주택 시장과 실수요자들의 큰 관심이 쏠렸습니다.`,
-      `세제·대출 규제 기조와 수도권 수급 변동성 속에 시장 참여자들의 관망세와 체감 영향이 확산되고 있습니다.`,
-      `정부 및 지자체의 시장 점검과 추가 공급 대책 여부가 향후 부동산 시장 흐름을 좌우할 핵심 변수로 꼽힙니다.`,
-    ];
-  } else if (/트럼프|시진핑|푸틴|APEC|정상회담|한한령|FTA|중국|미국|외교/.test(t)) {
-    contextualLines = [
-      `${outletName} 톱뉴스로 "${cleanT}" 외교·통상 현안이 주요하게 보도되며 국제사회의 이목이 집중되었습니다.`,
-      `다자 정상회의 무대에서 주요국 정상 간 연쇄 회담과 경제·안보 협력 논의가 본격적으로 전개되고 있습니다.`,
-      `이번 정상외교 협상 결과와 후속 통상 합의 이행 여부가 향후 국내 산업과 대외 경제 환경에 중대한 영향을 미칠 전망입니다.`,
-    ];
-  } else if (/법원|판결|무죄|구형|특검|재판|계엄|대법|구속|수사|경찰|압수수색/.test(t)) {
-    contextualLines = [
-      `${outletName} 주요 톱보도로 "${cleanT}" 사법·수사 현안이 보도되며 법조계와 정치권의 파장이 확산되고 있습니다.`,
-      `재판부의 법리 판단과 수사기관의 강제수사 착수 배경을 둘러싸고 각계의 엇갈린 해석과 공방이 이어지고 있습니다.`,
-      `향후 항소심 일정 및 추가 수사 결과에 따라 정치·사회적 후폭풍과 제도적 논의가 본격화될 것으로 보입니다.`,
-    ];
-  } else if (/증시|코스피|코스닥|주가|매도|매수|외국인|반도체|엔비디아|AI|삼성|하이닉스/.test(t)) {
-    contextualLines = [
-      `${outletName} 핵심 보도로 "${cleanT}" 시장 동향이 전해지며 투자자와 산업계의 이목이 쏠렸습니다.`,
-      `대외 거시경제 변수와 글로벌 공급망 이슈 속에 주요 종목의 수급 변동성과 투자 심리가 민감하게 반응하고 있습니다.`,
-      `전문가들은 단기 수급 쏠림에 유의하면서 실적 가시성과 펀더멘털 중심의 신중한 시장 대응을 권고하고 있습니다.`,
-    ];
-  } else {
-    contextualLines = [
-      `${outletName} 공식 홈페이지 첫화면 중앙 톱보도로 "${cleanT}" 사안이 선정되어 핵심 팩트가 집중 보도되었습니다.`,
-      `관련 분야 전문가들과 이해관계자들은 이번 보도가 사회·정책 및 산업 전반에 미칠 파급 효과를 면밀히 분석하고 있습니다.`,
-      `향후 관계 당국의 공식 입장 발표와 세부 후속 조치 결과가 향후 전개 방향의 주요 관전 포인트가 될 전망입니다.`,
-    ];
+  if (combined.length > 0) {
+    return combined;
   }
 
-  while (combined.length < 3) {
-    const nextLine = contextualLines[combined.length] || contextualLines[contextualLines.length - 1];
-    combined.push(nextLine);
-  }
-
-  return combined.slice(0, 3);
+  return ['본문 발췌 부족 — 제목과 원문 링크만 제공'];
 }
 
 export function inferTopicFromText(title: string): string {

@@ -12,12 +12,14 @@ import {
   Check,
   ShieldCheck,
   Volume2,
+  Network,
 } from 'lucide-react';
 import { NewsStory } from '../types/news';
 import { isArticleRead } from '../utils/readArticles';
 import { SectionAudioButton, useActiveSectionSpeechItemId } from './SectionAudioButton';
 import type { SpeechBriefingItem } from '../utils/sectionSpeechPlayer';
 import { FallbackBadge } from './FallbackNotice';
+import { SimilarityNetworkModal } from './SimilarityNetworkModal';
 
 interface OverlappingStoriesSectionProps {
   stories: NewsStory[];
@@ -120,6 +122,10 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
 }) => {
   const [isAdjustPanelOpen, setIsAdjustPanelOpen] = useState(false);
   const [savedBadge, setSavedBadge] = useState(false);
+  const [networkModalState, setNetworkModalState] = useState<{
+    isOpen: boolean;
+    focusedStory: NewsStory | null;
+  }>({ isOpen: false, focusedStory: null });
   const readCount = stories.filter((story) => isArticleRead(readArticleKeys, story)).length;
   const activeSpeechItemId = useActiveSectionSpeechItemId('overlapping');
 
@@ -200,12 +206,12 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
               </button>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              수집 언론사 중 {minCoverageRatio}%({minRequiredOutlets}개사 이상)가 유사도 {minSimilarityScore}% 이상으로 일제히 다룬 중복 기사를 종합했습니다.
+              선택 매체 중 {minCoverageRatio}%({minRequiredOutlets}개사 이상)가 수집 기사 간 텍스트 유사도 {minSimilarityScore}% 이상으로 교차 보도한 군집입니다.
             </p>
           </div>
         </div>
 
-        {/* Section Actions: Section Audio, Adjust Thresholds, Outlet Settings, Collapse/Expand and Scroll to Top */}
+        {/* Section Actions: Section Audio, Similarity Network Map, Adjust Thresholds, Collapse/Expand and Scroll to Top */}
         <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
           <SectionAudioButton
             sectionId="overlapping"
@@ -213,6 +219,18 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
             items={speechItems}
             accent="purple"
           />
+
+          {stories.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setNetworkModalState({ isOpen: true, focusedStory: null })}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border shadow-2xs transition active:scale-95 cursor-pointer bg-purple-600 hover:bg-purple-700 text-white border-purple-600"
+              title="D3 유사도 네트워크 맵으로 이슈 파급력 보기"
+            >
+              <Network className="w-3.5 h-3.5" />
+              <span>유사도 네트워크 맵</span>
+            </button>
+          )}
 
           {/* Threshold Adjust Button */}
           <button
@@ -393,13 +411,13 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
-                    <span>② 기사 본문 맥락 유사도</span>
+                    <span>② 수집 기사 간 텍스트 유사도</span>
                     <span className="text-[10px] text-emerald-800 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950 px-2 py-0.5 rounded-full font-bold">
-                      키워드·맥락 매칭
+                      제목·본문 어휘 매칭
                     </span>
                   </div>
                   <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                    언론사 간 핵심 논점 및 팩트 유사도 점수
+                    수집된 기사 제목·발췌문 간 텍스트 중복도 점수
                   </div>
                 </div>
                 <div className="text-right">
@@ -500,7 +518,7 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
           </div>
           <div className="space-y-1">
             <p className="font-bold text-slate-800 dark:text-slate-100">
-              현재 설정된 기준(언론사 {minCoverageRatio}%↑ 및 유사도 {minSimilarityScore}%↑)에 일치하는 공통 이슈가 없습니다.
+              선택 매체 수집 범위에서 {minRequiredOutlets}개사 이상 교차 확인된 군집({minCoverageRatio}%↑ · 텍스트 유사도 {minSimilarityScore}%↑)이 없습니다.
             </p>
             <p className="text-xs text-slate-400 dark:text-slate-500">
               상단의 기준 비율을 낮추거나 '공통이슈 언론사 설정'에서 수집 언론사를 추가해보세요.
@@ -682,25 +700,47 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
                   })}
                 </div>
 
-                {/* Keywords */}
-                {story.keywords && story.keywords.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                    {story.keywords.map((kw, i) => (
-                      <span
-                        key={i}
-                        className="text-[11px] text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded font-medium border border-slate-200/60 dark:border-slate-700"
-                      >
-                        #{kw}
-                      </span>
-                    ))}
-                  </div>
-                )}
+                {/* Keywords + Network Map Trigger */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  {story.keywords && story.keywords.length > 0 ? (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {story.keywords.map((kw, i) => (
+                        <span
+                          key={i}
+                          className="text-[11px] text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded font-medium border border-slate-200/60 dark:border-slate-700"
+                        >
+                          #{kw}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span />
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setNetworkModalState({ isOpen: true, focusedStory: story })}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-lg bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100 dark:hover:bg-purple-900/70 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 cursor-pointer transition shrink-0"
+                    title="이 이슈에 참여한 언론사 유사도 네트워크 맵 열기"
+                  >
+                    <Network className="w-3 h-3" />
+                    <span>네트워크 맵</span>
+                  </button>
+                </div>
               </div>
             </div>
             );
           })}
         </div>
       )}
+
+      <SimilarityNetworkModal
+        isOpen={networkModalState.isOpen}
+        onClose={() => setNetworkModalState({ isOpen: false, focusedStory: null })}
+        stories={stories}
+        focusedStory={networkModalState.focusedStory}
+        onOpenArticleModal={onOpenArticleModal}
+      />
     </section>
   );
 };

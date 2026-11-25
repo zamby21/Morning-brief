@@ -4,29 +4,16 @@ import { escapeHtml, sanitizeHttpUrl, isValidEmailAddress } from '../../src/util
 import {
   createRateLimiter,
   serverBriefingStore,
-  VALID_DAYS,
   isValidHHMM,
-  isValidIanaTimeZone,
+  maskEmailAddress,
 } from '../utils/security.ts';
-
-const emailLogs: EmailDispatchLog[] = [];
 
 export function isResendConfigured(): boolean {
   return Boolean(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim().length > 0);
 }
 
-let savedEmailSchedule = {
-  recipientEmail: '',
-  deliveryTime: '09:00',
-  deliveryTimezone: 'Asia/Seoul',
-  deliveryDays: ['월', '화', '수', '목', '금'],
-  autoEmailEnabled: false,
-  isPreviewOnly: true,
-  updatedAt: new Date().toISOString(),
-};
-
 export function registerEmailRoutes(app: express.Express): void {
-  // Dispatch via Resend API when configured or generate sanitized HTML preview
+  // Dispatch via Resend API when configured or generate sanitized HTML preview (stateless: never stores/exposes other users' emails)
   app.post(['/api/send-email', '/send-email'], createRateLimiter('send-email', 20), async (req, res) => {
     const { recipient, briefingId, briefing: clientBriefing, scheduledTime = '09:00' } = req.body || {};
     const targetEmail = typeof recipient === 'string' ? recipient.trim() : '';
@@ -130,10 +117,10 @@ export function registerEmailRoutes(app: express.Express): void {
       <p style="font-size: 13px; color: #2563eb; font-weight: 600;">${topKeywords.join(' ')}</p>
     </div>
     <div class="section">
-      <div class="sec-title">언론사별 신문 1면 핵심 보도</div>
+      <div class="sec-title">언론사별 홈페이지 주요 보도</div>
       ${frontStories
         .map((s: any) =>
-          renderCardHtml(s, '#2563eb', `${String(s?.outletName || '언론사')} | 1면 톱기사`, '원문 기사 바로보기 →')
+          renderCardHtml(s, '#2563eb', `${String(s?.outletName || '언론사')} | 홈페이지 주요 톱`, '원문 기사 바로보기 →')
         )
         .join('')}
     </div>
@@ -150,7 +137,7 @@ export function registerEmailRoutes(app: express.Express): void {
     ${
       exclStories.length > 0
         ? `<div class="section">
-      <div class="sec-title">언론사 단독 보도</div>
+      <div class="sec-title">언론사 단독 표기 보도</div>
       ${exclStories
         .map((s: any) =>
           renderCardHtml(
@@ -204,16 +191,15 @@ export function registerEmailRoutes(app: express.Express): void {
             headline: emailSubject,
             storiesCount: totalStoriesCount,
           };
-          emailLogs.unshift(failedLog);
-          if (emailLogs.length > 50) emailLogs.length = 50;
-          console.warn('[Resend] Email delivery failed:', resendRes.status, resendData?.message || resendData?.name || '');
+          console.warn(
+            `[Resend] Delivery failed (${resendRes.status}) for ${maskEmailAddress(targetEmail)}`
+          );
           return res.status(502).json({
             success: false,
             isPreviewOnly: false,
             mailProviderConfigured: true,
             message: '이메일 발송 서비스(Resend) 전송에 실패했습니다. API 키 및 발신자 도메인 설정을 확인해주세요.',
             log: failedLog,
-            history: emailLogs,
           });
         }
 
@@ -226,8 +212,6 @@ export function registerEmailRoutes(app: express.Express): void {
           headline: emailSubject,
           storiesCount: totalStoriesCount,
         };
-        emailLogs.unshift(sentLog);
-        if (emailLogs.length > 50) emailLogs.length = 50;
 
         return res.json({
           success: true,
@@ -238,9 +222,8 @@ export function registerEmailRoutes(app: express.Express): void {
           message: `${targetEmail} 주소로 실제 뉴스레터 이메일이 발송되었습니다.`,
           log: sentLog,
           htmlPreview: htmlNewsletter,
-          history: emailLogs,
         });
-      } catch (err: any) {
+      } catch {
         const failedLog: EmailDispatchLog = {
           id: `failed-${Date.now()}`,
           sentAt: new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),
@@ -250,23 +233,20 @@ export function registerEmailRoutes(app: express.Express): void {
           headline: emailSubject,
           storiesCount: totalStoriesCount,
         };
-        emailLogs.unshift(failedLog);
-        if (emailLogs.length > 50) emailLogs.length = 50;
-        console.warn('[Resend] Email request error:', err?.message || err);
+        console.warn(`[Resend] Connection error for ${maskEmailAddress(targetEmail)}`);
         return res.status(502).json({
           success: false,
           isPreviewOnly: false,
           mailProviderConfigured: true,
           message: '이메일 발송 서버(Resend) 연결 중 오류가 발생했습니다.',
           log: failedLog,
-          history: emailLogs,
         });
       } finally {
         clearTimeout(timer);
       }
     }
 
-    const newLog: EmailDispatchLog = {
+    const previewLog: EmailDispatchLog = {
       id: `preview-${Date.now()}`,
       sentAt: new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),
       recipient: targetEmail,
@@ -276,73 +256,23 @@ export function registerEmailRoutes(app: express.Express): void {
       storiesCount: totalStoriesCount,
     };
 
-    emailLogs.unshift(newLog);
-    if (emailLogs.length > 50) {
-      emailLogs.length = 50;
-    }
-
     return res.json({
       success: true,
       isPreviewOnly: true,
       mailProviderConfigured: false,
       provider: 'none',
       message: `${targetEmail} 대상 뉴스레터 미리보기가 생성되었습니다. (RESEND_API_KEY 미설정으로 실제 발송은 수행되지 않습니다.)`,
-      log: newLog,
+      log: previewLog,
       htmlPreview: htmlNewsletter,
-      history: emailLogs,
     });
   });
 
-  app.get(['/api/email-logs', '/email-logs'], createRateLimiter('email-logs', 60), (_req, res) => {
-    const mailConfigured = isResendConfigured();
-    res.json({ logs: emailLogs, isPreviewOnly: !mailConfigured, mailProviderConfigured: mailConfigured });
-  });
-
-  app.get(['/api/email-schedule', '/email-schedule'], createRateLimiter('email-schedule', 30), (_req, res) => {
-    res.json({ success: true, isPreviewOnly: true, schedule: savedEmailSchedule });
-  });
-
-  app.post(['/api/email-schedule', '/email-schedule'], createRateLimiter('email-schedule', 20), (req, res) => {
-    const { recipientEmail, deliveryTime, deliveryTimezone, deliveryDays, autoEmailEnabled } = req.body || {};
-
-    if (recipientEmail !== undefined && recipientEmail !== '' && !isValidEmailAddress(recipientEmail)) {
-      return res.status(400).json({ success: false, error: '올바른 이메일 주소 형식이 아닙니다.' });
-    }
-    if (deliveryTime !== undefined && !isValidHHMM(deliveryTime)) {
-      return res.status(400).json({ success: false, error: '발송 시각은 00:00~23:59 형식이어야 합니다.' });
-    }
-    if (deliveryTimezone !== undefined && !isValidIanaTimeZone(deliveryTimezone)) {
-      return res.status(400).json({ success: false, error: '지원하지 않는 시간대(Timezone)입니다.' });
-    }
-    if (deliveryDays !== undefined) {
-      if (
-        !Array.isArray(deliveryDays) ||
-        deliveryDays.length > 7 ||
-        !deliveryDays.every((d) => typeof d === 'string' && VALID_DAYS.has(d))
-      ) {
-        return res.status(400).json({ success: false, error: '발송 요일 값이 올바르지 않습니다.' });
-      }
-    }
-    if (autoEmailEnabled !== undefined && typeof autoEmailEnabled !== 'boolean') {
-      return res.status(400).json({ success: false, error: '자동 발송 여부는 불리언 값이어야 합니다.' });
-    }
-
-    savedEmailSchedule = {
-      recipientEmail:
-        recipientEmail !== undefined ? String(recipientEmail).trim() : savedEmailSchedule.recipientEmail,
-      deliveryTime: deliveryTime !== undefined ? deliveryTime : savedEmailSchedule.deliveryTime,
-      deliveryTimezone: deliveryTimezone !== undefined ? deliveryTimezone : savedEmailSchedule.deliveryTimezone,
-      deliveryDays: deliveryDays !== undefined ? Array.from(new Set(deliveryDays)) : savedEmailSchedule.deliveryDays,
-      autoEmailEnabled: autoEmailEnabled !== undefined ? autoEmailEnabled : savedEmailSchedule.autoEmailEnabled,
-      isPreviewOnly: true,
-      updatedAt: new Date().toISOString(),
-    };
-
-    res.json({
-      success: true,
-      isPreviewOnly: true,
-      note: '설정이 저장되었습니다. 실제 예약 발송은 외부 메일 발송 서비스 및 서버 스케줄러 연동 후 동작합니다.',
-      schedule: savedEmailSchedule,
+  // Explicitly disable unauthenticated shared PII endpoints (user preferences & logs are stored strictly in each user's browser)
+  app.all(['/api/email-logs', '/email-logs', '/api/email-schedule', '/email-schedule'], (_req, res) => {
+    return res.status(403).json({
+      success: false,
+      errorCode: 'PRIVATE_LOCAL_STORAGE_ONLY',
+      message: '개인정보 보호를 위해 수신 이메일과 발송 이력은 공용 서버에 저장되지 않으며 브라우저 로컬 저장소에만 보관됩니다.',
     });
   });
 }

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import type express from 'express';
 import { PRESS_OUTLETS } from '../../src/data/pressMetadata.ts';
 import type { DailyBriefing, BriefingTone } from '../../src/types/news.ts';
+import { readPersistentJson, writePersistentJson } from './persistentStore.ts';
 
 // Lightweight per-IP sliding-window rate limiter to protect AI & proxy endpoints
 const rateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
@@ -64,6 +65,24 @@ export interface DailyHistoryEntry {
 
 export const dailyBriefingHistory = new Map<string, DailyHistoryEntry>();
 const MAX_DAILY_HISTORY_DAYS = 14;
+const PERSISTENT_HISTORY_KEY = 'morning_brief:daily_history:v1';
+let historyLoadedPromise: Promise<void> | null = null;
+
+export async function ensureDailyHistoryLoaded(): Promise<void> {
+  if (!historyLoadedPromise) {
+    historyLoadedPromise = (async () => {
+      const stored = await readPersistentJson<DailyHistoryEntry[]>(PERSISTENT_HISTORY_KEY);
+      if (Array.isArray(stored)) {
+        for (const entry of stored) {
+          if (entry && typeof entry.kstDate === 'string' && !dailyBriefingHistory.has(entry.kstDate)) {
+            dailyBriefingHistory.set(entry.kstDate, entry);
+          }
+        }
+      }
+    })();
+  }
+  return historyLoadedPromise;
+}
 
 export function getKstDateKey(date: Date = new Date()): string {
   return date.toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
@@ -100,12 +119,17 @@ export function saveServerBriefing(briefing: DailyBriefing): void {
       if (!oldestDate) break;
       dailyBriefingHistory.delete(oldestDate);
     }
+    void writePersistentJson(
+      PERSISTENT_HISTORY_KEY,
+      Array.from(dailyBriefingHistory.values())
+    );
   }
 }
 
 export function isAdminRefreshAuthorized(req: express.Request): boolean {
   const configuredToken = (process.env.ADMIN_REFRESH_TOKEN || '').trim();
-  if (!configuredToken) return true;
+  // Require an explicitly configured non-empty server token before allowing privileged refresh
+  if (!configuredToken) return false;
   const provided =
     typeof req.headers['x-admin-token'] === 'string' ? req.headers['x-admin-token'].trim() : '';
   if (!provided) return false;
@@ -113,6 +137,14 @@ export function isAdminRefreshAuthorized(req: express.Request): boolean {
   const b = Buffer.from(provided, 'utf8');
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
+}
+
+export function maskEmailAddress(email: string): string {
+  const parts = (email || '').split('@');
+  if (parts.length !== 2) return '***';
+  const [local, domain] = parts;
+  const visible = local.length <= 2 ? local[0] || '*' : local.slice(0, 2);
+  return `${visible}***@${domain}`;
 }
 
 export function isValidHHMM(value: unknown): value is string {

@@ -19,14 +19,12 @@ import { EmailScheduleValues } from './components/EmailSchedulerPanel';
 import { FallbackNoticeBanner, FallbackBadge } from './components/FallbackNotice';
 
 import {
-  INITIAL_DAILY_BRIEFING,
   INITIAL_USER_PREFERENCES,
-  MOCK_WEEKLY_REPORT,
   DEFAULT_10_OUTLETS,
   PRESS_OUTLETS,
   SAMPLE_DATA_SNAPSHOT_DATE,
   AVAILABLE_TOPICS,
-} from './data/mockNewsData';
+} from './data/pressMetadata';
 import { getCurrentKoreanDateString, getCurrentYMD } from './utils/dateUtils';
 import {
   DailyBriefing,
@@ -54,9 +52,10 @@ import {
 import {
   fetchSummary,
   fetchMailProviderStatus,
+  fetchWeeklyReport,
+  loadEmailLogsFromStorage,
   rewriteTone,
   sendEmailBriefing,
-  saveEmailSchedule,
 } from './services/apiService';
 import { transformBriefingTone } from './utils/toneTransformer';
 import {
@@ -209,26 +208,27 @@ export default function App() {
     const frontOutlets = saved.frontPageOutlets || DEFAULT_10_OUTLETS;
     const overlapOutlets = saved.overlappingOutlets || DEFAULT_10_OUTLETS;
     const combined = saved.selectedOutlets || DEFAULT_10_OUTLETS;
-    const initialWithStories: DailyBriefing = {
-      ...INITIAL_DAILY_BRIEFING,
-      sourceType: 'mock',
-      isFallback: true,
-      sampleSnapshotDate: INITIAL_DAILY_BRIEFING.sampleSnapshotDate || SAMPLE_DATA_SNAPSHOT_DATE,
+    return {
+      id: 'initial-live-pending',
+      briefingDate: getCurrentKoreanDateString(),
+      briefingTime: '',
+      sourceType: 'cached',
+      isFallback: false,
+      topKeywords: [],
+      tone: saved.preferredTone || 'insight',
+      frontPageStories: [],
+      overlappingStories: [],
+      exclusiveStories: [],
+      sectorHeadlines: [],
       selectedOutletIds: combined,
       frontPageOutletIds: frontOutlets,
       overlappingOutletIds: overlapOutlets,
-      frontPageStories: INITIAL_DAILY_BRIEFING.frontPageStories.filter(
-        (s) => !s.outletId || frontOutlets.includes(s.outletId)
-      ),
+      summaryNote: '실시간 기사를 수집 중입니다.',
     };
-    return transformBriefingTone(initialWithStories, saved.preferredTone || 'insight');
   });
-  const [weeklyReport, setWeeklyReport] = useState<WeeklyReport>({
-    ...MOCK_WEEKLY_REPORT,
-    sourceType: 'mock',
-    isFallback: true,
-  });
-  const [emailLogs, setEmailLogs] = useState<EmailDispatchLog[]>([]);
+  const [weeklyReport, setWeeklyReport] = useState<WeeklyReport | null>(null);
+  const [isWeeklyReportLoading, setIsWeeklyReportLoading] = useState(false);
+  const [emailLogs, setEmailLogs] = useState<EmailDispatchLog[]>(() => loadEmailLogsFromStorage());
 
   // Filters
   const [selectedKeyword, setSelectedKeyword] = useState<string | null>(null);
@@ -237,7 +237,7 @@ export default function App() {
   // Sidebar Open/Close State (세로 접이식 메뉴)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // Section Collapse State (1.첫페이지, 2.공통이슈, 3.단독보도, 4.건설부동산금융)
+  // Section Collapse State (1.첫화면 주요, 2.공통이슈, 3.단독보도, 4.건설부동산금융)
   const [collapsedSections, setCollapsedSections] = useState({
     frontPage: false,
     overlapping: false,
@@ -413,11 +413,22 @@ export default function App() {
     sectorPrefsRef.current = preferences.sectorPreferences || DEFAULT_SECTOR_PREFERENCES;
   }, [preferences.sectorPreferences]);
 
-  const seenSectorKeysRef = React.useRef<Set<string>>(
-    new Set((INITIAL_DAILY_BRIEFING.sectorHeadlines || []).map((h) => h.title.trim()))
-  );
+  const seenSectorKeysRef = React.useRef<Set<string>>(new Set());
   const hasInitializedLiveSectorBaselineRef = React.useRef<boolean>(false);
   const hasLoadedLiveDataRef = React.useRef<boolean>(false);
+
+  const handleOpenWeeklyModal = React.useCallback(async () => {
+    setIsWeeklyModalOpen(true);
+    if (!weeklyReport && !isWeeklyReportLoading) {
+      setIsWeeklyReportLoading(true);
+      try {
+        const fetched = await fetchWeeklyReport();
+        setWeeklyReport(fetched);
+      } finally {
+        setIsWeeklyReportLoading(false);
+      }
+    }
+  }, [weeklyReport, isWeeklyReportLoading]);
 
   const dispatchLocalRegionPush = React.useCallback(
     (headline: SectorHeadlineItem, regionLabel: string, extraCount = 0) => {
@@ -491,6 +502,14 @@ export default function App() {
             frontPageStories: liveFront,
             isFallback: isFallbackResponse,
             sourceType: isFallbackResponse ? 'mock' : (result.data.sourceType || 'live'),
+            degraded: result.degraded ?? result.data.degraded,
+            errorCode: result.errorCode ?? result.data.errorCode,
+            collectorStatus:
+              result.collectorStatus ??
+              result.data.collectorStatus ??
+              (isFallbackResponse ? 'unavailable' : 'ok'),
+            aiStatus: result.aiStatus ?? result.data.aiStatus,
+            aiErrorCode: result.aiErrorCode ?? result.data.aiErrorCode,
             ...(isFallbackResponse ? { sampleSnapshotDate: resolvedSampleDate } : {}),
           };
 
@@ -561,7 +580,7 @@ export default function App() {
                 triggerNotification('실시간 기사 수집에 실패하여 샘플 데이터를 표시 중입니다.');
               }
             } else {
-              triggerNotification('각 언론사 홈페이지 첫화면 중앙 1면 기사가 실시간 갱신되었습니다.');
+              triggerNotification('각 언론사 홈페이지 첫화면 주요 기사가 실시간 갱신되었습니다.');
             }
           }
           return loadedLive;
@@ -719,7 +738,7 @@ export default function App() {
 
   // 1. Fetch & Refresh (manual force refresh)
   const handleRefreshLive = async () => {
-    triggerNotification('각 언론사 공식 홈페이지 첫화면 중앙 1면 기사를 실시간 수집 중...');
+    triggerNotification('각 언론사 공식 홈페이지 첫화면 주요 기사를 실시간 수집 중...');
     await syncLiveNews(true, undefined, undefined, false);
   };
 
@@ -1034,7 +1053,7 @@ export default function App() {
     return res.message;
   }, [briefing, preferences.deliveryTime]);
 
-  // 5-1. Update Email Scheduler Settings (time, timezone, per-day toggles, ON/OFF)
+  // 5-1. Update Email Scheduler Settings (per-browser localStorage only)
   const handleUpdateSchedule = React.useCallback(
     (updatedSchedule: EmailScheduleValues, notifyMessage?: string) => {
       setPreferences((prev) => {
@@ -1050,13 +1069,6 @@ export default function App() {
         } catch (err) {
           console.warn('Failed to save email schedule to localStorage', err);
         }
-        saveEmailSchedule({
-          recipientEmail: next.recipientEmail,
-          deliveryTime: next.deliveryTime,
-          deliveryTimezone: next.deliveryTimezone || 'Asia/Seoul',
-          deliveryDays: next.deliveryDays,
-          autoEmailEnabled: next.autoEmailEnabled,
-        });
         return next;
       });
       if (notifyMessage) {
@@ -1286,15 +1298,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Push Banner */}
-      <PushNotificationBanner
-        isVisible={pushBannerVisible}
-        onClose={() => setPushBannerVisible(false)}
-        onEnablePush={handleEnablePushFromBanner}
-        isPushEnabled={preferences.pushNotificationEnabled}
-        pushMessage={pushToast}
-      />
-
       {/* Collapsible Left Vertical Sidebar */}
       <Sidebar
         isOpen={isSidebarOpen}
@@ -1304,7 +1307,7 @@ export default function App() {
         onOpenPressModal={() => handleOpenPressModal('frontPage')}
         onOpenToneModal={() => setIsToneModalOpen(true)}
         onOpenEmailModal={() => setIsEmailModalOpen(true)}
-        onOpenWeeklyModal={() => setIsWeeklyModalOpen(true)}
+        onOpenWeeklyModal={handleOpenWeeklyModal}
         onOpenThemeModal={() => {
           setIsThemeModalOpen(true);
           setIsSidebarOpen(false);
@@ -1325,8 +1328,17 @@ export default function App() {
         mailProviderConfigured={mailProviderConfigured}
       />
 
-      {/* Main Content Layout with Sidebar offset on Desktop */}
+      {/* Main Content Layout with Sidebar offset on Desktop (PushBanner placed inside to prevent left-sidebar text clipping) */}
       <div className={`transition-all duration-300 ${isSidebarOpen ? 'lg:pl-72' : 'lg:pl-16'}`}>
+        {/* Push Banner */}
+        <PushNotificationBanner
+          isVisible={pushBannerVisible}
+          onClose={() => setPushBannerVisible(false)}
+          onEnablePush={handleEnablePushFromBanner}
+          isPushEnabled={preferences.pushNotificationEnabled}
+          pushMessage={pushToast}
+        />
+
         {/* Header */}
         <Header
           preferences={preferences}
@@ -1335,6 +1347,9 @@ export default function App() {
           sourceType={briefing.sourceType}
           isFallback={isBriefingFallback}
           isSyncingInitial={isInitialLiveSyncing}
+          collectorStatus={briefing.collectorStatus}
+          aiStatus={briefing.aiStatus}
+          aiErrorCode={briefing.aiErrorCode}
           sampleSnapshotDate={sampleSnapshotDate}
           onResetHome={() => {
             setSelectedKeyword(null);
@@ -1371,8 +1386,8 @@ export default function App() {
                   className="px-2 sm:px-2.5 py-1.5 text-[11px] sm:text-xs gap-1 sm:gap-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/70 hover:bg-blue-100 dark:hover:bg-blue-900/70 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 font-bold transition flex items-center active:scale-95 cursor-pointer shrink-0"
                 >
                   <Newspaper className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-blue-600 dark:text-blue-400" />
-                  <span className="hidden sm:inline">1. 1면 핵심</span>
-                  <span className="sm:hidden">1. 1면</span>
+                  <span className="hidden sm:inline">1. 첫화면 주요</span>
+                  <span className="sm:hidden">1. 첫화면</span>
                   <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-600 text-white font-bold">
                     {filteredFrontPage.length}
                   </span>
@@ -1475,7 +1490,7 @@ export default function App() {
           )}
 
           <main className="space-y-4 sm:space-y-5">
-            {isInitialLiveSyncing && isBriefingFallback ? (
+            {isInitialLiveSyncing && (isBriefingFallback || briefing.frontPageStories.length === 0) ? (
               <div
                 role="status"
                 aria-live="polite"
@@ -1491,7 +1506,7 @@ export default function App() {
                         첫 화면 로딩 · 실시간 최신 기사를 자동으로 수집하고 있습니다...
                       </p>
                       <p className="text-[11px] sm:text-xs text-slate-600 dark:text-slate-300 mt-0.5">
-                        주요 언론사 1면 핵심 기사, 공통 이슈, 단독 보도 및 건설·부동산·도시개발·금융 헤드라인을 즉시 동기화 중입니다.
+                        주요 언론사 홈페이지 첫화면 주요 기사, 공통 이슈, 단독 표기 보도 및 건설·부동산·도시개발·금융 헤드라인을 즉시 동기화 중입니다.
                       </p>
                     </div>
                   </div>
@@ -1511,7 +1526,7 @@ export default function App() {
               selectedKeyword={selectedKeyword}
               onSelectKeyword={(kw) => setSelectedKeyword(kw)}
               briefing={briefing}
-              onOpenWeeklyReport={() => setIsWeeklyModalOpen(true)}
+              onOpenWeeklyReport={handleOpenWeeklyModal}
               isMobileView={isMobilePreview}
             />
 
@@ -1663,10 +1678,10 @@ export default function App() {
           {/* Footer */}
           <footer className="mt-8 pt-8 border-t border-slate-200 dark:border-slate-800 text-center text-xs text-slate-500 dark:text-slate-400 space-y-2">
             <p>
-              <strong className="text-slate-800 dark:text-slate-200">모닝브리프</strong> | 대한민국 주요 언론사 1면 톱기사·공통 핵심이슈·단독 보도 및 건설·부동산·도시개발·금융 실시간 헤드라인 요약 브리핑 플랫폼
+              <strong className="text-slate-800 dark:text-slate-200">모닝브리프</strong> | 대한민국 주요 언론사 홈페이지 첫화면 주요 기사·공통 핵심이슈·단독 표기 보도 및 건설·부동산·도시개발·금융 실시간 헤드라인 요약 플랫폼
             </p>
             <p className="text-[11px] text-slate-400 dark:text-slate-500">
-              모든 보도의 지적재산권은 해당 언론사에 있으며, 공식 원문 링크를 통해 전문을 확인하실 수 있습니다. 맞춤형 언론사 실시간 수집 · 핵심 인사이트 요약 · 뉴스레터 HTML 미리보기 지원.
+              모든 보도의 지적재산권은 해당 언론사에 있으며, 각 기사의 매체명·발행/수집 시각과 공식 원문 링크를 통해 전문을 확인하실 수 있습니다. 본 서비스는 보도 요약·비교 참고용이며 원문 발췌가 부족한 경우 원문 링크만 제공합니다.
             </p>
           </footer>
         </div>
@@ -1730,6 +1745,7 @@ export default function App() {
         isOpen={isWeeklyModalOpen}
         onClose={() => setIsWeeklyModalOpen(false)}
         report={weeklyReport}
+        isLoading={isWeeklyReportLoading}
       />
 
       <SocialShareModal

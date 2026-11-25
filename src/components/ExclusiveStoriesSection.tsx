@@ -88,7 +88,7 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {isFallback
                 ? '실시간 기사 수집에 실패하여 예시 단독 보도 샘플을 표시하고 있습니다.'
-                : '제목에 [단독]이 명시되고 타 언론사 중복 보도가 없는 기사만 엄선합니다.'}
+                : '제목에 [단독]이 표기되고 현재 선택한 매체 수집 범위 내 중복 후보가 없는 기사를 표시합니다.'}
             </p>
           </div>
         </div>
@@ -151,7 +151,7 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
         </div>
       ) : stories.length === 0 ? (
         <div className="text-center py-10 bg-white dark:bg-slate-900/90 rounded-2xl border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 text-sm shadow-xs">
-          현재 수집된 기사 중 타사 중복 없이 확인된 [단독] 보도가 없습니다.
+          선택한 매체 수집 범위 내에서 중복 후보 없이 확인된 [단독] 표기 기사가 없습니다.
         </div>
       ) : (
         <div className={isMobileView ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 lg:grid-cols-2 gap-4"}>
@@ -183,7 +183,7 @@ export const ExclusiveStoriesSection: React.FC<ExclusiveStoriesSectionProps> = (
                         {outletMeta?.logoText || story.outletName}
                       </span>
                       <span className="text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/70 px-2 py-0.5 rounded border border-rose-200 dark:border-rose-800">
-                        단독 특종
+                        단독 표기
                       </span>
                       {story.topic && (
                         <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">

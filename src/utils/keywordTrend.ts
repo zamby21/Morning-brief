@@ -25,20 +25,43 @@ interface RealTrendSnapshot {
 const observedKeywordHistory = new Map<string, RealTrendSnapshot[]>();
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
+const TREND_IGNORED_TOKENS = new Set([
+  '이어', '대한', '통해', '위해', '따른', '대해', '관련', '가운데', '것으로',
+  '오늘', '내일', '어제', '이번', '지난', '올해', '내년', '최근', '현재',
+  '있다', '없다', '했다', '한다', '됐다', '된다', '이다', '하며', '라며',
+]);
+
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function normalizeKeywordTokens(keyword: string): string[] {
   const clean = keyword.replace(/^#/, '').trim().toLowerCase();
-  if (!clean) return [];
+  if (!clean || TREND_IGNORED_TOKENS.has(clean)) return [];
   const parts = clean
     .split(/[\s·,/+-]+/)
     .map((p) => p.trim())
-    .filter((p) => p.length >= 2);
+    .filter((p) => p.length >= 2 && !TREND_IGNORED_TOKENS.has(p));
   return parts.length > 0 ? Array.from(new Set([clean, ...parts])) : [clean];
 }
 
 function textMatchesKeyword(text: string | undefined, tokens: string[]): boolean {
   if (!text || tokens.length === 0) return false;
   const lower = text.toLowerCase();
-  return tokens.some((tok) => lower.includes(tok));
+  return tokens.some((tok) => {
+    if (tok.length < 2 || TREND_IGNORED_TOKENS.has(tok)) return false;
+    const escaped = escapeRegExp(tok);
+    const isShortKorean = /^[가-힣]{2}$/.test(tok);
+    if (isShortKorean) {
+      // Prevent short 2-char Korean words from matching inside conjugated verbs or unrelated words
+      const boundaryRegex = new RegExp(
+        `(?:^|[\\s"'‘’“”\\[(\\-·,.:;!?#])${escaped}(?:$|\\s|["'‘’“”\\])\\-·,.:;!?]|은|는|이|가|을|를|의|에|서|로|와|과|도|만)`
+      );
+      return boundaryRegex.test(lower);
+    }
+    const startBoundaryRegex = new RegExp(`(?:^|[\\s"'‘’“”\\[(\\-·,.:;!?#])${escaped}`);
+    return startBoundaryRegex.test(lower);
+  });
 }
 
 function getKstHourBucket(nowMs: number): { hourBucketKey: string; timeLabel: string; hour: number } {

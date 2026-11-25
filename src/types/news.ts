@@ -106,6 +106,8 @@ export interface KeywordTrendData {
   hasHistoricalTrend: boolean;
 }
 
+export type OperationalStatus = 'ok' | 'degraded' | 'unavailable';
+
 export interface DailyBriefing {
   id: string;
   briefingDate: string; // e.g. "2026년 10월 19일 (월)"
@@ -113,6 +115,11 @@ export interface DailyBriefing {
   sourceType?: DataSourceType;
   sectorSourceType?: DataSourceType;
   isFallback?: boolean;
+  degraded?: boolean;
+  errorCode?: string;
+  collectorStatus?: OperationalStatus;
+  aiStatus?: OperationalStatus;
+  aiErrorCode?: string;
   sampleSnapshotDate?: string; // Fixed YYYY-MM-DD snapshot date when fallback sample data is shown
   collectedAt?: string; // ISO timestamp of actual collection
   topKeywords: string[];

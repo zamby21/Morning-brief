@@ -1,9 +1,35 @@
-import { DailyBriefing, EmailDispatchLog, WeeklyReport, BriefingTone } from '../types/news';
+import {
+  DailyBriefing,
+  EmailDispatchLog,
+  WeeklyReport,
+  BriefingTone,
+  OperationalStatus,
+} from '../types/news';
 import { transformBriefingTone } from '../utils/toneTransformer';
 import { escapeHtml, sanitizeHttpUrl } from '../utils/htmlSanitizer';
 
-// In-memory preview logs for offline/static client sessions (external mail provider not connected)
-const clientEmailLogs: EmailDispatchLog[] = [];
+export const LOCAL_EMAIL_LOGS_STORAGE_KEY = 'morning_brief_local_email_logs_v1';
+
+function readLocalEmailLogs(): EmailDispatchLog[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(LOCAL_EMAIL_LOGS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.slice(0, 30) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalEmailLogs(logs: EmailDispatchLog[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(LOCAL_EMAIL_LOGS_STORAGE_KEY, JSON.stringify(logs.slice(0, 30)));
+  } catch {
+    // Ignore storage quota restrictions
+  }
+}
 
 /**
  * Helper to generate sanitized HTML email newsletter for offline/static fallback preview
@@ -34,7 +60,7 @@ function generateClientHtmlNewsletter(
         : '';
       return `
         <div class="card">
-          <div class="card-outlet">${escapeHtml(s.outletName)} | 1면 톱기사</div>
+          <div class="card-outlet">${escapeHtml(s.outletName)} | 홈페이지 주요 톱</div>
           <div class="card-title">${escapeHtml(s.title)}</div>
           ${linesHtml}
           ${linkHtml}
@@ -78,7 +104,7 @@ function generateClientHtmlNewsletter(
       <p style="font-size: 13px; color: #2563eb; font-weight: 600;">${safeKeywords}</p>
     </div>
     <div class="section">
-      <div class="sec-title">언론사별 신문 1면 핵심 보도</div>
+      <div class="sec-title">언론사별 홈페이지 첫화면 주요 기사</div>
       ${frontCards}
     </div>
     <div class="footer">
@@ -90,6 +116,17 @@ function generateClientHtmlNewsletter(
 </html>`;
 }
 
+export interface FetchSummaryResponse {
+  success?: boolean;
+  degraded?: boolean;
+  errorCode?: string;
+  collectorStatus?: OperationalStatus;
+  aiStatus?: OperationalStatus;
+  aiErrorCode?: string;
+  data: DailyBriefing;
+  source: string;
+}
+
 /**
  * Fetch live daily briefing summary from server.
  * Topic filtering (`subscribedTopics` / `customTopics`) is intentionally handled client-side
@@ -99,7 +136,7 @@ export async function fetchSummary(
   outletIds: string[],
   tone: BriefingTone,
   forceRefresh = false
-): Promise<{ data: DailyBriefing; source: string }> {
+): Promise<FetchSummaryResponse> {
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
   const timeoutId = controller ? setTimeout(() => controller.abort(), 45_000) : undefined;
   try {
@@ -110,11 +147,18 @@ export async function fetchSummary(
       signal: controller?.signal,
       body: JSON.stringify({ outletIds, tone, forceRefresh }),
     });
-    if (res.ok) {
-      const result = await res.json();
-      if (result && result.data) {
-        return result;
-      }
+    const result = await res.json().catch(() => null);
+    if (result && result.data) {
+      return {
+        success: typeof result.success === 'boolean' ? result.success : res.ok,
+        degraded: Boolean(result.degraded),
+        errorCode: result.errorCode,
+        collectorStatus: result.collectorStatus || result.data.collectorStatus,
+        aiStatus: result.aiStatus || result.data.aiStatus,
+        aiErrorCode: result.aiErrorCode || result.data.aiErrorCode,
+        data: result.data,
+        source: result.source || (res.ok ? 'live' : 'fallback'),
+      };
     }
   } catch (err) {
     console.warn('API /api/summarize unreachable or failed, using local sample fallback:', err);
@@ -125,12 +169,26 @@ export async function fetchSummary(
   // Graceful client-side sample fallback (dynamically loaded only when live collection fails)
   const { INITIAL_DAILY_BRIEFING } = await import('../data/initialDailyBriefing');
   const fallback = transformBriefingTone(
-    { ...INITIAL_DAILY_BRIEFING, sourceType: 'mock', sectorSourceType: 'mock', isFallback: true },
+    {
+      ...INITIAL_DAILY_BRIEFING,
+      sourceType: 'mock',
+      sectorSourceType: 'mock',
+      isFallback: true,
+      degraded: true,
+      errorCode: 'CLIENT_NETWORK_UNREACHABLE',
+      collectorStatus: 'unavailable',
+      aiStatus: 'unavailable',
+    },
     tone
   );
   fallback.selectedOutletIds = outletIds && outletIds.length > 0 ? outletIds : fallback.selectedOutletIds;
 
   return {
+    success: false,
+    degraded: true,
+    errorCode: 'CLIENT_NETWORK_UNREACHABLE',
+    collectorStatus: 'unavailable',
+    aiStatus: 'unavailable',
     data: fallback,
     source: 'client_sample_fallback',
   };
@@ -210,6 +268,7 @@ export async function sendEmailBriefing(
   history: EmailDispatchLog[];
 }> {
   const targetEmail = (recipient || '').trim();
+  const existingLogs = readLocalEmailLogs();
 
   try {
     const res = await fetch('/api/send-email', {
@@ -224,9 +283,18 @@ export async function sendEmailBriefing(
     });
     const data = await res.json().catch(() => null);
     if (res.ok && data && data.success) {
-      return data;
+      const nextHistory = data.log
+        ? [data.log, ...existingLogs].slice(0, 30)
+        : existingLogs;
+      writeLocalEmailLogs(nextHistory);
+      return {
+        ...data,
+        history: nextHistory,
+      };
     }
     if (data && data.log) {
+      const nextHistory = [data.log, ...existingLogs].slice(0, 30);
+      writeLocalEmailLogs(nextHistory);
       return {
         success: false,
         isPreviewOnly: Boolean(data.isPreviewOnly),
@@ -234,7 +302,7 @@ export async function sendEmailBriefing(
         message: data.message || '이메일 발송 처리에 실패했습니다.',
         log: data.log,
         htmlPreview: '',
-        history: Array.isArray(data.history) ? data.history : [],
+        history: nextHistory,
       };
     }
   } catch (err) {
@@ -255,7 +323,8 @@ export async function sendEmailBriefing(
       (briefing?.exclusiveStories?.length || 0),
   };
 
-  clientEmailLogs.unshift(previewLog);
+  const nextHistory = [previewLog, ...existingLogs].slice(0, 30);
+  writeLocalEmailLogs(nextHistory);
 
   return {
     success: true,
@@ -264,40 +333,21 @@ export async function sendEmailBriefing(
     message: `${targetEmail} 대상 뉴스레터 미리보기가 생성되었습니다. (외부 메일 서버 미연동으로 실제 이메일은 전송되지 않습니다.)`,
     log: previewLog,
     htmlPreview: generateClientHtmlNewsletter(targetEmail, briefing, scheduledTime),
-    history: clientEmailLogs,
+    history: nextHistory,
   };
 }
 
-export async function fetchEmailLogs(): Promise<EmailDispatchLog[]> {
-  try {
-    const res = await fetch('/api/email-logs');
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.logs) {
-        return data.logs;
-      }
-    }
-  } catch (err) {
-    console.warn('API /api/email-logs unreachable, returning local preview logs:', err);
-  }
-  return clientEmailLogs;
+export function loadEmailLogsFromStorage(): EmailDispatchLog[] {
+  return readLocalEmailLogs();
 }
 
-export async function saveEmailSchedule(schedule: {
+export async function saveEmailSchedule(_schedule: {
   recipientEmail: string;
   deliveryTime: string;
   deliveryTimezone: string;
   deliveryDays: string[];
   autoEmailEnabled: boolean;
 }): Promise<boolean> {
-  try {
-    const res = await fetch('/api/email-schedule', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(schedule),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
+  // Email schedules are stored strictly per-browser in localStorage to avoid sharing PII globally
+  return true;
 }
