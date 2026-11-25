@@ -51,7 +51,7 @@ const outletFetchHealth = new Map<string, OutletFetchHealth>();
 let cachedSectorHeadlines: SectorHeadlineItem[] = [];
 let lastSectorFetchedTime = 0;
 let lastSectorFetchedKstDate = '';
-const CACHE_TTL_MS = 30 * 1000;
+const CACHE_TTL_MS = 120 * 1000;
 const MAX_ARTICLE_AGE_MS = 24 * 60 * 60 * 1000;
 
 function getKstDateKey(date: Date = new Date()): string {

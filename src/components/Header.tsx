@@ -17,6 +17,7 @@ interface HeaderProps {
   briefingTime?: string;
   sourceType?: DataSourceType;
   isFallback?: boolean;
+  isSyncingInitial?: boolean;
   sampleSnapshotDate?: string;
   onResetHome?: () => void;
   onToggleSidebar: () => void;
@@ -35,6 +36,7 @@ export const Header: React.FC<HeaderProps> = ({
   briefingTime,
   sourceType,
   isFallback,
+  isSyncingInitial = false,
   sampleSnapshotDate,
   onResetHome,
   onToggleSidebar,
@@ -46,7 +48,8 @@ export const Header: React.FC<HeaderProps> = ({
   isLoading,
   subNav,
 }) => {
-  const isMockOrFallback = Boolean(isFallback) || sourceType === 'mock';
+  const isMockOrFallback = (Boolean(isFallback) || sourceType === 'mock') && !isSyncingInitial;
+  const isInitialLoadingStrip = isSyncingInitial && (Boolean(isFallback) || sourceType === 'mock');
   const fallbackDateLabel = sampleSnapshotDate ? `샘플 ${sampleSnapshotDate}` : (briefingDate || '샘플 데이터');
   const liveDateLabel = briefingDate || getCurrentKoreanDateString();
 
@@ -64,6 +67,11 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="flex items-center gap-2 min-w-0">
             {isMockOrFallback ? (
               <FallbackBadge label="수집 실패 · 샘플 데이터" size="xs" variant="solid" />
+            ) : isInitialLoadingStrip ? (
+              <span className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-blue-100 dark:bg-blue-950/80 text-blue-800 dark:text-blue-300 shrink-0">
+                <RefreshCw className="w-2.5 h-2.5 animate-spin" aria-hidden="true" />
+                <span>실시간 자동 수집 중</span>
+              </span>
             ) : (
               <span className="inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 shrink-0">
                 실시간 연동 ({briefingTime || 'LIVE'})
@@ -79,6 +87,8 @@ export const Header: React.FC<HeaderProps> = ({
             >
               {isMockOrFallback
                 ? '실시간 기사 수집에 실패하여 참고용 샘플 데이터를 표시하고 있습니다'
+                : isInitialLoadingStrip
+                ? '첫 화면 로딩 중 · 각 언론사 실시간 1면 및 섹터 기사를 자동으로 불러오고 있습니다'
                 : '각 언론사 홈페이지 첫화면 중앙 1면 톱기사 실시간 연동 요약'}
             </span>
           </div>

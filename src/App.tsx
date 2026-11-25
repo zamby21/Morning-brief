@@ -260,6 +260,7 @@ export default function App() {
 
   // States
   const [isLoading, setIsLoading] = useState(false);
+  const [isInitialLiveSyncing, setIsInitialLiveSyncing] = useState(true);
   const [isMobilePreview, setIsMobilePreview] = useState(false);
   const [pushBannerVisible, setPushBannerVisible] = useState(true);
   const [pushToast, setPushToast] = useState<string | null>(null);
@@ -403,6 +404,7 @@ export default function App() {
     new Set((INITIAL_DAILY_BRIEFING.sectorHeadlines || []).map((h) => h.title.trim()))
   );
   const hasInitializedLiveSectorBaselineRef = React.useRef<boolean>(false);
+  const hasLoadedLiveDataRef = React.useRef<boolean>(false);
 
   const dispatchLocalRegionPush = React.useCallback(
     (headline: SectorHeadlineItem, regionLabel: string, extraCount = 0) => {
@@ -434,8 +436,9 @@ export default function App() {
       forceRefresh = false,
       outletIdsOverride?: string[],
       toneOverride?: BriefingTone,
-      silent = false
-    ) => {
+      silent = false,
+      suppressFailureToast = false
+    ): Promise<boolean> => {
       if (!silent) setIsLoading(true);
       try {
         const activeOutlets =
@@ -462,6 +465,15 @@ export default function App() {
             result.source === 'client_sample_fallback' ||
             result.source === 'collection-empty' ||
             result.source === 'fallback';
+
+          // Preserve already-loaded live briefing instead of downgrading to mock on transient background failure
+          if (isFallbackResponse && hasLoadedLiveDataRef.current) {
+            if (!silent && !suppressFailureToast) {
+              triggerNotification('일시적인 수집 지연으로 기존 실시간 기사를 유지합니다.');
+            }
+            return false;
+          }
+
           const resolvedSampleDate = result.data.sampleSnapshotDate || SAMPLE_DATA_SNAPSHOT_DATE;
           const updatedBriefing: DailyBriefing = {
             ...result.data,
@@ -527,21 +539,32 @@ export default function App() {
             }
           }
 
+          const loadedLive = !isFallbackResponse && liveFront.length > 0;
+          if (loadedLive) {
+            hasLoadedLiveDataRef.current = true;
+            setIsInitialLiveSyncing(false);
+          }
+
           setBriefing(updatedBriefing);
           lastLiveSyncRef.current = Date.now();
           if (!silent && result.source !== 'client_cache') {
             if (isFallbackResponse) {
-              triggerNotification('실시간 기사 수집에 실패하여 샘플 데이터를 표시 중입니다.');
+              if (!suppressFailureToast) {
+                triggerNotification('실시간 기사 수집에 실패하여 샘플 데이터를 표시 중입니다.');
+              }
             } else {
               triggerNotification('각 언론사 홈페이지 첫화면 중앙 1면 기사가 실시간 갱신되었습니다.');
             }
           }
+          return loadedLive;
         }
+        return false;
       } catch (err) {
         console.warn('Live sync failed:', err);
-        if (!silent) {
+        if (!silent && !suppressFailureToast) {
           triggerNotification('실시간 갱신 중 일시적인 오류가 발생했습니다.');
         }
+        return false;
       } finally {
         if (!silent) setIsLoading(false);
       }
@@ -554,27 +577,67 @@ export default function App() {
     ]
   );
 
-  // Immediate real-time homepage fetch on mount + Continuous 60s live auto-refresh
+  // Immediate real-time homepage fetch on mount (with automatic retry) + Continuous 60s live auto-refresh
   useEffect(() => {
-    // Immediately pull real-time center homepage stories on load
-    syncLiveNews(true, undefined, undefined, true);
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    // Continuously poll every 60 seconds so dashboard stays synchronized in real time (not pinned to notification time)
+    const runInitialLiveSync = async () => {
+      if (!hasLoadedLiveDataRef.current) {
+        setIsInitialLiveSyncing(true);
+      }
+
+      // First try warm server cache / coalesced startup warm-up immediately on page load
+      const firstOk = await syncLiveNews(false, undefined, undefined, false, true);
+      if (cancelled || firstOk) {
+        if (!cancelled) setIsInitialLiveSyncing(false);
+        return;
+      }
+
+      // Automatic retry #1 after 2.5s
+      await new Promise<void>((resolve) => {
+        retryTimer = setTimeout(resolve, 2500);
+      });
+      if (cancelled) return;
+
+      const secondOk = await syncLiveNews(false, undefined, undefined, false, true);
+      if (cancelled || secondOk) {
+        if (!cancelled) setIsInitialLiveSyncing(false);
+        return;
+      }
+
+      // Automatic retry #2 with forced fresh scrape after 5.5s
+      await new Promise<void>((resolve) => {
+        retryTimer = setTimeout(resolve, 5500);
+      });
+      if (cancelled) return;
+
+      await syncLiveNews(true, undefined, undefined, false, false);
+      if (!cancelled) {
+        setIsInitialLiveSyncing(false);
+      }
+    };
+
+    void runInitialLiveSync();
+
+    // Continuously poll every 60 seconds so dashboard stays synchronized in real time
     const intervalId = window.setInterval(() => {
       if (document.visibilityState === 'visible') {
-        syncLiveNews(true, undefined, undefined, true);
+        void syncLiveNews(false, undefined, undefined, true, true);
       }
     }, 60 * 1000);
 
     // Also refresh when user returns to browser tab after > 30 seconds
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && Date.now() - lastLiveSyncRef.current > 30 * 1000) {
-        syncLiveNews(true, undefined, undefined, true);
+        void syncLiveNews(false, undefined, undefined, true, true);
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
       window.clearInterval(intervalId);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
@@ -1190,6 +1253,8 @@ export default function App() {
     isBriefingFallback ||
     briefing.sectorSourceType === 'mock' ||
     rawSectorHeadlines.some((h) => Boolean(h.isFallback) || h.sourceType === 'mock');
+  const showBriefingFallbackWarning = isBriefingFallback && !isInitialLiveSyncing;
+  const showSectorFallbackWarning = isSectorFallback && !isInitialLiveSyncing;
   const sampleSnapshotDate = briefing.sampleSnapshotDate || SAMPLE_DATA_SNAPSHOT_DATE;
   const todayYmd = getCurrentYMD();
 
@@ -1250,6 +1315,7 @@ export default function App() {
           briefingTime={briefing.briefingTime}
           sourceType={briefing.sourceType}
           isFallback={isBriefingFallback}
+          isSyncingInitial={isInitialLiveSyncing}
           sampleSnapshotDate={sampleSnapshotDate}
           onResetHome={() => {
             setSelectedKeyword(null);
@@ -1389,13 +1455,35 @@ export default function App() {
           )}
 
           <main className="space-y-4 sm:space-y-5">
-            {isBriefingFallback && (
+            {isInitialLiveSyncing && isBriefingFallback ? (
+              <div
+                role="status"
+                aria-live="polite"
+                className="rounded-2xl border border-blue-200 dark:border-blue-800/80 bg-gradient-to-r from-blue-50 via-indigo-50/70 to-white dark:from-blue-950/60 dark:via-indigo-950/40 dark:to-slate-900 px-4 py-3.5 sm:px-5 sm:py-4 shadow-xs transition-colors"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <div className="flex items-start sm:items-center gap-3 min-w-0">
+                    <span className="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-blue-600 text-white shrink-0 shadow-xs">
+                      <RefreshCw className="w-4 h-4 animate-spin" aria-hidden="true" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white">
+                        첫 화면 로딩 · 실시간 최신 기사를 자동으로 수집하고 있습니다...
+                      </p>
+                      <p className="text-[11px] sm:text-xs text-slate-600 dark:text-slate-300 mt-0.5">
+                        주요 언론사 1면 핵심 기사, 공통 이슈, 단독 보도 및 건설·부동산·도시개발·금융 헤드라인을 즉시 동기화 중입니다.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : showBriefingFallbackWarning ? (
               <FallbackNoticeBanner
                 sampleSnapshotDate={sampleSnapshotDate}
                 onRetry={handleRefreshLive}
                 isLoading={isLoading}
               />
-            )}
+            ) : null}
 
             {/* 1. Keyword Tags + Weekly Report Shortcut (태그 필터링 + 24h 트렌드 + 주간 종합 리포트) */}
             <KeywordTags
@@ -1430,7 +1518,7 @@ export default function App() {
               isMobileView={isMobilePreview}
               lastSyncedTime={briefing.briefingTime}
               readArticleKeys={readArticleKeys}
-              isFallback={isBriefingFallback}
+              isFallback={showBriefingFallbackWarning}
             />
 
             {/* 4. Section 2: 언론사들에서 중복적으로 낸 공통 핵심 기사 */}
@@ -1451,7 +1539,7 @@ export default function App() {
               totalSelectedOutletsCount={activeOverlapOutlets.length}
               totalAvailableStoriesCount={briefing.overlappingStories.length}
               readArticleKeys={readArticleKeys}
-              isFallback={isBriefingFallback}
+              isFallback={showBriefingFallbackWarning}
             />
 
             {/* 5. Section 3: 각 언론사만의 단독 및 특별 기사 */}
@@ -1465,7 +1553,7 @@ export default function App() {
               onScrollToTop={scrollToTop}
               isMobileView={isMobilePreview}
               readArticleKeys={readArticleKeys}
-              isFallback={isBriefingFallback}
+              isFallback={showBriefingFallbackWarning}
             />
 
             {/* 6. Section 4: 건설, 부동산, 도시개발, 금융 관련 주제 기사들 제목 모아보기 및 핵심 정리 */}
@@ -1483,7 +1571,7 @@ export default function App() {
               onTestLocalNewsAlert={handleTestLocalNewsAlert}
               readArticleKeys={readArticleKeys}
               onMarkArticleRead={handleMarkArticleRead}
-              isFallback={isSectorFallback}
+              isFallback={showSectorFallbackWarning}
               onRetryLive={handleRefreshLive}
               isLoading={isLoading}
             />
@@ -1491,7 +1579,7 @@ export default function App() {
           </main>
 
           {/* Explicit Bottom Footnote Annotation when Fallback Sample Data is Loaded */}
-          {(isBriefingFallback || isSectorFallback) && (
+          {(showBriefingFallbackWarning || showSectorFallbackWarning) && (
             <aside
               role="note"
               aria-label="폴백 샘플 데이터 기준 시점 주석"

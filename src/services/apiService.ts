@@ -97,10 +97,14 @@ export async function fetchSummary(
   topics: string[],
   forceRefresh = false
 ): Promise<{ data: DailyBriefing; source: string }> {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), 45_000) : undefined;
   try {
     const res = await fetch('/api/summarize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      signal: controller?.signal,
       body: JSON.stringify({ outletIds, tone, topics, forceRefresh }),
     });
     if (res.ok) {
@@ -111,6 +115,8 @@ export async function fetchSummary(
     }
   } catch (err) {
     console.warn('API /api/summarize unreachable or failed, using local sample fallback:', err);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
 
   // Graceful client-side sample fallback (explicitly marked as mock + isFallback, no forged dates or synthetic stories)

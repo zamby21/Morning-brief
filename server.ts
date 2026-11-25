@@ -12,6 +12,7 @@ import {
   INITIAL_DAILY_BRIEFING,
   MOCK_WEEKLY_REPORT,
   PRESS_OUTLETS,
+  DEFAULT_10_OUTLETS,
 } from './src/data/mockNewsData.ts';
 import type { DailyBriefing, EmailDispatchLog, WeeklyReport, BriefingTone } from './src/types/news.ts';
 import {
@@ -681,49 +682,36 @@ function normalizeGeminiLeadSummary(
   };
 }
 
-// 1. API: Generate / Refresh daily briefing
-app.post(['/api/summarize', '/summarize'], createRateLimiter('summarize', 20), async (req, res) => {
-  try {
-    const body = req.body && typeof req.body === 'object' ? req.body : {};
-    const { outletIds, tone = 'insight', forceRefresh = false } = body;
+const LIVE_SUMMARY_CACHE_TTL_MS = 120_000;
+const liveSummaryResponseCache = new Map<
+  string,
+  { expiresAt: number; payload: { success: true; data: DailyBriefing; source: string } }
+>();
+const inFlightSummaryRequests = new Map<
+  string,
+  Promise<{ success: true; data: DailyBriefing; source: string }>
+>();
 
-    if (typeof tone !== 'string' || !VALID_TONES.has(tone as BriefingTone)) {
-      return res.status(400).json({ success: false, error: '지원하지 않는 요약 어조입니다.' });
+async function generateLiveSummaryPayload(
+  targetOutletIds: string[],
+  tone: BriefingTone,
+  allowForce: boolean
+): Promise<{ success: true; data: DailyBriefing; source: string }> {
+  const sortedKey = `${[...targetOutletIds].sort().join(',')}:${tone}`;
+
+  if (!allowForce) {
+    const cached = liveSummaryResponseCache.get(sortedKey);
+    if (cached && Date.now() < cached.expiresAt) {
+      saveServerBriefing(cached.payload.data);
+      return cached.payload;
     }
-
-    let requestedOutletIds: string[] = [];
-    if (outletIds !== undefined) {
-      if (!Array.isArray(outletIds)) {
-        return res.status(400).json({ success: false, error: '언론사 목록 형식이 올바르지 않습니다.' });
-      }
-      if (outletIds.length > MAX_OUTLETS_PER_REQUEST) {
-        return res.status(400).json({
-          success: false,
-          error: `한 번에 최대 ${MAX_OUTLETS_PER_REQUEST}개 언론사까지 요청할 수 있습니다.`,
-        });
-      }
-      requestedOutletIds = Array.from(
-        new Set(
-          outletIds.filter((id): id is string => typeof id === 'string' && VALID_OUTLET_IDS.has(id))
-        )
-      );
+    const existingFlight = inFlightSummaryRequests.get(sortedKey);
+    if (existingFlight) {
+      return existingFlight;
     }
+  }
 
-    const selectedOutlets = PRESS_OUTLETS.filter((o) =>
-      requestedOutletIds.length > 0 ? requestedOutletIds.includes(o.id) : o.isDefaultMajor
-    );
-    const targetOutletIds = selectedOutlets.map((o) => o.id);
-
-    // Server-side cooldown + optional ADMIN_REFRESH_TOKEN check for forceRefresh
-    const nowMs = Date.now();
-    const allowForce =
-      Boolean(forceRefresh) &&
-      isAdminRefreshAuthorized(req) &&
-      nowMs - lastForcedRefreshAt >= FORCE_REFRESH_COOLDOWN_MS;
-    if (allowForce) {
-      lastForcedRefreshAt = nowMs;
-    }
-
+  const runTask = (async (): Promise<{ success: true; data: DailyBriefing; source: string }> => {
     // 1. Always harvest real-time center homepage lead articles and live sector headlines in parallel
     const [realArticlesMap, liveSectorHeadlines] = await Promise.all([
       fetchRealArticlesForOutlets(targetOutletIds, allowForce),
@@ -733,7 +721,7 @@ app.post(['/api/summarize', '/summarize'], createRateLimiter('summarize', 20), a
     // 2. Build default robust briefing with verified real articles (bounded excerpts + original links)
     const realBriefing = buildRealBriefing(
       realArticlesMap,
-      tone as BriefingTone,
+      tone,
       targetOutletIds,
       liveSectorHeadlines
     );
@@ -743,11 +731,11 @@ app.post(['/api/summarize', '/summarize'], createRateLimiter('summarize', 20), a
       realBriefing.sourceType = 'mock';
       realBriefing.isFallback = true;
       saveServerBriefing(realBriefing);
-      return res.json({
+      return {
         success: true,
         data: realBriefing,
         source: 'collection-empty',
-      });
+      };
     }
 
     // 3. If Gemini is available, enhance each section independently via Promise.allSettled
@@ -761,7 +749,12 @@ app.post(['/api/summarize', '/summarize'], createRateLimiter('summarize', 20), a
         const cached = geminiSummaryCache.get(cacheKey);
         if (cached && Date.now() < cached.expiresAt) {
           saveServerBriefing(cached.data);
-          return res.json({ success: true, data: cached.data, source: 'gemini-verified-cache' });
+          const payload = { success: true as const, data: cached.data, source: 'gemini-verified-cache' };
+          liveSummaryResponseCache.set(sortedKey, {
+            expiresAt: Date.now() + LIVE_SUMMARY_CACHE_TTL_MS,
+            payload,
+          });
+          return payload;
         }
 
         const allCollectedRaw = Object.values(realArticlesMap).flat();
@@ -888,7 +881,7 @@ ${JSON.stringify(frontPayload)}
                     required: ['topKeywords', 'items'],
                   },
                 },
-                18000
+                12000
               )
             : Promise.resolve(null);
 
@@ -915,7 +908,7 @@ ${JSON.stringify(overlapPayload)}
                     required: ['items'],
                   },
                 },
-                16000
+                11000
               )
             : Promise.resolve(null);
 
@@ -965,7 +958,7 @@ ${JSON.stringify(sectorPayload)}
                     required: ['items'],
                   },
                 },
-                18000
+                12000
               )
             : Promise.resolve(null);
 
@@ -1089,22 +1082,103 @@ ${JSON.stringify(sectorPayload)}
             data: realBriefing,
           });
           saveServerBriefing(realBriefing);
-          return res.json({ success: true, data: realBriefing, source: 'gemini-verified-real' });
+          const payload = { success: true as const, data: realBriefing, source: 'gemini-verified-real' };
+          liveSummaryResponseCache.set(sortedKey, {
+            expiresAt: Date.now() + LIVE_SUMMARY_CACHE_TTL_MS,
+            payload,
+          });
+          return payload;
         }
 
         saveServerBriefing(realBriefing);
-        return res.json({ success: true, data: realBriefing, source: 'real-rss-verified' });
+        const payload = { success: true as const, data: realBriefing, source: 'real-rss-verified' };
+        liveSummaryResponseCache.set(sortedKey, {
+          expiresAt: Date.now() + LIVE_SUMMARY_CACHE_TTL_MS,
+          payload,
+        });
+        return payload;
       } catch (geminiErr: any) {
         if (!isQuotaError(geminiErr)) {
           console.info('Using verified real RSS briefing fallback:', geminiErr?.message || 'unavailable');
         }
         saveServerBriefing(realBriefing);
-        return res.json({ success: true, data: realBriefing, source: 'real-rss-verified' });
+        const payload = { success: true as const, data: realBriefing, source: 'real-rss-verified' };
+        liveSummaryResponseCache.set(sortedKey, {
+          expiresAt: Date.now() + LIVE_SUMMARY_CACHE_TTL_MS,
+          payload,
+        });
+        return payload;
       }
     }
 
     saveServerBriefing(realBriefing);
-    return res.json({ success: true, data: realBriefing, source: 'real-rss-verified' });
+    const payload = { success: true as const, data: realBriefing, source: 'real-rss-verified' };
+    liveSummaryResponseCache.set(sortedKey, {
+      expiresAt: Date.now() + LIVE_SUMMARY_CACHE_TTL_MS,
+      payload,
+    });
+    return payload;
+  })();
+
+  inFlightSummaryRequests.set(sortedKey, runTask);
+  try {
+    return await runTask;
+  } finally {
+    if (inFlightSummaryRequests.get(sortedKey) === runTask) {
+      inFlightSummaryRequests.delete(sortedKey);
+    }
+  }
+}
+
+// 1. API: Generate / Refresh daily briefing
+app.post(['/api/summarize', '/summarize'], createRateLimiter('summarize', 20), async (req, res) => {
+  try {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const { outletIds, tone = 'insight', forceRefresh = false } = body;
+
+    if (typeof tone !== 'string' || !VALID_TONES.has(tone as BriefingTone)) {
+      return res.status(400).json({ success: false, error: '지원하지 않는 요약 어조입니다.' });
+    }
+
+    let requestedOutletIds: string[] = [];
+    if (outletIds !== undefined) {
+      if (!Array.isArray(outletIds)) {
+        return res.status(400).json({ success: false, error: '언론사 목록 형식이 올바르지 않습니다.' });
+      }
+      if (outletIds.length > MAX_OUTLETS_PER_REQUEST) {
+        return res.status(400).json({
+          success: false,
+          error: `한 번에 최대 ${MAX_OUTLETS_PER_REQUEST}개 언론사까지 요청할 수 있습니다.`,
+        });
+      }
+      requestedOutletIds = Array.from(
+        new Set(
+          outletIds.filter((id): id is string => typeof id === 'string' && VALID_OUTLET_IDS.has(id))
+        )
+      );
+    }
+
+    const selectedOutlets = PRESS_OUTLETS.filter((o) =>
+      requestedOutletIds.length > 0 ? requestedOutletIds.includes(o.id) : o.isDefaultMajor
+    );
+    const targetOutletIds = selectedOutlets.map((o) => o.id);
+
+    // Server-side cooldown + optional ADMIN_REFRESH_TOKEN check for forceRefresh
+    const nowMs = Date.now();
+    const allowForce =
+      Boolean(forceRefresh) &&
+      isAdminRefreshAuthorized(req) &&
+      nowMs - lastForcedRefreshAt >= FORCE_REFRESH_COOLDOWN_MS;
+    if (allowForce) {
+      lastForcedRefreshAt = nowMs;
+    }
+
+    const payload = await generateLiveSummaryPayload(
+      targetOutletIds,
+      tone as BriefingTone,
+      allowForce
+    );
+    return res.json(payload);
   } catch (error: any) {
     const traceId = makeTraceId();
     console.error(`[summarize:${traceId}] Error generating summary:`, error);
@@ -1586,6 +1660,14 @@ if (!process.env.VERCEL) {
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Morning Brief Server running on http://0.0.0.0:${PORT}`);
+    // Pre-warm live news cache immediately on server startup so first page visit gets live articles fast
+    const warmUp = () => {
+      generateLiveSummaryPayload(DEFAULT_10_OUTLETS, 'insight', false).catch((err) => {
+        console.warn('Background live news warm-up failed:', err?.message || err);
+      });
+    };
+    setTimeout(warmUp, 250);
+    setInterval(warmUp, LIVE_SUMMARY_CACHE_TTL_MS);
   });
 }
 
