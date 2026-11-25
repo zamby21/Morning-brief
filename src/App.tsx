@@ -53,6 +53,7 @@ import {
 } from './utils/theme';
 import {
   fetchSummary,
+  fetchMailProviderStatus,
   rewriteTone,
   sendEmailBriefing,
   saveEmailSchedule,
@@ -261,6 +262,7 @@ export default function App() {
   // States
   const [isLoading, setIsLoading] = useState(false);
   const [isInitialLiveSyncing, setIsInitialLiveSyncing] = useState(true);
+  const [mailProviderConfigured, setMailProviderConfigured] = useState(false);
   const [isMobilePreview, setIsMobilePreview] = useState(false);
   const [pushBannerVisible, setPushBannerVisible] = useState(true);
   const [pushToast, setPushToast] = useState<string | null>(null);
@@ -270,6 +272,17 @@ export default function App() {
     resolveTheme(getStoredThemeMode())
   );
   const [sunLocationVersion, setSunLocationVersion] = useState(0);
+
+  // Check whether Resend real email dispatch is configured on the server
+  useEffect(() => {
+    let active = true;
+    fetchMailProviderStatus().then((configured) => {
+      if (active) setMailProviderConfigured(configured);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Scroll to top listener
   useEffect(() => {
@@ -449,12 +462,7 @@ export default function App() {
             : DEFAULT_10_OUTLETS;
 
         const targetTone = toneOverride || preferences.preferredTone;
-        const result = await fetchSummary(
-          activeOutlets,
-          targetTone,
-          preferences.subscribedTopics,
-          forceRefresh
-        );
+        const result = await fetchSummary(activeOutlets, targetTone, forceRefresh);
 
         if (result && result.data) {
           const todayFormatted = getCurrentKoreanDateString();
@@ -572,7 +580,6 @@ export default function App() {
     [
       preferences.selectedOutlets,
       preferences.preferredTone,
-      preferences.subscribedTopics,
       dispatchLocalRegionPush,
     ]
   );
@@ -1006,13 +1013,24 @@ export default function App() {
     triggerNotification('관심 주제 필터가 기본값으로 복원되었습니다.');
   };
 
-  // 5. Generate Email Newsletter Preview (Preview-only unless mail provider is configured)
+  // 5. Dispatch Email via Resend (when configured) or Generate Newsletter Preview
   const handleSendEmail = React.useCallback(async (email: string): Promise<string> => {
     const res = await sendEmailBriefing(email, briefing, preferences.deliveryTime);
+    if (typeof res.mailProviderConfigured === 'boolean') {
+      setMailProviderConfigured(res.mailProviderConfigured);
+    }
     if (res.log) {
       setEmailLogs((prev) => [res.log, ...prev]);
     }
-    triggerNotification(`${email} 대상 뉴스레터 미리보기가 생성되었습니다. (실제 발송 미연동)`);
+    if (!res.success) {
+      triggerNotification(res.message || '이메일 발송에 실패했습니다.');
+      return res.message;
+    }
+    if (res.isPreviewOnly) {
+      triggerNotification(`${email} 대상 뉴스레터 미리보기가 생성되었습니다. (실제 발송 미연동)`);
+    } else {
+      triggerNotification(`${email} 주소로 실제 뉴스레터 이메일이 발송되었습니다.`);
+    }
     return res.message;
   }, [briefing, preferences.deliveryTime]);
 
@@ -1304,6 +1322,7 @@ export default function App() {
         onScrollToSection={scrollToSection}
         themeMode={themeMode}
         resolvedTheme={resolvedTheme}
+        mailProviderConfigured={mailProviderConfigured}
       />
 
       {/* Main Content Layout with Sidebar offset on Desktop */}
@@ -1339,6 +1358,7 @@ export default function App() {
           isMobilePreview={isMobilePreview}
           onRefreshLive={handleRefreshLive}
           isLoading={isLoading}
+          mailProviderConfigured={mailProviderConfigured}
           subNav={
             <div className="flex flex-wrap items-center justify-between gap-1.5 sm:gap-2">
               <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-0">
@@ -1690,6 +1710,7 @@ export default function App() {
         onChangeAlertRegion={handleChangeAlertRegion}
         onTestLocalNewsAlert={handleTestLocalNewsAlert}
         emailLogs={emailLogs}
+        mailProviderConfigured={mailProviderConfigured}
         onSendEmail={handleSendEmail}
         onSaveRecipientEmail={handleSaveRecipientEmail}
         onDeleteSavedEmail={handleDeleteSavedEmail}

@@ -14,7 +14,7 @@ import {
   ArrowRightLeft,
 } from 'lucide-react';
 import { PressOutlet, PressGroupCategory } from '../types/news';
-import { PRESS_OUTLETS, DEFAULT_10_OUTLETS } from '../data/mockNewsData';
+import { PRESS_OUTLETS, DEFAULT_10_OUTLETS } from '../data/pressMetadata';
 
 interface PressSelectorModalProps {
   isOpen: boolean;

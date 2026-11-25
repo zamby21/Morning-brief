@@ -22,7 +22,7 @@ import {
   Square,
 } from 'lucide-react';
 import { NewsStory, ClusterOutletItem, ArticleContentBlock } from '../types/news';
-import { PRESS_OUTLETS } from '../data/mockNewsData';
+import { PRESS_OUTLETS } from '../data/pressMetadata';
 import {
   getNaverNewsUrl,
   getCleanNaverQuery,

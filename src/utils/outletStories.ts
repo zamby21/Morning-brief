@@ -1,5 +1,5 @@
 import { NewsStory, PressOutlet } from '../types/news';
-import { PRESS_OUTLETS } from '../data/mockNewsData';
+import { PRESS_OUTLETS } from '../data/pressMetadata';
 import { getDirectOutletUrl, getOfficialOutletSearchUrl } from './linkUtils';
 import { getCurrentKoreanDateString } from './dateUtils';
 

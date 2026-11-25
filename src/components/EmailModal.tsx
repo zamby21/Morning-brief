@@ -48,6 +48,7 @@ interface EmailModalProps {
   onChangeAlertRegion?: (sidoCode: string, sigungu: string) => void;
   onTestLocalNewsAlert?: (sidoCode: string, sigungu: string) => void;
   emailLogs: EmailDispatchLog[];
+  mailProviderConfigured?: boolean;
   onSendEmail: (email: string) => Promise<string>;
   onSaveRecipientEmail?: (email: string, alsoAddToList?: boolean) => void;
   onDeleteSavedEmail?: (email: string) => void;
@@ -74,6 +75,7 @@ export const EmailModal: React.FC<EmailModalProps> = ({
   onChangeAlertRegion,
   onTestLocalNewsAlert,
   emailLogs,
+  mailProviderConfigured = false,
   onSendEmail,
   onSaveRecipientEmail,
   onDeleteSavedEmail,
@@ -169,15 +171,23 @@ export const EmailModal: React.FC<EmailModalProps> = ({
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <h3 className="text-sm sm:text-lg font-bold text-slate-900 dark:text-white truncate">
-                  뉴스레터 미리보기 &amp; 수신 설정
+                  {mailProviderConfigured ? '이메일 발송 & 수신 설정' : '뉴스레터 미리보기 & 수신 설정'}
                 </h3>
-                <span className="text-[10px] sm:text-[11px] font-bold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/70 px-1.5 sm:px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
-                  <Eye className="w-3 h-3 text-amber-600 dark:text-amber-400" />
-                  <span>미리보기 모드</span>
-                </span>
+                {mailProviderConfigured ? (
+                  <span className="text-[10px] sm:text-[11px] font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/70 px-1.5 sm:px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                    <ShieldCheck className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                    <span>Resend 실제 발송 연동</span>
+                  </span>
+                ) : (
+                  <span className="text-[10px] sm:text-[11px] font-bold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/70 px-1.5 sm:px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                    <Eye className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                    <span>미리보기 모드</span>
+                  </span>
+                )}
               </div>
               <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
-                희망 스케줄: {formatScheduleDaysSummary(deliveryDays)} {formatKoreanTimeLabel(deliveryTime)} ({getTimezoneShortLabel(deliveryTimezone)}) · 외부 메일 발송 미연동
+                희망 스케줄: {formatScheduleDaysSummary(deliveryDays)} {formatKoreanTimeLabel(deliveryTime)} ({getTimezoneShortLabel(deliveryTimezone)})
+                {mailProviderConfigured ? ' · Resend API 즉시 발송 지원' : ' · 외부 메일 발송 미연동'}
               </p>
             </div>
           </div>
@@ -200,7 +210,7 @@ export const EmailModal: React.FC<EmailModalProps> = ({
             }`}
           >
             <Send className="w-3.5 h-3.5" />
-            <span>수신 설정 &amp; 미리보기 생성</span>
+            <span>{mailProviderConfigured ? '수신 설정 & 이메일 발송' : '수신 설정 & 뉴스레터 미리보기 생성'}</span>
           </button>
           <button
             onClick={() => setActiveTab('preview')}
@@ -222,7 +232,7 @@ export const EmailModal: React.FC<EmailModalProps> = ({
             }`}
           >
             <History className="w-3.5 h-3.5" />
-            <span>미리보기 이력 ({emailLogs.length})</span>
+            <span>{mailProviderConfigured ? `발송 이력 (${emailLogs.length})` : `미리보기 이력 (${emailLogs.length})`}</span>
           </button>
         </div>
 
@@ -230,11 +240,18 @@ export const EmailModal: React.FC<EmailModalProps> = ({
         <div className="p-6 overflow-y-auto space-y-5 text-slate-800 dark:text-slate-100 bg-slate-50/50 dark:bg-slate-950/40">
           {activeTab === 'send' && (
             <div className="space-y-4">
-              {/* Honest Preview-Only Notice */}
-              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
-                <span className="font-bold block mb-0.5">미리보기 모드 안내 (외부 이메일 발송 미연동)</span>
-                현재 앱에는 외부 메일 발송 서버(SMTP/이메일 API)와 영속 스케줄러가 연동되어 있지 않습니다. 아래 버튼은 뉴스레터 HTML 미리보기를 생성하며 실제 이메일을 외부로 전송하지 않습니다.
-              </div>
+              {/* Honest Mode Notice */}
+              {mailProviderConfigured ? (
+                <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 text-xs text-emerald-900 dark:text-emerald-200 leading-relaxed">
+                  <span className="font-bold block mb-0.5">Resend 실제 이메일 발송 연동됨</span>
+                  아래에서 수신 이메일을 입력하고 <strong>뉴스레터 발송하기</strong>를 누르면 현재 브리핑 요약이 실제 이메일로 즉시 전송됩니다.
+                </div>
+              ) : (
+                <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
+                  <span className="font-bold block mb-0.5">미리보기 모드 안내 (외부 이메일 발송 미연동)</span>
+                  현재 서버에 <code className="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 font-mono text-[11px]">RESEND_API_KEY</code>가 설정되지 않아 실제 이메일은 전송되지 않으며, 아래 버튼은 뉴스레터 HTML 미리보기만 생성합니다.
+                </div>
+              )}
 
               {/* Recipient Email Settings & Storage Box */}
               <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-4 shadow-xs">
@@ -245,7 +262,9 @@ export const EmailModal: React.FC<EmailModalProps> = ({
                       <span>수신 예정 이메일 주소 설정 및 저장</span>
                     </h4>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                      입력하신 이메일 주소를 브라우저에 저장해두고 뉴스레터 미리보기에 반영할 수 있습니다.
+                      {mailProviderConfigured
+                        ? '입력하신 이메일 주소를 저장해두고 즉시 뉴스레터를 발송할 수 있습니다.'
+                        : '입력하신 이메일 주소를 브라우저에 저장해두고 뉴스레터 미리보기에 반영할 수 있습니다.'}
                     </p>
                   </div>
                   <div className="flex items-center gap-1.5 self-start sm:self-auto">
@@ -300,15 +319,27 @@ export const EmailModal: React.FC<EmailModalProps> = ({
                       )}
                     </button>
 
-                    {/* Generate Preview Button */}
+                    {/* Send or Generate Preview Button */}
                     <button
                       type="button"
                       onClick={handleSend}
                       disabled={isSending || !emailInput}
-                      className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition active:scale-95 shadow-xs cursor-pointer"
+                      className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition active:scale-95 shadow-xs cursor-pointer whitespace-nowrap"
                     >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>{isSending ? '생성 중...' : '미리보기 생성'}</span>
+                      {mailProviderConfigured ? (
+                        <Send className="w-3.5 h-3.5" />
+                      ) : (
+                        <Eye className="w-3.5 h-3.5" />
+                      )}
+                      <span>
+                        {isSending
+                          ? mailProviderConfigured
+                            ? '발송 중...'
+                            : '생성 중...'
+                          : mailProviderConfigured
+                          ? '뉴스레터 발송하기'
+                          : '뉴스레터 미리보기 생성'}
+                      </span>
                     </button>
                   </div>
 
@@ -321,7 +352,11 @@ export const EmailModal: React.FC<EmailModalProps> = ({
                         onChange={(e) => setAutoSaveOnSend(e.target.checked)}
                         className="w-3.5 h-3.5 text-blue-600 rounded cursor-pointer"
                       />
-                      <span>미리보기 생성 시 이 주소를 기본 수신 이메일로 브라우저에 저장</span>
+                      <span>
+                        {mailProviderConfigured
+                          ? '발송 시 이 주소를 기본 수신 이메일로 자동 저장'
+                          : '뉴스레터 미리보기 생성 시 이 주소를 기본 수신 이메일로 브라우저에 저장'}
+                      </span>
                     </label>
                   </div>
                 </div>
@@ -409,6 +444,7 @@ export const EmailModal: React.FC<EmailModalProps> = ({
                     deliveryTimezone={deliveryTimezone}
                     deliveryDays={deliveryDays}
                     recipientEmail={recipientEmail}
+                    mailProviderConfigured={mailProviderConfigured}
                     onChangeSchedule={onUpdateSchedule}
                   />
                 </div>

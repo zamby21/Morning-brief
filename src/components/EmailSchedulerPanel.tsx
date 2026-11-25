@@ -36,6 +36,7 @@ interface EmailSchedulerPanelProps {
   deliveryTimezone?: string;
   deliveryDays: string[];
   recipientEmail: string;
+  mailProviderConfigured?: boolean;
   onChangeSchedule: (updated: EmailScheduleValues, notifyMessage?: string) => void;
   onOpenEmailModal?: () => void;
   onSendTestNow?: () => Promise<void> | void;
@@ -48,6 +49,7 @@ export const EmailSchedulerPanel: React.FC<EmailSchedulerPanelProps> = ({
   deliveryTimezone = 'Asia/Seoul',
   deliveryDays,
   recipientEmail,
+  mailProviderConfigured = false,
   onChangeSchedule,
   onOpenEmailModal,
   onSendTestNow,
@@ -145,9 +147,15 @@ export const EmailSchedulerPanel: React.FC<EmailSchedulerPanelProps> = ({
               <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
                 뉴스레터 수신 희망 스케줄
               </h3>
-              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300">
-                미리보기 설정 (메일 서버 미연동)
-              </span>
+              {mailProviderConfigured ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300">
+                  Resend 메일 연동됨
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300">
+                  미리보기 설정 (메일 서버 미연동)
+                </span>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-mono tabular-nums">
@@ -410,7 +418,15 @@ export const EmailSchedulerPanel: React.FC<EmailSchedulerPanelProps> = ({
                       className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white transition cursor-pointer whitespace-nowrap"
                     >
                       <Send className="w-3 h-3" />
-                      <span>{isSendingTest ? '생성 중...' : '미리보기 생성'}</span>
+                      <span>
+                        {isSendingTest
+                          ? mailProviderConfigured
+                            ? '발송 중...'
+                            : '생성 중...'
+                          : mailProviderConfigured
+                          ? '뉴스레터 발송하기'
+                          : '뉴스레터 미리보기 생성'}
+                      </span>
                     </button>
                   )}
                 </div>

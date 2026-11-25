@@ -12,7 +12,7 @@ import {
   Palette,
 } from 'lucide-react';
 import { BriefingTone, ThemeMode, UserPreferences } from '../types/news';
-import { AVAILABLE_TOPICS } from '../data/mockNewsData';
+import { AVAILABLE_TOPICS } from '../data/pressMetadata';
 import { getThemeLabel } from '../utils/theme';
 
 interface SidebarProps {
@@ -38,6 +38,7 @@ interface SidebarProps {
   onScrollToSection?: (id: string) => void;
   themeMode: ThemeMode;
   resolvedTheme: 'light' | 'dark';
+  mailProviderConfigured?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -63,6 +64,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onScrollToSection,
   themeMode,
   resolvedTheme,
+  mailProviderConfigured = false,
 }) => {
   const getToneShortLabel = (tone: BriefingTone) => {
     switch (tone) {
@@ -220,16 +222,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
 
-          {/* Group 2: 이메일 발송 & 리포트 액션 */}
+          {/* Group 2: 뉴스레터/발송 & 리포트 액션 */}
           <div>
             {isOpen && (
               <div className="px-2 pb-1.5 text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                발송 및 심층 리포트
+                {mailProviderConfigured ? '발송 및 심층 리포트' : '뉴스레터 및 심층 리포트'}
               </div>
             )}
 
             <div className="space-y-1">
-              {/* Unified Email Dispatch, Scheduler & Notification Settings */}
+              {/* Unified Email Dispatch / Preview, Scheduler & Notification Settings */}
               <button
                 onClick={onOpenEmailModal}
                 className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-left transition group cursor-pointer ${
@@ -237,7 +239,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     ? 'hover:bg-blue-50/70 dark:hover:bg-blue-950/50 text-slate-700 dark:text-slate-200 hover:text-blue-700 dark:hover:text-blue-300'
                     : 'justify-center hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
                 }`}
-                title={`이메일 발송 & 스케줄 (${preferences.autoEmailEnabled ? preferences.deliveryTime : '일시 중지'})`}
+                title={`${mailProviderConfigured ? '이메일 발송 & 스케줄' : '뉴스레터 미리보기 & 스케줄'} (${preferences.autoEmailEnabled ? preferences.deliveryTime : '일시 중지'})`}
               >
                 <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
                   <Mail className="w-4 h-4" />
@@ -245,7 +247,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {isOpen && (
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between text-xs font-bold text-slate-800 dark:text-slate-100 group-hover:text-blue-700 dark:group-hover:text-blue-300">
-                      <span>이메일 발송 &amp; 스케줄</span>
+                      <span className="truncate">
+                        {mailProviderConfigured ? '이메일 발송 & 스케줄' : '뉴스레터 미리보기 & 스케줄'}
+                      </span>
                       <span className="text-[10px] font-mono tabular-nums font-bold px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 shrink-0">
                         {preferences.autoEmailEnabled ? preferences.deliveryTime : 'OFF'}
                       </span>

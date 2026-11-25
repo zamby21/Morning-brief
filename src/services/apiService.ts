@@ -1,5 +1,4 @@
 import { DailyBriefing, EmailDispatchLog, WeeklyReport, BriefingTone } from '../types/news';
-import { INITIAL_DAILY_BRIEFING, MOCK_WEEKLY_REPORT } from '../data/mockNewsData';
 import { transformBriefingTone } from '../utils/toneTransformer';
 import { escapeHtml, sanitizeHttpUrl } from '../utils/htmlSanitizer';
 
@@ -91,10 +90,14 @@ function generateClientHtmlNewsletter(
 </html>`;
 }
 
+/**
+ * Fetch live daily briefing summary from server.
+ * Topic filtering (`subscribedTopics` / `customTopics`) is intentionally handled client-side
+ * so topic tag switching is instantaneous and avoids redundant server scrapes/cache fragmentation.
+ */
 export async function fetchSummary(
   outletIds: string[],
   tone: BriefingTone,
-  topics: string[],
   forceRefresh = false
 ): Promise<{ data: DailyBriefing; source: string }> {
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
@@ -105,7 +108,7 @@ export async function fetchSummary(
       headers: { 'Content-Type': 'application/json' },
       cache: 'no-store',
       signal: controller?.signal,
-      body: JSON.stringify({ outletIds, tone, topics, forceRefresh }),
+      body: JSON.stringify({ outletIds, tone, forceRefresh }),
     });
     if (res.ok) {
       const result = await res.json();
@@ -119,7 +122,8 @@ export async function fetchSummary(
     if (timeoutId) clearTimeout(timeoutId);
   }
 
-  // Graceful client-side sample fallback (explicitly marked as mock + isFallback, no forged dates or synthetic stories)
+  // Graceful client-side sample fallback (dynamically loaded only when live collection fails)
+  const { INITIAL_DAILY_BRIEFING } = await import('../data/initialDailyBriefing');
   const fallback = transformBriefingTone(
     { ...INITIAL_DAILY_BRIEFING, sourceType: 'mock', sectorSourceType: 'mock', isFallback: true },
     tone
@@ -175,7 +179,21 @@ export async function fetchWeeklyReport(): Promise<WeeklyReport> {
     console.warn('API /api/weekly-report unreachable, using local sample report:', err);
   }
 
+  const { MOCK_WEEKLY_REPORT } = await import('../data/mockNewsData');
   return { ...MOCK_WEEKLY_REPORT, sourceType: 'mock', isFallback: true };
+}
+
+export async function fetchMailProviderStatus(): Promise<boolean> {
+  try {
+    const res = await fetch('/api/health', { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      return Boolean(data?.mailProviderConfigured);
+    }
+  } catch {
+    // Ignore unreachable health check
+  }
+  return false;
 }
 
 export async function sendEmailBriefing(
@@ -185,6 +203,7 @@ export async function sendEmailBriefing(
 ): Promise<{
   success: boolean;
   isPreviewOnly?: boolean;
+  mailProviderConfigured?: boolean;
   message: string;
   log: EmailDispatchLog;
   htmlPreview: string;
@@ -203,11 +222,20 @@ export async function sendEmailBriefing(
         scheduledTime,
       }),
     });
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.success) {
-        return data;
-      }
+    const data = await res.json().catch(() => null);
+    if (res.ok && data && data.success) {
+      return data;
+    }
+    if (data && data.log) {
+      return {
+        success: false,
+        isPreviewOnly: Boolean(data.isPreviewOnly),
+        mailProviderConfigured: Boolean(data.mailProviderConfigured),
+        message: data.message || '이메일 발송 처리에 실패했습니다.',
+        log: data.log,
+        htmlPreview: '',
+        history: Array.isArray(data.history) ? data.history : [],
+      };
     }
   } catch (err) {
     console.warn('API /api/send-email unreachable, generating local HTML preview:', err);
@@ -232,6 +260,7 @@ export async function sendEmailBriefing(
   return {
     success: true,
     isPreviewOnly: true,
+    mailProviderConfigured: false,
     message: `${targetEmail} 대상 뉴스레터 미리보기가 생성되었습니다. (외부 메일 서버 미연동으로 실제 이메일은 전송되지 않습니다.)`,
     log: previewLog,
     htmlPreview: generateClientHtmlNewsletter(targetEmail, briefing, scheduledTime),

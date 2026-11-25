@@ -13,7 +13,7 @@ import {
   AVAILABLE_TOPICS,
   INITIAL_USER_PREFERENCES,
   RECOMMENDED_CUSTOM_TOPICS,
-} from '../data/mockNewsData';
+} from '../data/pressMetadata';
 
 export const SUBSCRIBED_ONLY_TOPIC = '__SUBSCRIBED__';
 

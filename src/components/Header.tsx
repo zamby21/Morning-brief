@@ -27,6 +27,7 @@ interface HeaderProps {
   isMobilePreview: boolean;
   onRefreshLive: () => void;
   isLoading: boolean;
+  mailProviderConfigured?: boolean;
   subNav?: React.ReactNode;
 }
 
@@ -46,6 +47,7 @@ export const Header: React.FC<HeaderProps> = ({
   isMobilePreview,
   onRefreshLive,
   isLoading,
+  mailProviderConfigured = false,
   subNav,
 }) => {
   const isMockOrFallback = (Boolean(isFallback) || sourceType === 'mock') && !isSyncingInitial;
@@ -97,10 +99,14 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               onClick={onOpenDashboard}
-              title="이메일 뉴스레터 HTML 미리보기 열기 (실제 자동 발송 미연동)"
+              title={
+                mailProviderConfigured
+                  ? '이메일 뉴스레터 발송 및 스케줄 설정 열기'
+                  : '이메일 뉴스레터 HTML 미리보기 생성 열기 (실제 자동 발송 미연동)'
+              }
               className="inline-flex items-center gap-1 font-semibold text-[10px] sm:text-[11px] px-2 py-0.5 rounded-full border shrink-0 cursor-pointer transition text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700"
             >
-              <span>뉴스레터 미리보기</span>
+              <span>{mailProviderConfigured ? '뉴스레터 발송 · 설정' : '뉴스레터 미리보기'}</span>
             </button>
           </div>
         </div>

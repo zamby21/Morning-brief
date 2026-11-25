@@ -8,7 +8,7 @@ import {
   Volume2,
 } from 'lucide-react';
 import { NewsStory } from '../types/news';
-import { PRESS_OUTLETS } from '../data/mockNewsData';
+import { PRESS_OUTLETS } from '../data/pressMetadata';
 import { isArticleRead } from '../utils/readArticles';
 import { SectionAudioButton, useActiveSectionSpeechItemId } from './SectionAudioButton';
 import type { SpeechBriefingItem } from '../utils/sectionSpeechPlayer';
