@@ -20,6 +20,7 @@ import {
   Pause,
   Play,
   Square,
+  ArrowUp,
 } from 'lucide-react';
 import { NewsStory, ClusterOutletItem, ArticleContentBlock } from '../types/news';
 import { PRESS_OUTLETS } from '../data/pressMetadata';
@@ -32,6 +33,11 @@ import {
   openExternalSafe,
 } from '../utils/linkUtils';
 import { stopSectionSpeech } from '../utils/sectionSpeechPlayer';
+import {
+  clearArticleScrollPosition,
+  loadArticleScrollPosition,
+  saveArticleScrollPosition,
+} from '../utils/articleScrollMemory';
 import { FallbackBadge, FallbackNoticeBanner } from './FallbackNotice';
 
 interface ArticleModalProps {
@@ -101,9 +107,23 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   const [speechStatus, setSpeechStatus] = useState<'idle' | 'playing' | 'paused'>('idle');
   const [activeSpeechLineIdx, setActiveSpeechLineIdx] = useState<number | null>(null);
   const [speechRate, setSpeechRate] = useState<number>(1);
+  const [scrollProgress, setScrollProgress] = useState<number>(0);
+  const [showScrollTopBtn, setShowScrollTopBtn] = useState<boolean>(false);
 
   const speechSessionRef = useRef(0);
   const speechRateRef = useRef(1);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const contentInnerRef = useRef<HTMLDivElement | null>(null);
+  const isRestoringScrollRef = useRef(false);
+  const userInteractedScrollRef = useRef(false);
+  const scrollSaveTimerRef = useRef<number | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+  const lastScrollMetricsRef = useRef<{ scrollTop: number; scrollHeight: number; clientHeight: number } | null>(null);
+  const activeStoryRef = useRef<NewsStory | null>(story);
+
+  useEffect(() => {
+    activeStoryRef.current = story;
+  }, [story]);
 
   const isSpeechSupported =
     typeof window !== 'undefined' &&
@@ -143,19 +163,209 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     };
   }, [isSpeechSupported]);
 
+  const flushCurrentScrollPosition = (targetStory: NewsStory | null = activeStoryRef.current) => {
+    if (!targetStory) return;
+    const el = scrollContainerRef.current;
+    if (el) {
+      saveArticleScrollPosition(targetStory, el.scrollTop, el.scrollHeight, el.clientHeight);
+      return;
+    }
+    const snap = lastScrollMetricsRef.current;
+    if (snap) {
+      saveArticleScrollPosition(targetStory, snap.scrollTop, snap.scrollHeight, snap.clientHeight);
+    }
+  };
+
   useEffect(() => {
     setSelectedOutletIdx(0);
+    setToastMessage(null);
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
     stopSpeech();
   }, [story?.id]);
 
   useEffect(() => {
     if (!isOpen) {
+      setToastMessage(null);
+      if (toastTimerRef.current !== null) {
+        window.clearTimeout(toastTimerRef.current);
+        toastTimerRef.current = null;
+      }
       stopSpeech();
     }
     return () => {
       stopSpeech();
     };
   }, [isOpen]);
+
+  // Restore saved reading scroll position whenever ArticleModal opens for a story
+  useEffect(() => {
+    if (!isOpen || !story) return;
+
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const currentStory = story;
+    const saved = loadArticleScrollPosition(currentStory);
+    userInteractedScrollRef.current = false;
+    lastScrollMetricsRef.current = null;
+
+    const updateProgressUI = (el: HTMLDivElement) => {
+      const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+      const pct = maxScroll > 0 ? Math.min(100, Math.round((el.scrollTop / maxScroll) * 100)) : 0;
+      setScrollProgress(pct);
+      setShowScrollTopBtn(el.scrollTop > 180);
+    };
+
+    if (!saved) {
+      isRestoringScrollRef.current = false;
+      container.scrollTop = 0;
+      setScrollProgress(0);
+      setShowScrollTopBtn(false);
+      return () => {
+        if (scrollSaveTimerRef.current !== null) {
+          window.clearTimeout(scrollSaveTimerRef.current);
+          scrollSaveTimerRef.current = null;
+        }
+        flushCurrentScrollPosition(currentStory);
+      };
+    }
+
+    isRestoringScrollRef.current = true;
+    let raf1 = 0;
+    let raf2 = 0;
+    let settleTimer: number | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+
+    const applySavedPosition = () => {
+      const el = scrollContainerRef.current;
+      if (!el || userInteractedScrollRef.current) return;
+      const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+      if (maxScroll <= 0) return;
+
+      // Prefer exact pixel offset when layout height is similar; use ratio if font/viewport changed significantly
+      const heightDiffRatio =
+        saved.scrollHeight > 0 ? Math.abs(el.scrollHeight - saved.scrollHeight) / saved.scrollHeight : 0;
+      const targetTop =
+        heightDiffRatio > 0.25 && saved.scrollRatio > 0
+          ? Math.round(maxScroll * saved.scrollRatio)
+          : Math.min(saved.scrollTop, maxScroll);
+
+      el.scrollTop = Math.max(0, targetTop);
+      updateProgressUI(el);
+    };
+
+    const markUserInteracted = () => {
+      userInteractedScrollRef.current = true;
+      isRestoringScrollRef.current = false;
+    };
+
+    container.addEventListener('wheel', markUserInteracted, { passive: true });
+    container.addEventListener('touchstart', markUserInteracted, { passive: true });
+    container.addEventListener('pointerdown', markUserInteracted, { passive: true });
+
+    raf1 = window.requestAnimationFrame(() => {
+      applySavedPosition();
+      raf2 = window.requestAnimationFrame(() => {
+        applySavedPosition();
+        const el = scrollContainerRef.current;
+        if (el && el.scrollTop >= 40) {
+          const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
+          const pct = Math.min(100, Math.max(1, Math.round((el.scrollTop / maxScroll) * 100)));
+          if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+          setToastMessage(`이전 읽기 위치(${pct}%)로 자동 복구되었습니다.`);
+          toastTimerRef.current = window.setTimeout(() => {
+            setToastMessage(null);
+          }, 2400);
+        }
+      });
+    });
+
+    // Re-stabilize scroll position briefly while lazy inline images finish sizing
+    if (typeof ResizeObserver !== 'undefined' && contentInnerRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        if (isRestoringScrollRef.current && !userInteractedScrollRef.current) {
+          applySavedPosition();
+        }
+      });
+      resizeObserver.observe(contentInnerRef.current);
+    }
+
+    settleTimer = window.setTimeout(() => {
+      isRestoringScrollRef.current = false;
+      resizeObserver?.disconnect();
+    }, 650);
+
+    return () => {
+      window.cancelAnimationFrame(raf1);
+      window.cancelAnimationFrame(raf2);
+      if (settleTimer !== null) window.clearTimeout(settleTimer);
+      if (scrollSaveTimerRef.current !== null) {
+        window.clearTimeout(scrollSaveTimerRef.current);
+        scrollSaveTimerRef.current = null;
+      }
+      resizeObserver?.disconnect();
+      container.removeEventListener('wheel', markUserInteracted);
+      container.removeEventListener('touchstart', markUserInteracted);
+      container.removeEventListener('pointerdown', markUserInteracted);
+      flushCurrentScrollPosition(currentStory);
+    };
+  }, [isOpen, story?.id, story?.title, story?.outletName]);
+
+  const handleCloseWithScrollSave = () => {
+    if (scrollSaveTimerRef.current !== null) {
+      window.clearTimeout(scrollSaveTimerRef.current);
+      scrollSaveTimerRef.current = null;
+    }
+    flushCurrentScrollPosition(activeStoryRef.current);
+    onClose();
+  };
+
+  const handleContentScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+    const pct = maxScroll > 0 ? Math.min(100, Math.round((el.scrollTop / maxScroll) * 100)) : 0;
+    setScrollProgress(pct);
+    setShowScrollTopBtn(el.scrollTop > 180);
+
+    if (isRestoringScrollRef.current && !userInteractedScrollRef.current) {
+      return;
+    }
+
+    const currentStory = activeStoryRef.current;
+    if (!currentStory) return;
+
+    const snapTop = el.scrollTop;
+    const snapHeight = el.scrollHeight;
+    const snapClient = el.clientHeight;
+    lastScrollMetricsRef.current = {
+      scrollTop: snapTop,
+      scrollHeight: snapHeight,
+      clientHeight: snapClient,
+    };
+
+    if (scrollSaveTimerRef.current !== null) {
+      window.clearTimeout(scrollSaveTimerRef.current);
+    }
+    scrollSaveTimerRef.current = window.setTimeout(() => {
+      saveArticleScrollPosition(currentStory, snapTop, snapHeight, snapClient);
+      scrollSaveTimerRef.current = null;
+    }, 120);
+  };
+
+  const handleScrollToTop = () => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    userInteractedScrollRef.current = true;
+    isRestoringScrollRef.current = false;
+    lastScrollMetricsRef.current = null;
+    el.scrollTo({ top: 0, behavior: 'smooth' });
+    clearArticleScrollPosition(activeStoryRef.current);
+    setScrollProgress(0);
+    setShowScrollTopBtn(false);
+  };
 
   if (!isOpen || !story) return null;
 
@@ -278,8 +488,9 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
   const estimatedReadingTime = Math.max(1, Math.round(charCount / 450));
 
   const showToast = (msg: string) => {
+    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
     setToastMessage(msg);
-    setTimeout(() => {
+    toastTimerRef.current = window.setTimeout(() => {
       setToastMessage(null);
     }, 2800);
   };
@@ -462,7 +673,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs animate-in fade-in duration-200"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleCloseWithScrollSave();
       }}
     >
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-3xl w-full max-w-3xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100">
@@ -536,7 +747,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
               </button>
             )}
             <button
-              onClick={onClose}
+              onClick={handleCloseWithScrollSave}
               className="p-2 rounded-xl text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer"
               title="닫기"
             >
@@ -545,8 +756,21 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
           </div>
         </div>
 
+        {/* Reading Scroll Progress Bar */}
+        <div className="h-[2.5px] w-full bg-slate-200/70 dark:bg-slate-800 shrink-0 overflow-hidden">
+          <div
+            className="h-full bg-blue-600 dark:bg-blue-400 transition-[width] duration-100 ease-out"
+            style={{ width: `${scrollProgress}%` }}
+          />
+        </div>
+
         {/* Content Body */}
-        <div className="p-5 sm:p-6 overflow-y-auto space-y-5 text-slate-800 dark:text-slate-100 bg-slate-50/50 dark:bg-slate-950/40">
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleContentScroll}
+          className="p-5 sm:p-6 overflow-y-auto text-slate-800 dark:text-slate-100 bg-slate-50/50 dark:bg-slate-950/40"
+        >
+          <div ref={contentInnerRef} className="space-y-5">
           {isFallback && (
             <FallbackNoticeBanner
               compact
@@ -1081,6 +1305,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
               </p>
             </div>
           </div>
+          </div>
         </div>
 
         {/* Floating Toast Notification */}
@@ -1092,24 +1317,40 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
         )}
 
         {/* Modal Footer */}
-        <div className="px-5 sm:px-6 py-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-end gap-2">
-          <button
-            onClick={() => {
-              onClose();
-              onOpenShare(story);
-            }}
-            className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition flex items-center gap-1.5 cursor-pointer"
-          >
-            <Share2 className="w-3.5 h-3.5" />
-            <span>친구에게 공유</span>
-          </button>
+        <div className="px-5 sm:px-6 py-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            {showScrollTopBtn && (
+              <button
+                type="button"
+                onClick={handleScrollToTop}
+                className="px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-300 bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/60 transition flex items-center gap-1.5 cursor-pointer active:scale-95"
+                title="기사 본문 맨 위로 이동"
+              >
+                <ArrowUp className="w-3.5 h-3.5" />
+                <span>맨 위로</span>
+              </button>
+            )}
+          </div>
 
-          <button
-            onClick={onClose}
-            className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white transition active:scale-95 cursor-pointer shadow-xs"
-          >
-            닫기
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => {
+                handleCloseWithScrollSave();
+                onOpenShare(story);
+              }}
+              className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span>친구에게 공유</span>
+            </button>
+
+            <button
+              onClick={handleCloseWithScrollSave}
+              className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white transition active:scale-95 cursor-pointer shadow-xs"
+            >
+              닫기
+            </button>
+          </div>
         </div>
       </div>
     </div>
