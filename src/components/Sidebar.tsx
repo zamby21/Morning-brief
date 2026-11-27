@@ -172,7 +172,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     ? 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white'
                     : 'justify-center hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
                 }`}
-                title={`언론사 선택 (1면 ${frontTotal}사 · 공통 ${overlapTotal}사)`}
+                title={`언론사 선택 (첫화면 ${frontTotal}사 · 공통 ${overlapTotal}사)`}
               >
                 <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 group-hover:bg-blue-600 group-hover:text-white transition-colors">
                   <SlidersHorizontal className="w-4 h-4" />
@@ -182,11 +182,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <div className="flex items-center justify-between text-xs font-bold text-slate-800 dark:text-slate-100">
                       <span>수집 언론사</span>
                       <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
-                        1면 {frontTotal} · 공통 {overlapTotal}
+                        첫화면 {frontTotal} · 공통 {overlapTotal}
                       </span>
                     </div>
                     <div className="text-[11px] text-slate-400 dark:text-slate-400 truncate">
-                      1면 핵심 & 공통이슈 개별 설정
+                      첫화면 주요 & 공통이슈 개별 설정
                     </div>
                   </div>
                 )}

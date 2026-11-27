@@ -629,7 +629,7 @@ export const EmailModal: React.FC<EmailModalProps> = ({
               <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
                 <div className="text-xs text-slate-400 dark:text-slate-500">발송 제목:</div>
                 <div className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">
-                  [모닝브리프] {briefing.briefingDate} 대한민국 주요 언론사 1면 및 공통이슈 3줄 요약
+                  [모닝브리프] {briefing.briefingDate} 대한민국 주요 언론사 첫화면 주요 및 공통이슈 요약
                 </div>
               </div>
 
@@ -645,7 +645,7 @@ export const EmailModal: React.FC<EmailModalProps> = ({
 
                 <div className="pt-2 space-y-2">
                   <div className="font-bold text-slate-800 dark:text-slate-100">
-                    ■ 주요 신문 1면 톱 보도 (미리보기):
+                    ■ 주요 언론사 홈페이지 첫화면 보도 (미리보기):
                   </div>
                   {briefing.frontPageStories.slice(0, 3).map((s, idx) => (
                     <div key={idx} className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700">

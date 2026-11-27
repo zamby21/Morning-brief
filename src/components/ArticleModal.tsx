@@ -504,14 +504,14 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({
                   }`}
                 >
                   {story.category === 'frontpage'
-                    ? story.pressSection && story.pressSection !== '첫화면 중앙 톱'
+                    ? story.pressSection && story.pressSection !== '첫화면 중앙 톱' && story.pressSection !== '홈페이지 주요 톱'
                       ? story.exclusiveBadge || story.pressSection
                       : isFallback
                       ? '샘플 예시'
-                      : '첫화면 중앙 1면 톱'
+                      : '홈페이지 주요 톱'
                     : isCluster
                     ? `${story.coveredOutlets?.length || '다수'}개 언론사 교차 클러스터`
-                    : story.exclusiveBadge || '단독 특종'}
+                    : story.exclusiveBadge || '단독 표기'}
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">

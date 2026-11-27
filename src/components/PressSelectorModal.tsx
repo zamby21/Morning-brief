@@ -205,7 +205,7 @@ export const PressSelectorModal: React.FC<PressSelectorModalProps> = ({
                 <span>대한민국 수집 언론사 맞춤 설정</span>
               </h3>
               <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 truncate">
-                1면 핵심 기사와 공통 이슈 기사를 각각 원하는 언론사로 분리 설정합니다.
+                홈페이지 첫화면 주요 기사와 공통 이슈 기사를 각각 원하는 언론사로 분리 설정합니다.
               </p>
             </div>
           </div>
@@ -218,7 +218,7 @@ export const PressSelectorModal: React.FC<PressSelectorModalProps> = ({
           </button>
         </div>
 
-        {/* Dual Section Selector Banner (1면 핵심 vs 공통이슈) */}
+        {/* Dual Section Selector Banner (첫화면 주요 vs 공통이슈) */}
         <div className="shrink-0 px-3 sm:px-6 py-2.5 bg-gradient-to-r from-blue-50/70 via-indigo-50/40 to-slate-50 dark:from-slate-900 dark:via-indigo-950/30 dark:to-slate-900 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
           {/* 2-Segment Control */}
           <div className="flex items-center gap-1.5 bg-slate-200/80 dark:bg-slate-800 p-1 rounded-xl sm:rounded-2xl shadow-inner">
@@ -231,7 +231,7 @@ export const PressSelectorModal: React.FC<PressSelectorModalProps> = ({
               }`}
             >
               <Newspaper className="w-3.5 h-3.5" />
-              <span>1면 핵심</span>
+              <span>첫화면 주요</span>
               <span
                 className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
                   activeTargetSection === 'frontPage' ? 'bg-blue-800 text-white' : 'bg-slate-300 dark:bg-slate-700 text-slate-800 dark:text-slate-200'
@@ -450,7 +450,7 @@ export const PressSelectorModal: React.FC<PressSelectorModalProps> = ({
                   [{activeCategoryTab}] ({filteredOutlets.length}개)
                 </span>
                 <span className="text-[10px] text-slate-500 dark:text-slate-400 hidden sm:inline">
-                  편집 중: <strong className="text-blue-600 dark:text-blue-400">{activeTargetSection === 'frontPage' ? '신문 1면 핵심' : '공통 이슈'}</strong>
+                  편집 중: <strong className="text-blue-600 dark:text-blue-400">{activeTargetSection === 'frontPage' ? '홈페이지 첫화면 주요' : '공통 이슈'}</strong>
                 </span>
               </div>
               <button

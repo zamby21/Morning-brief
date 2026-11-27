@@ -13,7 +13,7 @@ export interface RawArticleForTrend {
   pubDate?: string;
 }
 
-interface RealTrendSnapshot {
+export interface RealTrendSnapshot {
   hourBucketKey: string;
   timeLabel: string;
   timestampMs: number;
@@ -21,9 +21,53 @@ interface RealTrendSnapshot {
 }
 
 // In-memory store of genuine observed outlet counts per keyword over time (no synthetic/hash fallbacks).
-// Pruned to a rolling 24-hour window.
+// Pruned to a rolling 24-hour window and hydrated/persisted by server persistentStore.
 const observedKeywordHistory = new Map<string, RealTrendSnapshot[]>();
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+
+export function hydrateKeywordTrendHistory(
+  serialized: Record<string, RealTrendSnapshot[]> | null | undefined
+): void {
+  if (!serialized || typeof serialized !== 'object') return;
+  const cutoff = Date.now() - TWENTY_FOUR_HOURS_MS;
+  for (const [key, snaps] of Object.entries(serialized)) {
+    if (!Array.isArray(snaps)) continue;
+    const valid = snaps
+      .filter(
+        (s) =>
+          s &&
+          typeof s.hourBucketKey === 'string' &&
+          typeof s.timestampMs === 'number' &&
+          s.timestampMs >= cutoff &&
+          typeof s.outletCount === 'number'
+      )
+      .sort((a, b) => a.timestampMs - b.timestampMs);
+    if (valid.length === 0) continue;
+    const existing = observedKeywordHistory.get(key) || [];
+    const mergedByBucket = new Map<string, RealTrendSnapshot>();
+    for (const s of [...valid, ...existing]) {
+      if (s.timestampMs >= cutoff) {
+        mergedByBucket.set(s.hourBucketKey, s);
+      }
+    }
+    observedKeywordHistory.set(
+      key,
+      Array.from(mergedByBucket.values()).sort((a, b) => a.timestampMs - b.timestampMs)
+    );
+  }
+}
+
+export function serializeKeywordTrendHistory(): Record<string, RealTrendSnapshot[]> {
+  const cutoff = Date.now() - TWENTY_FOUR_HOURS_MS;
+  const result: Record<string, RealTrendSnapshot[]> = {};
+  for (const [key, snaps] of observedKeywordHistory.entries()) {
+    const fresh = snaps.filter((s) => s.timestampMs >= cutoff);
+    if (fresh.length > 0) {
+      result[key] = fresh.slice(-24);
+    }
+  }
+  return result;
+}
 
 const TREND_IGNORED_TOKENS = new Set([
   '이어', '대한', '통해', '위해', '따른', '대해', '관련', '가운데', '것으로',

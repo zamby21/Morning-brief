@@ -2041,7 +2041,7 @@ function inferTopicFromText(title: string): string {
   if (/엔비디아|AI|반도체|삼성|하이닉스|빅테크|클라우드|배터리/.test(title)) return 'IT·반도체';
   if (/법원|무죄|구형|특검|국힘|與|野|대통령|국회|청문|재판|검찰|헌재/.test(title)) return '정치·사법';
   if (/수능|경찰|교육|교사|의료|노동|파업|기후|사고/.test(title)) return '사회·교육';
-  return '종합·1면 톱';
+  return '종합·주요';
 }
 
 const MAX_CITATION_EXCERPT_CHARS = 700;

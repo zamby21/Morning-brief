@@ -2,6 +2,11 @@ import crypto from 'node:crypto';
 import type express from 'express';
 import { PRESS_OUTLETS } from '../../src/data/pressMetadata.ts';
 import type { DailyBriefing, BriefingTone } from '../../src/types/news.ts';
+import {
+  hydrateKeywordTrendHistory,
+  serializeKeywordTrendHistory,
+  type RealTrendSnapshot,
+} from '../../src/utils/keywordTrend.ts';
 import { readPersistentJson, writePersistentJson } from './persistentStore.ts';
 
 // Lightweight per-IP sliding-window rate limiter to protect AI & proxy endpoints
@@ -66,22 +71,35 @@ export interface DailyHistoryEntry {
 export const dailyBriefingHistory = new Map<string, DailyHistoryEntry>();
 const MAX_DAILY_HISTORY_DAYS = 14;
 const PERSISTENT_HISTORY_KEY = 'morning_brief:daily_history:v1';
+const PERSISTENT_KEYWORD_TRENDS_KEY = 'morning_brief:keyword_trends:v1';
 let historyLoadedPromise: Promise<void> | null = null;
 
 export async function ensureDailyHistoryLoaded(): Promise<void> {
   if (!historyLoadedPromise) {
     historyLoadedPromise = (async () => {
-      const stored = await readPersistentJson<DailyHistoryEntry[]>(PERSISTENT_HISTORY_KEY);
-      if (Array.isArray(stored)) {
-        for (const entry of stored) {
+      const [storedHistory, storedTrends] = await Promise.all([
+        readPersistentJson<DailyHistoryEntry[]>(PERSISTENT_HISTORY_KEY),
+        readPersistentJson<Record<string, RealTrendSnapshot[]>>(PERSISTENT_KEYWORD_TRENDS_KEY),
+      ]);
+      if (Array.isArray(storedHistory)) {
+        for (const entry of storedHistory) {
           if (entry && typeof entry.kstDate === 'string' && !dailyBriefingHistory.has(entry.kstDate)) {
             dailyBriefingHistory.set(entry.kstDate, entry);
           }
         }
       }
+      if (storedTrends) {
+        hydrateKeywordTrendHistory(storedTrends);
+      }
     })();
   }
   return historyLoadedPromise;
+}
+
+export function persistKeywordTrendHistory(): void {
+  const snapshot = serializeKeywordTrendHistory();
+  if (Object.keys(snapshot).length === 0) return;
+  void writePersistentJson(PERSISTENT_KEYWORD_TRENDS_KEY, snapshot);
 }
 
 export function getKstDateKey(date: Date = new Date()): string {
@@ -123,6 +141,7 @@ export function saveServerBriefing(briefing: DailyBriefing): void {
       PERSISTENT_HISTORY_KEY,
       Array.from(dailyBriefingHistory.values())
     );
+    persistKeywordTrendHistory();
   }
 }
 

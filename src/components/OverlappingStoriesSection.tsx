@@ -672,10 +672,20 @@ export const OverlappingStoriesSection: React.FC<OverlappingStoriesSectionProps>
                     {story.title}
                   </h3>
 
-                {/* 3+1 / 3-line Summary Box */}
+                {/* Summary Box */}
                 <div className="bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 rounded-xl p-3 sm:p-3.5 space-y-1.5 mb-2.5">
                   {story.leadSummary.slice(0, 4).map((line, idx) => {
                     const cleanLine = line.replace(/^[0-9]+[.)]\s*/, '').trim();
+                    if (cleanLine.startsWith('본문 발췌 부족')) {
+                      return (
+                        <p
+                          key={idx}
+                          className="text-xs text-amber-800 dark:text-amber-300 bg-amber-50/90 dark:bg-amber-950/50 border border-amber-200/80 dark:border-amber-800/70 rounded-lg px-2.5 py-1.5 font-medium leading-relaxed"
+                        >
+                          {cleanLine}
+                        </p>
+                      );
+                    }
                     if (cleanLine.startsWith('[시사점]')) {
                       return (
                         <p
