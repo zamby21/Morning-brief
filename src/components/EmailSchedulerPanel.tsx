@@ -37,6 +37,7 @@ interface EmailSchedulerPanelProps {
   deliveryDays: string[];
   recipientEmail: string;
   mailProviderConfigured?: boolean;
+  mailProviderLabel?: string;
   onChangeSchedule: (updated: EmailScheduleValues, notifyMessage?: string) => void;
   onOpenEmailModal?: () => void;
   onSendTestNow?: () => Promise<void> | void;
@@ -50,6 +51,7 @@ export const EmailSchedulerPanel: React.FC<EmailSchedulerPanelProps> = ({
   deliveryDays,
   recipientEmail,
   mailProviderConfigured = false,
+  mailProviderLabel = '네이버 메일 SMTP',
   onChangeSchedule,
   onOpenEmailModal,
   onSendTestNow,
@@ -149,11 +151,11 @@ export const EmailSchedulerPanel: React.FC<EmailSchedulerPanelProps> = ({
               </h3>
               {mailProviderConfigured ? (
                 <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300">
-                  Resend 메일 연동됨
+                  {mailProviderLabel} 연동됨
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300">
-                  미리보기 설정 (메일 서버 미연동)
+                  미리보기 설정 (네이버 SMTP 미연동)
                 </span>
               )}
             </div>

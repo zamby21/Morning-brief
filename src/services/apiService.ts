@@ -4,6 +4,7 @@ import {
   WeeklyReport,
   BriefingTone,
   OperationalStatus,
+  MailProviderStatus,
 } from '../types/news';
 import { transformBriefingTone } from '../utils/toneTransformer';
 import { escapeHtml, sanitizeHttpUrl } from '../utils/htmlSanitizer';
@@ -109,7 +110,7 @@ function generateClientHtmlNewsletter(
     </div>
     <div class="footer">
       본 화면은 모닝브리프 뉴스레터 미리보기입니다. (희망 발송 시각: ${safeTime})<br>
-      실제 자동 이메일 발송은 외부 메일 발송 서비스(SMTP/API) 연동 후 활성화됩니다.
+      실제 이메일 발송은 네이버 메일 SMTP(NAVER_EMAIL, NAVER_APP_PASSWORD) 설정 후 활성화됩니다.
     </div>
   </div>
 </body>
@@ -241,17 +242,37 @@ export async function fetchWeeklyReport(): Promise<WeeklyReport> {
   return { ...MOCK_WEEKLY_REPORT, sourceType: 'mock', isFallback: true };
 }
 
-export async function fetchMailProviderStatus(): Promise<boolean> {
+export const DEFAULT_MAIL_PROVIDER_STATUS: MailProviderStatus = {
+  configured: false,
+  provider: 'none',
+  providerLabel: '미연동',
+  missingFields: ['NAVER_EMAIL', 'NAVER_APP_PASSWORD'],
+};
+
+export async function fetchMailProviderStatus(): Promise<MailProviderStatus> {
   try {
     const res = await fetch('/api/health', { cache: 'no-store' });
     if (res.ok) {
       const data = await res.json();
-      return Boolean(data?.mailProviderConfigured);
+      const provider = data?.mailProvider === 'naver-smtp' ? 'naver-smtp' : 'none';
+      return {
+        configured: Boolean(data?.mailProviderConfigured),
+        provider,
+        providerLabel:
+          typeof data?.mailProviderLabel === 'string'
+            ? data.mailProviderLabel
+            : provider === 'naver-smtp'
+            ? '네이버 메일 SMTP'
+            : '미연동',
+        missingFields: Array.isArray(data?.mailProviderMissingFields)
+          ? data.mailProviderMissingFields.filter((f: unknown): f is string => typeof f === 'string')
+          : [],
+      };
     }
   } catch {
     // Ignore unreachable health check
   }
-  return false;
+  return DEFAULT_MAIL_PROVIDER_STATUS;
 }
 
 export async function sendEmailBriefing(
@@ -262,8 +283,12 @@ export async function sendEmailBriefing(
   success: boolean;
   isPreviewOnly?: boolean;
   mailProviderConfigured?: boolean;
+  provider?: 'naver-smtp' | 'none';
+  providerLabel?: string;
+  missingFields?: string[];
+  messageId?: string;
   message: string;
-  log: EmailDispatchLog;
+  log?: EmailDispatchLog;
   htmlPreview: string;
   history: EmailDispatchLog[];
 }> {
@@ -292,13 +317,18 @@ export async function sendEmailBriefing(
         history: nextHistory,
       };
     }
-    if (data && data.log) {
-      const nextHistory = [data.log, ...existingLogs].slice(0, 30);
-      writeLocalEmailLogs(nextHistory);
+    if (data) {
+      const nextHistory = data.log
+        ? [data.log, ...existingLogs].slice(0, 30)
+        : existingLogs;
+      if (data.log) writeLocalEmailLogs(nextHistory);
       return {
         success: false,
         isPreviewOnly: Boolean(data.isPreviewOnly),
         mailProviderConfigured: Boolean(data.mailProviderConfigured),
+        provider: data.provider,
+        providerLabel: data.providerLabel,
+        missingFields: Array.isArray(data.missingFields) ? data.missingFields : undefined,
         message: data.message || '이메일 발송 처리에 실패했습니다.',
         log: data.log,
         htmlPreview: '',
@@ -321,6 +351,7 @@ export async function sendEmailBriefing(
       (briefing?.frontPageStories?.length || 0) +
       (briefing?.overlappingStories?.length || 0) +
       (briefing?.exclusiveStories?.length || 0),
+    provider: 'none',
   };
 
   const nextHistory = [previewLog, ...existingLogs].slice(0, 30);
@@ -330,7 +361,10 @@ export async function sendEmailBriefing(
     success: true,
     isPreviewOnly: true,
     mailProviderConfigured: false,
-    message: `${targetEmail} 대상 뉴스레터 미리보기가 생성되었습니다. (외부 메일 서버 미연동으로 실제 이메일은 전송되지 않습니다.)`,
+    provider: 'none',
+    providerLabel: '미연동',
+    missingFields: ['NAVER_EMAIL', 'NAVER_APP_PASSWORD'],
+    message: `${targetEmail} 대상 뉴스레터 미리보기가 생성되었습니다. (네이버 메일 SMTP 미연동으로 실제 이메일은 전송되지 않습니다.)`,
     log: previewLog,
     htmlPreview: generateClientHtmlNewsletter(targetEmail, briefing, scheduledTime),
     history: nextHistory,

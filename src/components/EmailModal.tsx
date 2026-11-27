@@ -19,7 +19,7 @@ import {
   Smartphone,
   MapPin,
 } from 'lucide-react';
-import { DailyBriefing, EmailDispatchLog } from '../types/news';
+import { DailyBriefing, EmailDispatchLog, MailProviderStatus } from '../types/news';
 import { EmailSchedulerPanel, EmailScheduleValues } from './EmailSchedulerPanel';
 import {
   formatKoreanTimeLabel,
@@ -49,6 +49,7 @@ interface EmailModalProps {
   onTestLocalNewsAlert?: (sidoCode: string, sigungu: string) => void;
   emailLogs: EmailDispatchLog[];
   mailProviderConfigured?: boolean;
+  mailProviderStatus?: MailProviderStatus;
   onSendEmail: (email: string) => Promise<string>;
   onSaveRecipientEmail?: (email: string, alsoAddToList?: boolean) => void;
   onDeleteSavedEmail?: (email: string) => void;
@@ -76,6 +77,7 @@ export const EmailModal: React.FC<EmailModalProps> = ({
   onTestLocalNewsAlert,
   emailLogs,
   mailProviderConfigured = false,
+  mailProviderStatus,
   onSendEmail,
   onSaveRecipientEmail,
   onDeleteSavedEmail,
@@ -88,7 +90,14 @@ export const EmailModal: React.FC<EmailModalProps> = ({
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
   const [autoSaveOnSend, setAutoSaveOnSend] = useState(true);
 
-  // Sync with recipientEmail prop when modal opens or prop changes
+  const effectiveConfigured = mailProviderStatus ? mailProviderStatus.configured : mailProviderConfigured;
+  const providerLabel =
+    mailProviderStatus?.provider === 'naver-smtp'
+      ? mailProviderStatus.providerLabel
+      : '네이버 메일 SMTP';
+  const missingFields = mailProviderStatus?.missingFields ?? ['NAVER_EMAIL', 'NAVER_APP_PASSWORD'];
+
+  // Sync with recipientEmail prop when modal opens
   useEffect(() => {
     setEmailInput(recipientEmail || '');
   }, [recipientEmail, isOpen]);
@@ -152,7 +161,7 @@ export const EmailModal: React.FC<EmailModalProps> = ({
     try {
       const msg = await onSendEmail(target);
       setSendResultMsg(msg || `${target} 주소로 발송 완료되었습니다.`);
-    } catch (err: any) {
+    } catch {
       setSendResultMsg('발송 처리 중 오류가 발생했습니다.');
     } finally {
       setIsSending(false);
@@ -171,12 +180,12 @@ export const EmailModal: React.FC<EmailModalProps> = ({
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <h3 className="text-sm sm:text-lg font-bold text-slate-900 dark:text-white truncate">
-                  {mailProviderConfigured ? '이메일 발송 & 수신 설정' : '뉴스레터 미리보기 & 수신 설정'}
+                  {effectiveConfigured ? '이메일 발송 & 수신 설정' : '뉴스레터 미리보기 & 수신 설정'}
                 </h3>
-                {mailProviderConfigured ? (
+                {effectiveConfigured ? (
                   <span className="text-[10px] sm:text-[11px] font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/70 px-1.5 sm:px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
                     <ShieldCheck className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                    <span>Resend 실제 발송 연동</span>
+                    <span>네이버 메일 SMTP 연동</span>
                   </span>
                 ) : (
                   <span className="text-[10px] sm:text-[11px] font-bold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/70 px-1.5 sm:px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
@@ -187,7 +196,9 @@ export const EmailModal: React.FC<EmailModalProps> = ({
               </div>
               <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
                 희망 스케줄: {formatScheduleDaysSummary(deliveryDays)} {formatKoreanTimeLabel(deliveryTime)} ({getTimezoneShortLabel(deliveryTimezone)})
-                {mailProviderConfigured ? ' · Resend API 즉시 발송 지원' : ' · 외부 메일 발송 미연동'}
+                {effectiveConfigured
+                  ? ' · smtp.naver.com(587) 즉시 발송 지원'
+                  : ' · 네이버 메일 SMTP 미연동'}
               </p>
             </div>
           </div>
@@ -210,7 +221,7 @@ export const EmailModal: React.FC<EmailModalProps> = ({
             }`}
           >
             <Send className="w-3.5 h-3.5" />
-            <span>{mailProviderConfigured ? '수신 설정 & 이메일 발송' : '수신 설정 & 뉴스레터 미리보기 생성'}</span>
+            <span>{effectiveConfigured ? '수신 설정 & 이메일 발송' : '수신 설정 & 뉴스레터 미리보기 생성'}</span>
           </button>
           <button
             onClick={() => setActiveTab('preview')}
@@ -232,7 +243,7 @@ export const EmailModal: React.FC<EmailModalProps> = ({
             }`}
           >
             <History className="w-3.5 h-3.5" />
-            <span>{mailProviderConfigured ? `발송 이력 (${emailLogs.length})` : `미리보기 이력 (${emailLogs.length})`}</span>
+            <span>{effectiveConfigured ? `발송 이력 (${emailLogs.length})` : `미리보기 이력 (${emailLogs.length})`}</span>
           </button>
         </div>
 
@@ -241,15 +252,34 @@ export const EmailModal: React.FC<EmailModalProps> = ({
           {activeTab === 'send' && (
             <div className="space-y-4">
               {/* Honest Mode Notice */}
-              {mailProviderConfigured ? (
+              {effectiveConfigured ? (
                 <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 text-xs text-emerald-900 dark:text-emerald-200 leading-relaxed">
-                  <span className="font-bold block mb-0.5">Resend 실제 이메일 발송 연동됨</span>
-                  아래에서 수신 이메일을 입력하고 <strong>뉴스레터 발송하기</strong>를 누르면 현재 브리핑 요약이 실제 이메일로 즉시 전송됩니다.
+                  <span className="font-bold block mb-0.5">
+                    네이버 메일 SMTP(smtp.naver.com:587) 연동됨
+                  </span>
+                  아래에서 수신 이메일을 입력하고 <strong>뉴스레터 발송하기</strong>를 누르면 설정된 네이버 계정(
+                  <code className="px-1 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 font-mono text-[11px]">
+                    NAVER_EMAIL
+                  </code>
+                  )을 발신자로 하여 실제 이메일이 즉시 전송됩니다.
                 </div>
               ) : (
-                <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
-                  <span className="font-bold block mb-0.5">미리보기 모드 안내 (외부 이메일 발송 미연동)</span>
-                  현재 서버에 <code className="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 font-mono text-[11px]">RESEND_API_KEY</code>가 설정되지 않아 실제 이메일은 전송되지 않으며, 아래 버튼은 뉴스레터 HTML 미리보기만 생성합니다.
+                <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-xs text-amber-900 dark:text-amber-200 leading-relaxed space-y-1.5">
+                  <span className="font-bold block">
+                    네이버 메일 SMTP 연동 안내 · 현재 미리보기 모드
+                  </span>
+                  <p>
+                    서버 환경 변수(Secrets)에{' '}
+                    {missingFields.map((field, idx) => (
+                      <React.Fragment key={field}>
+                        {idx > 0 && ', '}
+                        <code className="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 font-mono text-[11px]">
+                          {field}
+                        </code>
+                      </React.Fragment>
+                    ))}
+                    을(를) 등록하고 네이버 메일 환경설정에서 POP3/SMTP 사용을 켜면 실제 이메일 발송이 활성화됩니다.
+                  </p>
                 </div>
               )}
 
@@ -262,8 +292,8 @@ export const EmailModal: React.FC<EmailModalProps> = ({
                       <span>수신 예정 이메일 주소 설정 및 저장</span>
                     </h4>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                      {mailProviderConfigured
-                        ? '입력하신 이메일 주소를 저장해두고 즉시 뉴스레터를 발송할 수 있습니다.'
+                      {effectiveConfigured
+                        ? '입력하신 이메일 주소를 저장해두고 네이버 메일 SMTP로 뉴스레터를 즉시 발송할 수 있습니다.'
                         : '입력하신 이메일 주소를 브라우저에 저장해두고 뉴스레터 미리보기에 반영할 수 있습니다.'}
                     </p>
                   </div>
@@ -326,17 +356,17 @@ export const EmailModal: React.FC<EmailModalProps> = ({
                       disabled={isSending || !emailInput}
                       className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition active:scale-95 shadow-xs cursor-pointer whitespace-nowrap"
                     >
-                      {mailProviderConfigured ? (
+                      {effectiveConfigured ? (
                         <Send className="w-3.5 h-3.5" />
                       ) : (
                         <Eye className="w-3.5 h-3.5" />
                       )}
                       <span>
                         {isSending
-                          ? mailProviderConfigured
+                          ? effectiveConfigured
                             ? '발송 중...'
                             : '생성 중...'
-                          : mailProviderConfigured
+                          : effectiveConfigured
                           ? '뉴스레터 발송하기'
                           : '뉴스레터 미리보기 생성'}
                       </span>
@@ -353,7 +383,7 @@ export const EmailModal: React.FC<EmailModalProps> = ({
                         className="w-3.5 h-3.5 text-blue-600 rounded cursor-pointer"
                       />
                       <span>
-                        {mailProviderConfigured
+                        {effectiveConfigured
                           ? '발송 시 이 주소를 기본 수신 이메일로 자동 저장'
                           : '뉴스레터 미리보기 생성 시 이 주소를 기본 수신 이메일로 브라우저에 저장'}
                       </span>
@@ -444,7 +474,8 @@ export const EmailModal: React.FC<EmailModalProps> = ({
                     deliveryTimezone={deliveryTimezone}
                     deliveryDays={deliveryDays}
                     recipientEmail={recipientEmail}
-                    mailProviderConfigured={mailProviderConfigured}
+                    mailProviderConfigured={effectiveConfigured}
+                    mailProviderLabel={providerLabel}
                     onChangeSchedule={onUpdateSchedule}
                   />
                 </div>
@@ -668,18 +699,26 @@ export const EmailModal: React.FC<EmailModalProps> = ({
             <div className="space-y-2">
               {emailLogs.length === 0 ? (
                 <div className="text-center py-10 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 text-xs shadow-xs">
-                  아직 생성된 뉴스레터 미리보기 이력이 없습니다.
+                  {effectiveConfigured
+                    ? '아직 발송된 이메일 이력이 없습니다.'
+                    : '아직 생성된 뉴스레터 미리보기 이력이 없습니다.'}
                 </div>
               ) : (
                 emailLogs.map((log) => (
                   <div
                     key={log.id}
-                    className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs shadow-xs"
+                    className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 text-xs shadow-xs"
                   >
-                    <div className="space-y-0.5">
-                      <div className="font-bold text-slate-900 dark:text-white">{log.headline}</div>
-                      <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                        대상: {log.recipient} · {log.sentAt}
+                    <div className="space-y-0.5 min-w-0">
+                      <div className="font-bold text-slate-900 dark:text-white truncate">{log.headline}</div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                        <span>대상: {log.recipient}</span>
+                        <span>· {log.sentAt}</span>
+                        {log.provider === 'naver-smtp' && (
+                          <span className="font-semibold text-slate-600 dark:text-slate-300">
+                            · 네이버 메일 SMTP
+                          </span>
+                        )}
                       </div>
                     </div>
                     <span

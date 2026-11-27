@@ -1,21 +1,30 @@
 import type express from 'express';
 import type { EmailDispatchLog } from '../../src/types/news.ts';
-import { escapeHtml, sanitizeHttpUrl, isValidEmailAddress } from '../../src/utils/htmlSanitizer.ts';
+import { isValidEmailAddress } from '../../src/utils/htmlSanitizer.ts';
 import {
   createRateLimiter,
   serverBriefingStore,
   isValidHHMM,
-  maskEmailAddress,
 } from '../utils/security.ts';
+import {
+  buildNewsletterHtml,
+  dispatchBriefingEmail,
+  getMailProviderStatus,
+} from '../services/mailService.ts';
 
-export function isResendConfigured(): boolean {
-  return Boolean(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim().length > 0);
-}
+export { getMailProviderStatus, isMailProviderConfigured } from '../services/mailService.ts';
 
 export function registerEmailRoutes(app: express.Express): void {
-  // Dispatch via Resend API when configured or generate sanitized HTML preview (stateless: never stores/exposes other users' emails)
+  // Dispatch newsletter via Naver Mail SMTP (nodemailer) when NAVER_EMAIL & NAVER_APP_PASSWORD are set,
+  // or return a sanitized HTML preview when unconfigured. Stateless: never stores/exposes other users' emails.
   app.post(['/api/send-email', '/send-email'], createRateLimiter('send-email', 20), async (req, res) => {
-    const { recipient, briefingId, briefing: clientBriefing, scheduledTime = '09:00' } = req.body || {};
+    const {
+      recipient,
+      briefingId,
+      briefing: clientBriefing,
+      scheduledTime = '09:00',
+    } = req.body || {};
+
     const targetEmail = typeof recipient === 'string' ? recipient.trim() : '';
     if (!isValidEmailAddress(targetEmail)) {
       return res.status(400).json({
@@ -24,6 +33,7 @@ export function registerEmailRoutes(app: express.Express): void {
       });
     }
 
+    const providerStatus = getMailProviderStatus();
     const briefing =
       (typeof briefingId === 'string' && serverBriefingStore.has(briefingId)
         ? serverBriefingStore.get(briefingId)
@@ -39,212 +49,74 @@ export function registerEmailRoutes(app: express.Express): void {
     const overlapStories = Array.isArray(briefing?.overlappingStories) ? briefing.overlappingStories.slice(0, 2) : [];
     const exclStories = Array.isArray(briefing?.exclusiveStories) ? briefing.exclusiveStories.slice(0, 2) : [];
     const topKeywords = Array.isArray(briefing?.topKeywords)
-      ? briefing.topKeywords.slice(0, 10).map((k: unknown) => escapeHtml(String(k || '').slice(0, 40)))
+      ? briefing.topKeywords.slice(0, 10).map((k: unknown) => String(k || '').slice(0, 40))
       : [];
 
-    const renderCardHtml = (
-      story: any,
-      accentColor: string,
-      outletPrefix: string,
-      ctaLabel: string
-    ): string => {
-      const safeOutlet = escapeHtml(outletPrefix);
-      const safeTitle = escapeHtml(String(story?.title || '').slice(0, 200));
-      const lines = Array.isArray(story?.leadSummary) ? story.leadSummary.slice(0, 4) : [];
-      const linesHtml = lines
-        .map((l: unknown) => `<div class="line">${escapeHtml(String(l || '').slice(0, 300))}</div>`)
-        .join('');
-      const safeHref = sanitizeHttpUrl(story?.originalUrl);
-      const linkHtml = safeHref
-        ? `<a class="link-btn" style="color: ${accentColor};" href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer">${escapeHtml(ctaLabel)}</a>`
-        : '';
-      return `
-      <div class="card" style="border-left-color: ${accentColor};">
-        <div class="card-outlet" style="color: ${accentColor};">${safeOutlet}</div>
-        <div class="card-title">${safeTitle}</div>
-        ${linesHtml}
-        ${linkHtml}
-      </div>
-    `;
-    };
-
-    const resendApiKey = (process.env.RESEND_API_KEY || '').trim();
-    const mailProviderConfigured = resendApiKey.length > 0;
-    const fromEmail = (process.env.RESEND_FROM_EMAIL || '').trim() || 'Morning Brief <onboarding@resend.dev>';
     const emailSubject = `[모닝브리프] ${safeBriefingDate} 대한민국 주요 언론사 뉴스 요약`;
     const totalStoriesCount = frontStories.length + overlapStories.length + exclStories.length;
 
-    const htmlNewsletter = `<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="utf-8">
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Pretendard", sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
-    .container { max-width: 680px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; }
-    .header { background: #0f172a; color: #ffffff; padding: 32px 28px; }
-    .badge { display: inline-block; background: #2563eb; color: #ffffff; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 9999px; }
-    .title { font-size: 22px; font-weight: 800; margin: 12px 0 6px 0; color: #ffffff; }
-    .meta { font-size: 13px; color: #94a3b8; }
-    .notice { background: #fffbeb; border-bottom: 1px solid #fde68a; color: #92400e; padding: 12px 28px; font-size: 12px; font-weight: 600; }
-    .section { padding: 24px 28px; border-bottom: 1px solid #f1f5f9; }
-    .sec-title { font-size: 16px; font-weight: 800; color: #0f172a; margin-bottom: 16px; }
-    .card { background: #f8fafc; border-left: 4px solid #2563eb; border-radius: 6px; padding: 14px 16px; margin-bottom: 14px; }
-    .card-title { font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 8px; }
-    .card-outlet { font-size: 11px; font-weight: 700; color: #2563eb; margin-bottom: 4px; }
-    .line { font-size: 12.5px; color: #334155; line-height: 1.6; margin: 3px 0; }
-    .link-btn { display: inline-block; font-size: 11px; color: #2563eb; text-decoration: none; margin-top: 6px; font-weight: 600; }
-    .footer { background: #f1f5f9; padding: 20px 28px; text-align: center; font-size: 12px; color: #64748b; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <span class="badge">${
-        mailProviderConfigured
-          ? `데일리 브리핑 · 희망 시각 ${escapeHtml(safeScheduledTime)}`
-          : `뉴스레터 미리보기 · 희망 시각 ${escapeHtml(safeScheduledTime)}`
-      }</span>
-      <div class="title">모닝브리프 - 대한민국 주요 언론사 뉴스 요약</div>
-      <div class="meta">${escapeHtml(safeBriefingDate)} | 수신: ${escapeHtml(targetEmail)}</div>
-    </div>
-    ${
-      mailProviderConfigured
-        ? ''
-        : '<div class="notice">안내: 외부 이메일 발송 서버가 아직 연동되지 않은 미리보기 화면입니다.</div>'
-    }
-    <div class="section">
-      <div class="sec-title">오늘의 핵심 키워드</div>
-      <p style="font-size: 13px; color: #2563eb; font-weight: 600;">${topKeywords.join(' ')}</p>
-    </div>
-    <div class="section">
-      <div class="sec-title">언론사별 홈페이지 주요 보도</div>
-      ${frontStories
-        .map((s: any) =>
-          renderCardHtml(s, '#2563eb', `${String(s?.outletName || '언론사')} | 홈페이지 주요 톱`, '원문 기사 바로보기 →')
-        )
-        .join('')}
-    </div>
-    ${
-      overlapStories.length > 0
-        ? `<div class="section">
-      <div class="sec-title">언론사 공통 핵심 이슈</div>
-      ${overlapStories
-        .map((s: any) => renderCardHtml(s, '#7c3aed', String(s?.outletName || '공통 보도'), '관련 기사 보기 →'))
-        .join('')}
-    </div>`
-        : ''
-    }
-    ${
-      exclStories.length > 0
-        ? `<div class="section">
-      <div class="sec-title">언론사 단독 표기 보도</div>
-      ${exclStories
-        .map((s: any) =>
-          renderCardHtml(
-            s,
-            '#ea580c',
-            `[${String(s?.exclusiveBadge || '단독')}] ${String(s?.outletName || '')}`,
-            '원문 단독 기사 보기 →'
-          )
-        )
-        .join('')}
-    </div>`
-        : ''
-    }
-    <div class="footer">
-      ${
-        mailProviderConfigured
-          ? `본 메일은 모닝브리프에서 발송된 데일리 뉴스 브리핑입니다. (희망 발송 시각: ${escapeHtml(safeScheduledTime)})`
-          : `본 화면은 모닝브리프 뉴스레터 미리보기입니다. (희망 발송 시각: ${escapeHtml(safeScheduledTime)})<br>실제 자동 이메일 발송은 외부 메일 발송 서비스(Resend 등) 연동 후 활성화됩니다.`
-      }
-    </div>
-  </div>
-</body>
-</html>`;
+    const htmlNewsletter = buildNewsletterHtml({
+      recipientEmail: targetEmail,
+      briefingDate: safeBriefingDate,
+      scheduledTime: safeScheduledTime,
+      summaryNote: typeof briefing?.summaryNote === 'string' ? briefing.summaryNote : undefined,
+      topKeywords,
+      frontStories,
+      overlapStories,
+      exclStories,
+      mailProviderConfigured: providerStatus.configured,
+    });
 
-    if (mailProviderConfigured) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 12_000);
-      try {
-        const resendRes = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${resendApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          signal: controller.signal,
-          body: JSON.stringify({
-            from: fromEmail,
-            to: [targetEmail],
-            subject: emailSubject,
-            html: htmlNewsletter,
-          }),
-        });
-        const resendData = await resendRes.json().catch(() => ({}));
-        if (!resendRes.ok) {
-          const failedLog: EmailDispatchLog = {
-            id: `failed-${Date.now()}`,
-            sentAt: new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),
-            recipient: targetEmail,
-            status: 'failed',
-            isPreviewOnly: false,
-            headline: emailSubject,
-            storiesCount: totalStoriesCount,
-          };
-          console.warn(
-            `[Resend] Delivery failed (${resendRes.status}) for ${maskEmailAddress(targetEmail)}`
-          );
-          return res.status(502).json({
-            success: false,
-            isPreviewOnly: false,
-            mailProviderConfigured: true,
-            message: '이메일 발송 서비스(Resend) 전송에 실패했습니다. API 키 및 발신자 도메인 설정을 확인해주세요.',
-            log: failedLog,
-          });
-        }
+    if (providerStatus.configured) {
+      const dispatchResult = await dispatchBriefingEmail({
+        recipient: targetEmail,
+        subject: emailSubject,
+        htmlBody: htmlNewsletter,
+      });
 
-        const sentLog: EmailDispatchLog = {
-          id: typeof resendData?.id === 'string' ? resendData.id : `sent-${Date.now()}`,
-          sentAt: new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),
-          recipient: targetEmail,
-          status: 'success',
-          isPreviewOnly: false,
-          headline: emailSubject,
-          storiesCount: totalStoriesCount,
-        };
+      const log: EmailDispatchLog = {
+        id: dispatchResult.messageId || `${dispatchResult.status}-${Date.now()}`,
+        sentAt: new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),
+        recipient: targetEmail,
+        status: dispatchResult.status,
+        isPreviewOnly: false,
+        headline: emailSubject,
+        storiesCount: totalStoriesCount,
+        provider: dispatchResult.provider,
+        messageId: dispatchResult.messageId,
+      };
 
-        return res.json({
-          success: true,
-          isPreviewOnly: false,
-          mailProviderConfigured: true,
-          provider: 'resend',
-          resendId: resendData?.id,
-          message: `${targetEmail} 주소로 실제 뉴스레터 이메일이 발송되었습니다.`,
-          log: sentLog,
-          htmlPreview: htmlNewsletter,
-        });
-      } catch {
-        const failedLog: EmailDispatchLog = {
-          id: `failed-${Date.now()}`,
-          sentAt: new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),
-          recipient: targetEmail,
-          status: 'failed',
-          isPreviewOnly: false,
-          headline: emailSubject,
-          storiesCount: totalStoriesCount,
-        };
-        console.warn(`[Resend] Connection error for ${maskEmailAddress(targetEmail)}`);
-        return res.status(502).json({
+      if (!dispatchResult.success) {
+        return res.status(dispatchResult.httpStatus || 502).json({
           success: false,
           isPreviewOnly: false,
           mailProviderConfigured: true,
-          message: '이메일 발송 서버(Resend) 연결 중 오류가 발생했습니다.',
-          log: failedLog,
+          provider: dispatchResult.provider,
+          providerLabel: dispatchResult.providerLabel,
+          missingFields: [],
+          message: dispatchResult.message,
+          log,
         });
-      } finally {
-        clearTimeout(timer);
       }
+
+      return res.json({
+        success: true,
+        isPreviewOnly: false,
+        mailProviderConfigured: true,
+        provider: dispatchResult.provider,
+        providerLabel: dispatchResult.providerLabel,
+        missingFields: [],
+        messageId: dispatchResult.messageId,
+        message: dispatchResult.message,
+        log,
+        htmlPreview: htmlNewsletter,
+      });
     }
+
+    const missingHint =
+      providerStatus.missingFields.length > 0
+        ? `(${providerStatus.missingFields.join(', ')} 미설정으로 실제 발송은 수행되지 않습니다.)`
+        : '(네이버 메일 SMTP 미연동으로 실제 발송은 수행되지 않습니다.)';
 
     const previewLog: EmailDispatchLog = {
       id: `preview-${Date.now()}`,
@@ -254,14 +126,17 @@ export function registerEmailRoutes(app: express.Express): void {
       isPreviewOnly: true,
       headline: `[미리보기] ${safeBriefingDate} 모닝브리프 뉴스레터`,
       storiesCount: totalStoriesCount,
+      provider: 'none',
     };
 
     return res.json({
       success: true,
       isPreviewOnly: true,
       mailProviderConfigured: false,
-      provider: 'none',
-      message: `${targetEmail} 대상 뉴스레터 미리보기가 생성되었습니다. (RESEND_API_KEY 미설정으로 실제 발송은 수행되지 않습니다.)`,
+      provider: providerStatus.provider,
+      providerLabel: providerStatus.providerLabel,
+      missingFields: providerStatus.missingFields,
+      message: `${targetEmail} 대상 뉴스레터 미리보기가 생성되었습니다. ${missingHint}`,
       log: previewLog,
       htmlPreview: htmlNewsletter,
     });

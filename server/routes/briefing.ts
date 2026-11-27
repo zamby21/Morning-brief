@@ -20,7 +20,7 @@ import {
   getGeminiHealthSnapshot,
   rewriteBriefingWithGemini,
 } from '../services/gemini.ts';
-import { isResendConfigured } from './email.ts';
+import { getMailProviderStatus } from './email.ts';
 
 const FORCE_REFRESH_COOLDOWN_MS = 10_000;
 let lastForcedRefreshAt = 0;
@@ -54,10 +54,10 @@ function parseRequestedOutlets(outletIds: unknown): {
 }
 
 export function registerBriefingRoutes(app: express.Express): void {
-  // Health check endpoint with separated collector and Gemini operational statuses
+  // Health check endpoint with separated collector, Gemini, and mail provider statuses
   app.get(['/api/health', '/health'], createRateLimiter('health', 60), async (_req, res) => {
     await ensureDailyHistoryLoaded();
-    const mailConfigured = isResendConfigured();
+    const mailStatus = getMailProviderStatus();
     const collectorHealth = getCollectorHealthSnapshot();
     const geminiHealth = getGeminiHealthSnapshot();
 
@@ -85,8 +85,10 @@ export function registerBriefingRoutes(app: express.Express): void {
         errorCode: geminiHealth.errorCode,
         lastSuccessAt: geminiHealth.lastSuccessAt,
       },
-      mailProviderConfigured: mailConfigured,
-      mailProvider: mailConfigured ? 'resend' : 'none',
+      mailProviderConfigured: mailStatus.configured,
+      mailProvider: mailStatus.provider,
+      mailProviderLabel: mailStatus.providerLabel,
+      mailProviderMissingFields: mailStatus.missingFields,
       storedDaysCount: dailyBriefingHistory.size,
       collectorHealth,
       timestamp: new Date().toISOString(),

@@ -238,12 +238,23 @@ export interface UserPreferences {
   sectorPreferences?: SectorPreferences; // 4. 건설·부동산·금융 관심분야 개인설정
 }
 
+export type MailProviderKind = 'naver-smtp' | 'none';
+
+export interface MailProviderStatus {
+  configured: boolean;
+  provider: MailProviderKind;
+  providerLabel: string;
+  missingFields: string[];
+}
+
 export interface EmailDispatchLog {
   id: string;
   sentAt: string;
   recipient: string;
-  status: 'preview' | 'success' | 'queued' | 'failed';
+  status: 'preview' | 'success' | 'failed';
   isPreviewOnly?: boolean;
   headline: string;
   storiesCount: number;
+  provider?: MailProviderKind;
+  messageId?: string;
 }

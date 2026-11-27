@@ -37,6 +37,7 @@ import {
   SectorHeadlineItem,
   ThemeMode,
   DEFAULT_SECTOR_PREFERENCES,
+  MailProviderStatus,
 } from './types/news';
 import { getRegionByCode, matchesRegionFilter } from './utils/koreanRegions';
 import {
@@ -50,6 +51,7 @@ import {
   resolveTheme,
 } from './utils/theme';
 import {
+  DEFAULT_MAIL_PROVIDER_STATUS,
   fetchSummary,
   fetchMailProviderStatus,
   fetchWeeklyReport,
@@ -262,7 +264,10 @@ export default function App() {
   // States
   const [isLoading, setIsLoading] = useState(false);
   const [isInitialLiveSyncing, setIsInitialLiveSyncing] = useState(true);
-  const [mailProviderConfigured, setMailProviderConfigured] = useState(false);
+  const [mailProviderStatus, setMailProviderStatus] = useState<MailProviderStatus>(
+    DEFAULT_MAIL_PROVIDER_STATUS
+  );
+  const mailProviderConfigured = mailProviderStatus.configured;
   const [isMobilePreview, setIsMobilePreview] = useState(false);
   const [pushBannerVisible, setPushBannerVisible] = useState(true);
   const [pushToast, setPushToast] = useState<string | null>(null);
@@ -273,11 +278,11 @@ export default function App() {
   );
   const [sunLocationVersion, setSunLocationVersion] = useState(0);
 
-  // Check whether Resend real email dispatch is configured on the server
+  // Check whether Naver Mail SMTP is configured on the server
   useEffect(() => {
     let active = true;
-    fetchMailProviderStatus().then((configured) => {
-      if (active) setMailProviderConfigured(configured);
+    fetchMailProviderStatus().then((status) => {
+      if (active) setMailProviderStatus(status);
     });
     return () => {
       active = false;
@@ -1032,26 +1037,35 @@ export default function App() {
     triggerNotification('관심 주제 필터가 기본값으로 복원되었습니다.');
   };
 
-  // 5. Dispatch Email via Resend (when configured) or Generate Newsletter Preview
-  const handleSendEmail = React.useCallback(async (email: string): Promise<string> => {
-    const res = await sendEmailBriefing(email, briefing, preferences.deliveryTime);
-    if (typeof res.mailProviderConfigured === 'boolean') {
-      setMailProviderConfigured(res.mailProviderConfigured);
-    }
-    if (res.log) {
-      setEmailLogs((prev) => [res.log, ...prev]);
-    }
-    if (!res.success) {
-      triggerNotification(res.message || '이메일 발송에 실패했습니다.');
+  // 5. Dispatch Email via Naver Mail SMTP (when configured) or Generate Newsletter Preview
+  const handleSendEmail = React.useCallback(
+    async (email: string): Promise<string> => {
+      const res = await sendEmailBriefing(email, briefing, preferences.deliveryTime);
+      if (typeof res.mailProviderConfigured === 'boolean') {
+        setMailProviderStatus((prev) => ({
+          ...prev,
+          configured: res.mailProviderConfigured ?? prev.configured,
+          provider: res.provider ?? prev.provider,
+          providerLabel: res.providerLabel ?? prev.providerLabel,
+          missingFields: res.missingFields ?? prev.missingFields,
+        }));
+      }
+      if (res.log) {
+        setEmailLogs((prev) => [res.log!, ...prev]);
+      }
+      if (!res.success) {
+        triggerNotification(res.message || '이메일 발송에 실패했습니다.');
+        return res.message;
+      }
+      if (res.isPreviewOnly) {
+        triggerNotification(`${email} 대상 뉴스레터 미리보기가 생성되었습니다. (네이버 SMTP 미연동)`);
+      } else {
+        triggerNotification(`${email} 주소로 네이버 메일 SMTP를 통해 뉴스레터 이메일이 발송되었습니다.`);
+      }
       return res.message;
-    }
-    if (res.isPreviewOnly) {
-      triggerNotification(`${email} 대상 뉴스레터 미리보기가 생성되었습니다. (실제 발송 미연동)`);
-    } else {
-      triggerNotification(`${email} 주소로 실제 뉴스레터 이메일이 발송되었습니다.`);
-    }
-    return res.message;
-  }, [briefing, preferences.deliveryTime]);
+    },
+    [briefing, preferences.deliveryTime]
+  );
 
   // 5-1. Update Email Scheduler Settings (per-browser localStorage only)
   const handleUpdateSchedule = React.useCallback(
@@ -1726,6 +1740,7 @@ export default function App() {
         onTestLocalNewsAlert={handleTestLocalNewsAlert}
         emailLogs={emailLogs}
         mailProviderConfigured={mailProviderConfigured}
+        mailProviderStatus={mailProviderStatus}
         onSendEmail={handleSendEmail}
         onSaveRecipientEmail={handleSaveRecipientEmail}
         onDeleteSavedEmail={handleDeleteSavedEmail}

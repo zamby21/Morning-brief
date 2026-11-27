@@ -121,6 +121,7 @@ export interface NextDispatchInfo {
   remainingLabel: string;
   currentSlotKey: string;
   matchesCurrentMinute: boolean;
+  nextDispatchIso?: string;
 }
 
 export function getNextScheduledDispatchInfo(
@@ -183,6 +184,8 @@ export function getNextScheduledDispatchInfo(
   const diffMinutes = daysAhead * 24 * 60 + (targetTotalMin - nowTotalMin);
   const diffHours = Math.floor(diffMinutes / 60);
   const remMins = diffMinutes % 60;
+  const nextDispatchDate = new Date(now.getTime() + Math.max(1, diffMinutes) * 60_000);
+  nextDispatchDate.setSeconds(0, 0);
 
   const dayPrefix =
     daysAhead === 0 ? '오늘' : daysAhead === 1 ? '내일' : `${daysAhead}일 뒤 (${foundDay})`;
@@ -201,5 +204,6 @@ export function getNextScheduledDispatchInfo(
     remainingLabel,
     currentSlotKey,
     matchesCurrentMinute,
+    nextDispatchIso: nextDispatchDate.toISOString(),
   };
 }
