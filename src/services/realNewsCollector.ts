@@ -285,8 +285,8 @@ function decodeHtmlBuffer(buf: Buffer, contentTypeHeader = ''): string {
   return buf.toString('utf8');
 }
 
-const KEEP_ALIVE_HTTP_AGENT = new http.Agent({ keepAlive: true, maxSockets: 48, keepAliveMsecs: 15_000 });
-const KEEP_ALIVE_HTTPS_AGENT = new https.Agent({ keepAlive: true, maxSockets: 48, keepAliveMsecs: 15_000 });
+const KEEP_ALIVE_HTTP_AGENT = new http.Agent({ keepAlive: true, maxSockets: 64, keepAliveMsecs: 15_000 });
+const KEEP_ALIVE_HTTPS_AGENT = new https.Agent({ keepAlive: true, maxSockets: 96, keepAliveMsecs: 15_000 });
 
 /**
  * IPv4-guaranteed fast HTML fetcher with keep-alive pooling and a strict wall-clock deadline
@@ -1180,7 +1180,8 @@ async function fetchNaverArticleDetail(
   fallbackTitle: string,
   outletName: string,
   homepageBullets: string[] = [],
-  prologue = ''
+  prologue = '',
+  timeoutMs = 1600
 ): Promise<{
   title: string;
   originUrl: string;
@@ -1193,7 +1194,7 @@ async function fetchNaverArticleDetail(
   leadImageCaption?: string;
   reporter?: string;
 } | null> {
-  const artRes = await fetchHtmlFast(naverArticleUrl, 4500);
+  const artRes = await fetchHtmlFast(naverArticleUrl, timeoutMs, 2, 0);
   if (!artRes.ok || !artRes.text) return null;
 
   const artHtml = artRes.text;
@@ -1291,78 +1292,85 @@ async function fetchUniversalOutletArticle(
     }
   };
 
-  // Step A: Direct homepage scrape for top article links on same domain
-  try {
-    const homeRes = await fetchHtmlFast(homepageUrl, 4000, 4, 0);
-    if (homeRes.ok && homeRes.text) {
-      for (const u of extractGenericArticleLinks(homeRes.text, homepageUrl).slice(0, 4)) {
-        pushCandidate(u);
-      }
+  // Step A & B in parallel: direct homepage discovery + Naver News search domain discovery
+  const hostBase = (() => {
+    try {
+      return new URL(homepageUrl).hostname.replace(/^(?:www|news|biz|it|m|imnews)\./, '');
+    } catch {
+      return '';
     }
-  } catch {
-    // Continue to Naver News search discovery
+  })();
+
+  const [homeRes, searchRes] = await Promise.all([
+    fetchHtmlFast(homepageUrl, 1600, 3, 0).catch(() => ({ ok: false, status: 0, text: '', finalUrl: homepageUrl })),
+    hostBase
+      ? fetchHtmlFast(
+          `https://search.naver.com/search.naver?where=news&sort=1&query=${encodeURIComponent(outletName)}`,
+          1500,
+          2,
+          0
+        ).catch(() => ({ ok: false, status: 0, text: '', finalUrl: '' }))
+      : Promise.resolve({ ok: false, status: 0, text: '', finalUrl: '' }),
+  ]);
+
+  if (homeRes.ok && homeRes.text) {
+    for (const u of extractGenericArticleLinks(homeRes.text, homepageUrl).slice(0, 4)) {
+      pushCandidate(u);
+    }
   }
 
-  // Step B: Naver News search discovery matching the outlet's official domain
-  if (candidateUrls.length < 3) {
-    try {
-      const hostBase = new URL(homepageUrl).hostname.replace(/^(?:www|news|biz|it|m|imnews)\./, '');
-      const sr = await fetchHtmlFast(
-        `https://search.naver.com/search.naver?where=news&sort=1&query=${encodeURIComponent(outletName)}`,
-        4000,
-        3,
-        0
-      );
-      if (sr.ok && sr.text) {
-        const domainRe = new RegExp(
-          `https?:\\/\\/[a-zA-Z0-9.-]*${hostBase.replace(/\./g, '\\.')}\\/[^"'\\s<>]+`,
-          'gi'
-        );
-        for (const m of sr.text.matchAll(domainRe)) {
-          const u = decodeHtmlEntities(m[0]).trim();
-          if (
-            u.length > homepageUrl.length + 5 &&
-            !/\/(?:index|main|login|member|rss|search|image|img|photo|static|assets|favicon)\b/i.test(u) &&
-            !/\.(?:jpg|jpeg|png|gif|webp|svg|css|js|ico)(?:\?|$)/i.test(u)
-          ) {
-            pushCandidate(u);
-            if (candidateUrls.length >= 6) break;
-          }
-        }
+  if (searchRes.ok && searchRes.text && hostBase) {
+    const domainRe = new RegExp(
+      `https?:\\/\\/[a-zA-Z0-9.-]*${hostBase.replace(/\./g, '\\.')}\\/[^"'\\s<>]+`,
+      'gi'
+    );
+    for (const m of searchRes.text.matchAll(domainRe)) {
+      const u = decodeHtmlEntities(m[0]).trim();
+      if (
+        u.length > homepageUrl.length + 5 &&
+        !/\/(?:index|main|login|member|rss|search|image|img|photo|static|assets|favicon)\b/i.test(u) &&
+        !/\.(?:jpg|jpeg|png|gif|webp|svg|css|js|ico)(?:\?|$)/i.test(u)
+      ) {
+        pushCandidate(u);
+        if (candidateUrls.length >= 6) break;
       }
-    } catch {
-      // Ignore search error
     }
   }
+
+  // Fetch top 4 candidate article pages in parallel instead of sequentially
+  const fetchedCandidates = await Promise.all(
+    candidateUrls.slice(0, 4).map(async (url) => {
+      const artRes = await fetchHtmlFast(url, 1600, 2, 0);
+      if (!artRes.ok || !artRes.text) return null;
+
+      const title = extractCleanHtmlTitle(artRes.text, outletName);
+      if (!title || title.length < 8) return null;
+
+      const extracted = extractArticleTextAndSummary(artRes.text, [], '', artRes.finalUrl || url);
+      const detectedPubDate = extractRealPubDateFromHtml(artRes.text) || new Date().toISOString();
+      const articleObj: RawRSSArticle = {
+        outletId,
+        outletName,
+        title,
+        link: artRes.finalUrl || url,
+        pubDate: detectedPubDate,
+        snippet: extracted.fullBody || extracted.sentences.join(' '),
+        leadSentences: extracted.sentences,
+        fullBody: extracted.fullBody,
+        articleBlocks: extracted.articleBlocks,
+        leadImage: extracted.leadImage,
+        leadImageCaption: extracted.leadImageCaption,
+        reporter: extracted.reporter,
+        isTopLead: true,
+      };
+      return articleObj;
+    })
+  );
 
   let bestFallback: RawRSSArticle | null = null;
-
-  for (const url of candidateUrls.slice(0, 4)) {
-    const artRes = await fetchHtmlFast(url, 4000, 3, 0);
-    if (!artRes.ok || !artRes.text) continue;
-
-    const title = extractCleanHtmlTitle(artRes.text, outletName);
-    if (!title || title.length < 8) continue;
-
-    const extracted = extractArticleTextAndSummary(artRes.text, [], '', artRes.finalUrl || url);
-    const detectedPubDate = extractRealPubDateFromHtml(artRes.text) || new Date().toISOString();
-    const articleObj: RawRSSArticle = {
-      outletId,
-      outletName,
-      title,
-      link: artRes.finalUrl || url,
-      pubDate: detectedPubDate,
-      snippet: extracted.fullBody || extracted.sentences.join(' '),
-      leadSentences: extracted.sentences,
-      fullBody: extracted.fullBody,
-      articleBlocks: extracted.articleBlocks,
-      leadImage: extracted.leadImage,
-      leadImageCaption: extracted.leadImageCaption,
-      reporter: extracted.reporter,
-      isTopLead: true,
-    };
-
-    if (extracted.fullBody.length >= 140) {
+  for (const articleObj of fetchedCandidates) {
+    if (!articleObj) continue;
+    if ((articleObj.fullBody?.length || 0) >= 140) {
       return articleObj;
     }
     if (!bestFallback || (articleObj.fullBody?.length || 0) > (bestFallback.fullBody?.length || 0)) {
@@ -1399,10 +1407,28 @@ async function fetchHomepageCenterLeadArticle(
   let reporter: string | undefined;
   let pubDate: string | undefined;
 
+  // Pre-launch Naver Press Desk concurrently with direct homepage scrape so slow/blocked homepages (e.g. donga.com)
+  // fall back to Naver Press Desk with zero extra round-trip wait.
+  const cachedDeskEntry = naverCode ? pressDeskCandidatesCache.get(naverCode) : undefined;
+  const freshCachedDeskCandidates =
+    cachedDeskEntry && Date.now() - cachedDeskEntry.fetchedAt < PRESS_DESK_CACHE_TTL_MS
+      ? cachedDeskEntry.candidates
+      : null;
+
+  const naverDeskPromise =
+    naverCode && !freshCachedDeskCandidates
+      ? fetchHtmlFast(`https://media.naver.com/press/${naverCode}`, 1500, 2, 0).catch(() => ({
+          ok: false,
+          status: 0,
+          text: '',
+          finalUrl: '',
+        }))
+      : null;
+
   // 1. Direct Homepage HTML Extraction for Top 10 Custom-Mapped Major Outlets
   if (TOP10_CUSTOM_HOMEPAGE_IDS.has(outletId)) {
     try {
-      const res = await fetchHtmlFast(homepageUrl, 4500);
+      const res = await fetchHtmlFast(homepageUrl, 1500, 2, 0);
 
       if (res.ok) {
         const html = res.text;
@@ -1507,7 +1533,7 @@ async function fetchHomepageCenterLeadArticle(
 
   // 1-b. If direct homepage link was obtained, extract genuine full body + inline photos from the direct article page
   if (title && link) {
-    const artRes = await fetchHtmlFast(link, 4500);
+    const artRes = await fetchHtmlFast(link, 1500, 2, 0);
     if (artRes.ok && artRes.text) {
       pubDate = extractRealPubDateFromHtml(artRes.text) || pubDate;
       const extracted = extractArticleTextAndSummary(artRes.text, homepageBullets, prologue, link);
@@ -1523,82 +1549,100 @@ async function fetchHomepageCenterLeadArticle(
   }
 
   // 2. Official Naver Press Desk (primary for all 50+ non-top-10 Naver CP outlets like Edaily/SBS/KBS/MBC/JTBC/MT/FNNews,
-  //    and reliable full-body + photo fallback for Top 10 outlets when homepage is WAF-blocked or returned thin body/no photos)
-  const needsNaverEnrichment = !title || fullBody.length < 220 || !articleBlocks.some((b) => b.type === 'image');
+  //    and fast parallel fallback for Top 10 outlets when homepage is slow/WAF-blocked or returned thin body)
+  const needsNaverEnrichment = !title || fullBody.length < 180;
   if (naverCode && needsNaverEnrichment) {
     try {
-      const deskRes = await fetchHtmlFast(`https://media.naver.com/press/${naverCode}`, 4500);
-      if (deskRes.ok && deskRes.text) {
-        const candidates = parseNaverPressDeskCandidates(deskRes.text, naverCode);
-        if (candidates.length > 0) {
-          pressDeskCandidatesCache.set(naverCode, { candidates, fetchedAt: Date.now() });
+      let candidates: Array<{ url: string; title: string }> = freshCachedDeskCandidates || [];
+      if (candidates.length === 0 && naverDeskPromise) {
+        const deskRes = await naverDeskPromise;
+        if (deskRes.ok && deskRes.text) {
+          candidates = parseNaverPressDeskCandidates(deskRes.text, naverCode);
+          if (candidates.length > 0) {
+            pressDeskCandidatesCache.set(naverCode, { candidates, fetchedAt: Date.now() });
+          }
         }
+      }
 
-        // If we already have a homepage title, try matching that exact story on Naver first for cleaner full body & photos
-        if (title && candidates.length > 0) {
-          const titleWords = extractSearchKeywords(title)
-            .split(' ')
-            .filter((w) => w.length >= 2);
-          const matchingCandidate = candidates.find((c) =>
-            titleWords.slice(0, 3).filter((w) => c.title.includes(w)).length >= Math.min(2, titleWords.length)
+      // If we already have a homepage title, try matching that exact story on Naver first for cleaner full body & photos
+      if (title && candidates.length > 0) {
+        const titleWords = extractSearchKeywords(title)
+          .split(' ')
+          .filter((w) => w.length >= 2);
+        const matchingCandidate = candidates.find((c) =>
+          titleWords.slice(0, 3).filter((w) => c.title.includes(w)).length >= Math.min(2, titleWords.length)
+        );
+        if (matchingCandidate) {
+          const detail = await fetchNaverArticleDetail(
+            matchingCandidate.url,
+            title,
+            outletName,
+            homepageBullets,
+            prologue,
+            1500
           );
-          if (matchingCandidate) {
-            const detail = await fetchNaverArticleDetail(
-              matchingCandidate.url,
-              title,
-              outletName,
-              homepageBullets,
-              prologue
-            );
-            if (detail && (detail.fullBody.length >= fullBody.length || (!articleBlocks.some((b) => b.type === 'image') && detail.articleBlocks.some((b) => b.type === 'image')))) {
-              naverArticleUrl = detail.naverUrl;
-              if (!link || link.includes('news.naver.com')) {
-                link = detail.originUrl || detail.naverUrl;
-              }
-              if (detail.leadSentences.length > 0) leadSentences = detail.leadSentences;
-              if (detail.fullBody.length >= fullBody.length) {
-                fullBody = detail.fullBody;
-                articleBlocks = detail.articleBlocks;
-                leadImage = detail.leadImage || leadImage;
-                leadImageCaption = detail.leadImageCaption || leadImageCaption;
-              } else if (detail.leadImage && !leadImage) {
-                leadImage = detail.leadImage;
-                leadImageCaption = detail.leadImageCaption;
-                articleBlocks = [{ type: 'image', url: detail.leadImage, caption: detail.leadImageCaption }, ...articleBlocks];
-              }
-              reporter = detail.reporter || reporter;
-              pubDate = detail.pubDate || pubDate;
+          if (
+            detail &&
+            (detail.fullBody.length >= fullBody.length ||
+              (!articleBlocks.some((b) => b.type === 'image') &&
+                detail.articleBlocks.some((b) => b.type === 'image')))
+          ) {
+            naverArticleUrl = detail.naverUrl;
+            if (!link || link.includes('news.naver.com')) {
+              link = detail.originUrl || detail.naverUrl;
             }
+            if (detail.leadSentences.length > 0) leadSentences = detail.leadSentences;
+            if (detail.fullBody.length >= fullBody.length) {
+              fullBody = detail.fullBody;
+              articleBlocks = detail.articleBlocks;
+              leadImage = detail.leadImage || leadImage;
+              leadImageCaption = detail.leadImageCaption || leadImageCaption;
+            } else if (detail.leadImage && !leadImage) {
+              leadImage = detail.leadImage;
+              leadImageCaption = detail.leadImageCaption;
+              articleBlocks = [
+                { type: 'image', url: detail.leadImage, caption: detail.leadImageCaption },
+                ...articleBlocks,
+              ];
+            }
+            reporter = detail.reporter || reporter;
+            pubDate = detail.pubDate || pubDate;
+          }
+        }
+      }
+
+      // If we still don't have a rich article (>=150 chars body), fetch top 4 press desk candidates IN PARALLEL
+      // (eliminates 5-10s sequential stalls on broadcast outlets like KBS/MBC/SBS/YTN/JTBC)
+      if ((!title || fullBody.length < 150) && candidates.length > 0) {
+        const detailResults = await Promise.all(
+          candidates
+            .slice(0, 4)
+            .map((cand) => fetchNaverArticleDetail(cand.url, cand.title, outletName, [], '', 1500))
+        );
+
+        let bestDetail: Awaited<ReturnType<typeof fetchNaverArticleDetail>> = null;
+        for (const detail of detailResults) {
+          if (!detail) continue;
+          if (detail.fullBody.length >= 220) {
+            bestDetail = detail;
+            break;
+          }
+          if (!bestDetail || detail.fullBody.length > bestDetail.fullBody.length) {
+            bestDetail = detail;
           }
         }
 
-        // If we still don't have a rich article (>=150 chars body), pick the top lead candidate with a real full body
-        if ((!title || fullBody.length < 150) && candidates.length > 0) {
-          let bestDetail: Awaited<ReturnType<typeof fetchNaverArticleDetail>> = null;
-          for (const cand of candidates.slice(0, 5)) {
-            const detail = await fetchNaverArticleDetail(cand.url, cand.title, outletName);
-            if (!detail) continue;
-            if (!bestDetail || detail.fullBody.length > bestDetail.fullBody.length) {
-              bestDetail = detail;
-            }
-            if (detail.fullBody.length >= 280) {
-              bestDetail = detail;
-              break;
-            }
-          }
-
-          if (bestDetail && bestDetail.fullBody.length > fullBody.length) {
-            title = bestDetail.title;
-            naverArticleUrl = bestDetail.naverUrl;
-            link = bestDetail.originUrl || bestDetail.naverUrl;
-            leadSentences = bestDetail.leadSentences;
-            fullBody = bestDetail.fullBody;
-            articleBlocks = bestDetail.articleBlocks;
-            leadImage = bestDetail.leadImage;
-            leadImageCaption = bestDetail.leadImageCaption;
-            reporter = bestDetail.reporter || reporter;
-            pubDate = bestDetail.pubDate || pubDate;
-          }
+        if (bestDetail && (!title || bestDetail.fullBody.length > fullBody.length)) {
+          title = bestDetail.title;
+          naverArticleUrl = bestDetail.naverUrl;
+          link = bestDetail.originUrl || bestDetail.naverUrl;
+          leadSentences = bestDetail.leadSentences;
+          fullBody = bestDetail.fullBody;
+          articleBlocks = bestDetail.articleBlocks;
+          leadImage = bestDetail.leadImage;
+          leadImageCaption = bestDetail.leadImageCaption;
+          reporter = bestDetail.reporter || reporter;
+          pubDate = bestDetail.pubDate || pubDate;
         }
       }
     } catch (err) {
@@ -2132,36 +2176,82 @@ export async function fetchRealArticlesForOutlets(
       return secondaryCandidates;
     };
 
-    // Run primary lead scrape AND Google News RSS in parallel (cuts per-outlet latency nearly in half)
-    const [topLead, rawSecondary] = await Promise.all([
-      fetchHomepageCenterLeadArticle(outlet.id, outlet.name).catch(() => null),
-      fetchSecondaryRss(),
-    ]);
-
+    // Run primary lead scrape AND Google News RSS in parallel, committing partial results
+    // incrementally so a slow secondary lookup never causes an already-fetched lead or RSS set to be lost.
     const articles: RawRSSArticle[] = [];
+    const commitArticles = (list: RawRSSArticle[]) => {
+      if (list.length === 0) return;
+      const snapshot = [...list];
+      recordOutletHealth(outlet.id, true);
+      outletCache.set(outlet.id, {
+        articles: snapshot,
+        fetchedAt: Date.now(),
+        kstDate: todayKst,
+      });
+      results[outlet.id] = snapshot;
+    };
+
+    const topLeadPromise = fetchHomepageCenterLeadArticle(outlet.id, outlet.name)
+      .then((lead) => {
+        if (lead) {
+          const existingIdx = articles.findIndex((a) => areTitlesNearDuplicate(a.title, lead.title));
+          if (existingIdx >= 0) {
+            articles[existingIdx] = lead;
+          } else {
+            articles.unshift(lead);
+          }
+          commitArticles(articles);
+        }
+        return lead;
+      })
+      .catch(() => null);
+
+    const secondaryPromise = fetchSecondaryRss()
+      .then((sec) => {
+        if (sec.length > 0 && articles.length === 0) {
+          // Seed RSS articles immediately if homepage lead hasn't arrived yet
+          for (const item of sec) {
+            if (!articles.some((a) => areTitlesNearDuplicate(a.title, item.title))) {
+              articles.push(item);
+            }
+          }
+          commitArticles(articles);
+        }
+        return sec;
+      })
+      .catch(() => [] as RawRSSArticle[]);
+
+    const [topLead, rawSecondary] = await Promise.all([topLeadPromise, secondaryPromise]);
+
+    const merged: RawRSSArticle[] = [];
     if (topLead) {
-      articles.push(topLead);
+      merged.push(topLead);
     }
-
     const dedupedSecondary = rawSecondary.filter(
-      (cand) => !articles.some((a) => areTitlesNearDuplicate(a.title, cand.title))
+      (cand) => !merged.some((a) => areTitlesNearDuplicate(a.title, cand.title))
     );
-
-    // Eagerly resolve [단독] exclusives right away (fast parallel path), and resolve remaining
-    // non-exclusive secondary items in background so foreground refresh stays well under 3s
     if (dedupedSecondary.length > 0) {
+      // Commit un-resolved secondary list right away before exclusive resolution so articles are always present
+      merged.push(...dedupedSecondary);
+      commitArticles(merged);
+
+      // Eagerly resolve [단독] exclusives right away in parallel (bounded to 1600ms)
       const resolvedSecondary = await Promise.all(
         dedupedSecondary.map(async (cand) => {
           const isExclusive = EXPLICIT_EXCLUSIVE_TITLE_REGEX.test(cand.title.trim());
           if (!isExclusive) return cand;
           try {
-            return await resolveAndExtractArticleByTitle(cand, 2200);
+            return await resolveAndExtractArticleByTitle(cand, 1600);
           } catch {
             return cand;
           }
         })
       );
-      articles.push(...resolvedSecondary);
+
+      const finalArticles: RawRSSArticle[] = [];
+      if (topLead) finalArticles.push(topLead);
+      finalArticles.push(...resolvedSecondary);
+      commitArticles(finalArticles);
 
       // Background enrichment for non-exclusive secondary stubs (updates outletCache silently)
       const nonExclusiveStubs = resolvedSecondary.filter(
@@ -2172,34 +2262,31 @@ export async function fetchRealArticlesForOutlets(
       if (nonExclusiveStubs.length > 0) {
         void Promise.allSettled(
           nonExclusiveStubs.map(async (stub) => {
-            const enriched = await resolveAndExtractArticleByTitle(stub, 2800).catch(() => stub);
+            const enriched = await resolveAndExtractArticleByTitle(stub, 2400).catch(() => stub);
             if (enriched !== stub) {
-              const idx = articles.findIndex((a) => a.title === stub.title && a.outletId === stub.outletId);
+              const idx = finalArticles.findIndex((a) => a.title === stub.title && a.outletId === stub.outletId);
               if (idx >= 0) {
-                articles[idx] = enriched;
+                finalArticles[idx] = enriched;
+                outletCache.set(outlet.id, {
+                  articles: [...finalArticles],
+                  fetchedAt: Date.now(),
+                  kstDate: todayKst,
+                });
               }
             }
           })
         );
       }
-    }
-
-    if (articles.length > 0) {
-      recordOutletHealth(outlet.id, true);
-      outletCache.set(outlet.id, {
-        articles,
-        fetchedAt: Date.now(),
-        kstDate: todayKst,
-      });
-      results[outlet.id] = articles;
-    } else {
+    } else if (merged.length > 0) {
+      commitArticles(merged);
+    } else if (!results[outlet.id]?.length) {
       recordOutletHealth(outlet.id, false);
     }
   };
 
-  // Run up to 20 outlets concurrently in a single wave, racing against foreground budgetMs
+  // Run up to 24 outlets concurrently in a single wave, racing against foreground budgetMs
   const allWork = (async () => {
-    const BATCH_SIZE = 20;
+    const BATCH_SIZE = 24;
     for (let i = 0; i < outletsNeedingFetch.length; i += BATCH_SIZE) {
       const batch = outletsNeedingFetch.slice(i, i + BATCH_SIZE);
       await Promise.allSettled(batch.map((outlet) => fetchSingleOutlet(outlet)));
@@ -2215,6 +2302,20 @@ export async function fetchRealArticlesForOutlets(
       }),
     ]);
     if (budgetTimer) clearTimeout(budgetTimer);
+
+    // Safety grace window: if cold network latency left too few outlets collected at budgetMs,
+    // wait up to +1200ms more (still strictly <5s) so we never return an empty page.
+    const minTarget = Math.min(outletsToFetch.length, Math.max(3, Math.ceil(outletsToFetch.length * 0.5)));
+    if (Object.keys(results).length < minTarget) {
+      let graceTimer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        allWork,
+        new Promise<void>((resolve) => {
+          graceTimer = setTimeout(resolve, 1200);
+        }),
+      ]);
+      if (graceTimer) clearTimeout(graceTimer);
+    }
   } else {
     await allWork;
   }
@@ -2332,133 +2433,199 @@ export async function fetchSectorHeadlinesReal(
   const seenNaverUrls = new Set<string>();
   const seenTitles: string[] = [];
 
-  const scrapeWork = Promise.allSettled(
-    SECTOR_CONFIGS.map(async (cfg) => {
-      const candidateLinks: string[] = [];
+  // Primary discovery via official Naver News Economy Breaking News sections (CDN-cached, ~250ms, never rate-limited):
+  // 101/260 = 부동산, 101/259 = 금융, 101/261 = 산업/재계, 101/263 = 경제 일반
+  const NAVER_ECONOMY_SECTIONS = [
+    { url: 'https://news.naver.com/breakingnews/section/101/260', hint: 'realestate' as const },
+    { url: 'https://news.naver.com/breakingnews/section/101/259', hint: 'finance' as const },
+    { url: 'https://news.naver.com/breakingnews/section/101/261', hint: 'construction' as const },
+    { url: 'https://news.naver.com/breakingnews/section/101/263', hint: 'general' as const },
+  ];
 
-      // Run top 2 latest-sorted (sort=1) topic search queries in parallel for fast response
-      const searchPages = await Promise.allSettled(
-        cfg.queries.slice(0, 2).map((q) =>
-          fetchHtmlFast(
-            `https://search.naver.com/search.naver?where=news&sort=1&query=${encodeURIComponent(q)}`,
-            1800,
-            2,
-            0
-          )
-        )
-      );
+  const scrapeWork = (async () => {
+    const sectionResponses = await Promise.allSettled(
+      NAVER_ECONOMY_SECTIONS.map(async (sec) => ({
+        hint: sec.hint,
+        res: await fetchHtmlFast(sec.url, 1500, 2, 0),
+      }))
+    );
 
-      for (const sp of searchPages) {
-        if (sp.status === 'fulfilled' && sp.value.ok) {
-          const matches = [
-            ...sp.value.text.matchAll(/https:\/\/n\.news\.naver\.com\/mnews\/article\/\d+\/\d+/g),
-          ].map((m) => m[0]);
-          for (const link of matches) {
-            if (!seenNaverUrls.has(link) && !candidateLinks.includes(link)) {
-              candidateLinks.push(link);
-            }
+    const sectionPool: Array<{ url: string; title: string; hint: string }> = [];
+    const seenPoolUrls = new Set<string>();
+    const saTitleRe =
+      /<a[^>]*href="(https:\/\/n\.news\.naver\.com\/mnews\/article\/\d+\/\d+[^"]*)"[^>]*class="[^"]*sa_text_title[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
+
+    for (const item of sectionResponses) {
+      if (item.status !== 'fulfilled' || !item.value.res.ok || !item.value.res.text) continue;
+      for (const m of item.value.res.text.matchAll(saTitleRe)) {
+        const cleanUrl = decodeHtmlEntities(m[1]).split('?')[0].trim();
+        const cleanTitle = decodeHtmlEntities(m[2].replace(/<[^>]+>/g, '')).trim();
+        if (!cleanUrl || cleanTitle.length < 8 || seenPoolUrls.has(cleanUrl)) continue;
+        seenPoolUrls.add(cleanUrl);
+        sectionPool.push({ url: cleanUrl, title: cleanTitle, hint: item.value.hint });
+      }
+    }
+
+    // Assign pre-matched candidate links to each of the 4 sectors (prioritizing urban/construction specificity)
+    const assignedUrls = new Set<string>();
+    const sectorCandidateMap = new Map<string, string[]>();
+    const assignOrder: Array<'urban' | 'construction' | 'finance' | 'realestate'> = [
+      'urban',
+      'construction',
+      'finance',
+      'realestate',
+    ];
+
+    for (const sectorKey of assignOrder) {
+      const cfg = SECTOR_CONFIGS.find((c) => c.sector === sectorKey);
+      if (!cfg) continue;
+      const picked: string[] = [];
+
+      // Pass 1: Title directly matches sector relevanceRegex
+      for (const cand of sectionPool) {
+        if (assignedUrls.has(cand.url)) continue;
+        if (cfg.relevanceRegex.test(cand.title)) {
+          picked.push(cand.url);
+          assignedUrls.add(cand.url);
+          if (picked.length >= 7) break;
+        }
+      }
+
+      // Pass 2: Section hint fallback (e.g. 부동산 section -> realestate, 금융 section -> finance)
+      if (picked.length < 5 && (sectorKey === 'realestate' || sectorKey === 'finance')) {
+        for (const cand of sectionPool) {
+          if (assignedUrls.has(cand.url)) continue;
+          if (cand.hint === sectorKey) {
+            picked.push(cand.url);
+            assignedUrls.add(cand.url);
+            if (picked.length >= 6) break;
           }
         }
       }
 
-      // Fetch up to 6 distinct Naver article pages in parallel with tight timeout
-      const targetLinks = candidateLinks.slice(0, 6);
-      const articleResponses = await Promise.allSettled(
-        targetLinks.map(async (naverUrl) => {
-          const res = await fetchHtmlFast(naverUrl, 1800, 2, 0);
-          return { naverUrl, res };
-        })
-      );
+      sectorCandidateMap.set(sectorKey, picked);
+    }
 
-      let sectorAdded = 0;
-      for (const itemRes of articleResponses) {
-        if (sectorAdded >= 5) break;
-        if (itemRes.status !== 'fulfilled' || !itemRes.value.res.ok) continue;
+    await Promise.allSettled(
+      SECTOR_CONFIGS.map(async (cfg) => {
+        const candidateLinks = [...(sectorCandidateMap.get(cfg.sector) || [])];
 
-        const { naverUrl, res } = itemRes.value;
-        const html = res.text;
-
-        const rawTitle =
-          html.match(/<h2[^>]*id="title_area"[^>]*>([\s\S]*?)<\/h2>/i)?.[1] ||
-          html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([\s\S]*?)["']/i)?.[1] ||
-          '';
-        const title = decodeHtmlEntities(rawTitle.replace(/<[^>]+>/g, '')).trim();
-        if (!title || title.length < 8) continue;
-        // Deduplicate wire-republished / syndicated near-identical titles across outlets
-        if (seenTitles.some((existing) => areTitlesNearDuplicate(existing, title))) continue;
-
-        const realPubDateIso = extractRealPubDateFromHtml(html);
-        if (realPubDateIso && !isWithinLast24Hours(realPubDateIso, now)) {
-          continue;
+        // Gentle 1-query Naver Search fallback ONLY when official breaking-news sections yielded < 5 candidates
+        if (candidateLinks.length < 5) {
+          const sp = await fetchHtmlFast(
+            `https://search.naver.com/search.naver?where=news&sort=1&query=${encodeURIComponent(cfg.queries[0])}`,
+            1400,
+            2,
+            0
+          ).catch(() => ({ ok: false, status: 0, text: '', finalUrl: '' }));
+          if (sp.ok && sp.text) {
+            const matches = [
+              ...sp.text.matchAll(/https:\/\/n\.news\.naver\.com\/mnews\/article\/\d+\/\d+/g),
+            ].map((m) => m[0]);
+            for (const link of matches) {
+              if (!seenNaverUrls.has(link) && !candidateLinks.includes(link)) {
+                candidateLinks.push(link);
+                if (candidateLinks.length >= 8) break;
+              }
+            }
+          }
         }
 
-        const rawAuthor =
-          html.match(/<meta[^>]+property=["']og:article:author["'][^>]+content=["']([^"']+)["']/i)?.[1] || '';
-        const { outletId, outletName } = resolveOutletMetaFromPressName(rawAuthor);
+        // Fetch candidate article pages in parallel and stream each valid item into `collected` immediately
+        const targetLinks = candidateLinks.slice(0, 8);
+        let sectorAdded = 0;
 
-        const origMatch =
-          html.match(/<a[^>]*href="([^"]+)"[^>]*class="[^"]*media_end_head_origin_link/i) ||
-          html.match(/<a[^>]*class="[^"]*media_end_head_origin_link[^"]*"[^>]*href="([^"]+)"/i);
-        const directOriginUrl = origMatch ? decodeHtmlEntities(origMatch[1]).trim() : '';
+        await Promise.allSettled(
+          targetLinks.map(async (naverUrl) => {
+            const res = await fetchHtmlFast(naverUrl, 1500, 2, 0);
+            if (!res.ok || !res.text || sectorAdded >= 5 || seenNaverUrls.has(naverUrl)) return;
 
-        const reporterRaw =
-          html.match(/<em[^>]*class="media_end_head_journalist_name"[^>]*>([\s\S]*?)<\/em>/i)?.[1] || '';
-        const reporterClean = decodeHtmlEntities(reporterRaw.replace(/<[^>]+>/g, '')).trim();
+            const html = res.text;
+            const rawTitle =
+              html.match(/<h2[^>]*id="title_area"[^>]*>([\s\S]*?)<\/h2>/i)?.[1] ||
+              html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([\s\S]*?)["']/i)?.[1] ||
+              '';
+            const title = decodeHtmlEntities(rawTitle.replace(/<[^>]+>/g, '')).trim();
+            if (!title || title.length < 8) return;
+            if (seenTitles.some((existing) => areTitlesNearDuplicate(existing, title))) return;
 
-        const extracted = extractArticleTextAndSummary(html, [], '', naverUrl);
-        if (!cfg.relevanceRegex.test(`${title} ${extracted.sentences.join(' ')}`)) {
-          continue;
-        }
+            const realPubDateIso = extractRealPubDateFromHtml(html);
+            if (realPubDateIso && !isWithinLast24Hours(realPubDateIso, now)) {
+              return;
+            }
 
-        const baseSummary = generate3LineSummaryFromSnippet(
-          title,
-          extracted.fullBody,
-          outletName,
-          extracted.sentences
+            const rawAuthor =
+              html.match(/<meta[^>]+property=["']og:article:author["'][^>]+content=["']([^"']+)["']/i)?.[1] || '';
+            const { outletId, outletName } = resolveOutletMetaFromPressName(rawAuthor);
+
+            const origMatch =
+              html.match(/<a[^>]*href="([^"]+)"[^>]*class="[^"]*media_end_head_origin_link/i) ||
+              html.match(/<a[^>]*class="[^"]*media_end_head_origin_link[^"]*"[^>]*href="([^"]+)"/i);
+            const directOriginUrl = origMatch ? decodeHtmlEntities(origMatch[1]).trim() : '';
+
+            const reporterRaw =
+              html.match(/<em[^>]*class="media_end_head_journalist_name"[^>]*>([\s\S]*?)<\/em>/i)?.[1] || '';
+            const reporterClean = decodeHtmlEntities(reporterRaw.replace(/<[^>]+>/g, '')).trim();
+
+            const extracted = extractArticleTextAndSummary(html, [], '', naverUrl);
+            if (!cfg.relevanceRegex.test(`${title} ${extracted.sentences.join(' ')}`)) {
+              return;
+            }
+
+            if (sectorAdded >= 5 || seenNaverUrls.has(naverUrl)) return;
+
+            const baseSummary = generate3LineSummaryFromSnippet(
+              title,
+              extracted.fullBody,
+              outletName,
+              extracted.sentences
+            );
+            const bodyText = (extracted.fullBody || baseSummary.join('\n\n')).trim();
+            const rawTags = extractSearchKeywords(title).split(' ').filter((w) => w.length >= 2);
+            const tags = Array.from(new Set([...rawTags, cfg.defaultTag])).slice(0, 4);
+
+            const { highlightBadge, keyFigure, impactRating } = extractSectorHighlight(
+              title,
+              baseSummary.join(' ')
+            );
+
+            seenNaverUrls.add(naverUrl);
+            seenTitles.push(title);
+            sectorAdded += 1;
+
+            collected.push({
+              id: `sec-live-${cfg.sector}-${Date.now().toString(36)}-${sectorAdded}`,
+              sector: cfg.sector,
+              sectorLabel: cfg.sectorLabel,
+              outletId,
+              outletName,
+              title,
+              summary: baseSummary[0] || title,
+              baseSummary,
+              leadSummary: baseSummary,
+              publishedAt: formatPublishedAtFromRaw(realPubDateIso, todayFormatted, nowKstShort),
+              originalUrl: directOriginUrl || naverUrl,
+              naverUrl,
+              tags,
+              impactRating,
+              highlightBadge,
+              keyFigure,
+              fullContent: trimCitationExcerpt(bodyText),
+              articleBlocks: trimCitationBlocks(extracted.articleBlocks),
+              leadImage: extracted.leadImage,
+              leadImageCaption: extracted.leadImageCaption,
+              reporter: reporterClean || extracted.reporter || `${outletName} 취재기자`,
+              pressSection: cfg.pressSection,
+              sourceType: 'live',
+              isFallback: false,
+            });
+          })
         );
-        const bodyText = (extracted.fullBody || baseSummary.join('\n\n')).trim();
-        const rawTags = extractSearchKeywords(title).split(' ').filter((w) => w.length >= 2);
-        const tags = Array.from(new Set([...rawTags, cfg.defaultTag])).slice(0, 4);
+      })
+    );
+  })();
 
-        const { highlightBadge, keyFigure, impactRating } = extractSectorHighlight(
-          title,
-          baseSummary.join(' ')
-        );
-
-        seenNaverUrls.add(naverUrl);
-        seenTitles.push(title);
-        sectorAdded += 1;
-
-        collected.push({
-          id: `sec-live-${cfg.sector}-${Date.now().toString(36)}-${sectorAdded}`,
-          sector: cfg.sector,
-          sectorLabel: cfg.sectorLabel,
-          outletId,
-          outletName,
-          title,
-          summary: baseSummary[0] || title,
-          baseSummary,
-          leadSummary: baseSummary,
-          publishedAt: formatPublishedAtFromRaw(realPubDateIso, todayFormatted, nowKstShort),
-          originalUrl: directOriginUrl || naverUrl,
-          naverUrl,
-          tags,
-          impactRating,
-          highlightBadge,
-          keyFigure,
-          fullContent: trimCitationExcerpt(bodyText),
-          articleBlocks: trimCitationBlocks(extracted.articleBlocks),
-          leadImage: extracted.leadImage,
-          leadImageCaption: extracted.leadImageCaption,
-          reporter: reporterClean || extracted.reporter || `${outletName} 취재기자`,
-          pressSection: cfg.pressSection,
-          sourceType: 'live',
-          isFallback: false,
-        });
-      }
-    })
-  );
-
+  // Keep updating cache cleanly if remaining promises finish slightly after foreground budget
   if (budgetMs > 0) {
     let budgetTimer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([
@@ -2468,9 +2635,8 @@ export async function fetchSectorHeadlinesReal(
       }),
     ]);
     if (budgetTimer) clearTimeout(budgetTimer);
-    // Keep updating cache cleanly if remaining promises finish slightly after foreground budget
     void scrapeWork.then(() => {
-      if (collected.length >= 6) {
+      if (collected.length >= 6 || (!hasTodayCache && collected.length > cachedSectorHeadlines.length)) {
         cachedSectorHeadlines = [...collected];
         lastSectorFetchedTime = Date.now();
         lastSectorFetchedKstDate = todayKst;
@@ -2480,15 +2646,19 @@ export async function fetchSectorHeadlinesReal(
     await scrapeWork;
   }
 
-  // Do NOT silently mix MOCK_SECTOR_HEADLINES into live sector collection.
-  if (collected.length > 0) {
+  // Do NOT clobber today's richer live sector cache with a sparse partial foreground snapshot.
+  if (collected.length >= 6 || (!hasTodayCache && collected.length > 0)) {
     cachedSectorHeadlines = [...collected];
     lastSectorFetchedTime = Date.now();
     lastSectorFetchedKstDate = todayKst;
     return cachedSectorHeadlines;
   }
 
-  return hasTodayCache ? cachedSectorHeadlines : [];
+  if (hasTodayCache) {
+    return cachedSectorHeadlines;
+  }
+
+  return collected;
 }
 
 /**

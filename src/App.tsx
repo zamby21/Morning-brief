@@ -588,12 +588,14 @@ export default function App() {
               triggerNotification('각 언론사 홈페이지 첫화면 주요 기사가 실시간 갱신되었습니다.');
             }
           }
-          // When server returned fast verified live articles (<3s) while AI insights finish in background,
-          // silently hydrate the completed AI insights once without showing a loading spinner.
+          // When server returned fast verified live articles (<3s) while remaining outlets/sectors
+          // or AI insights finish in background, silently hydrate once without showing a loading spinner.
           if (result.source === 'live-fast-hydrating' && !silent) {
+            const needsFastComplete =
+              liveFront.length < activeOutlets.length || incomingSector.length < 4;
             window.setTimeout(() => {
               void syncLiveNews(false, activeOutlets, targetTone, true, true);
-            }, 6500);
+            }, needsFastComplete ? 2800 : 6000);
           }
           return loadedLive;
         }

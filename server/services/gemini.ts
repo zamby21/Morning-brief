@@ -41,9 +41,9 @@ const GEMINI_BRIEFING_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const GEMINI_ITEM_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours per-item summary cache
 const LIVE_SUMMARY_CACHE_TTL_MS = 120_000; // 2 min fresh window
 const LIVE_SUMMARY_STALE_TTL_MS = 15 * 60 * 1000; // 15 min stale-while-revalidate window
-const FOREGROUND_TOTAL_BUDGET_MS = 2900; // Target <3s, guaranteed <5s hard ceiling
-const FOREGROUND_OUTLET_SCRAPE_BUDGET_MS = 2550;
-const FOREGROUND_SECTOR_SCRAPE_BUDGET_MS = 2000;
+const FOREGROUND_TOTAL_BUDGET_MS = 3200; // Target <=3s, guaranteed <5s hard ceiling
+const FOREGROUND_OUTLET_SCRAPE_BUDGET_MS = 2850;
+const FOREGROUND_SECTOR_SCRAPE_BUDGET_MS = 2650;
 const MAX_COOLDOWN_MS = 24 * 60 * 60 * 1000; // Honor Google retryDelay up to 24 hours
 const MODEL_UNAVAILABLE_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6h cooldown for 404 / unsupported model
 const AUTH_ERROR_COOLDOWN_MS = 15 * 60 * 1000; // 15m cooldown for invalid API key / auth failure
@@ -393,12 +393,23 @@ export async function generateLiveSummaryPayload(
   if (!allowForce) {
     const cached = liveSummaryResponseCache.get(sortedKey);
     const nowCheck = Date.now();
-    if (cached && nowCheck < cached.expiresAt) {
+    const cachedFront = cached?.payload?.data?.frontPageStories || [];
+    const cachedFrontCount = cachedFront.length;
+    const cachedStubFrontCount = cachedFront.filter(
+      (s) => !s.fullContent || s.fullContent.length < 80
+    ).length;
+    const cachedSectorCount = cached?.payload?.data?.sectorHeadlines?.length || 0;
+    const isCachedComplete =
+      cachedFrontCount >= Math.ceil(targetOutletIds.length * 0.85) &&
+      cachedStubFrontCount <= Math.floor(targetOutletIds.length * 0.15) &&
+      cachedSectorCount >= 4;
+
+    if (cached && isCachedComplete && nowCheck < cached.expiresAt) {
       saveServerBriefing(cached.payload.data);
       return cached.payload;
     }
-    // Stale-While-Revalidate: return warm cached briefing instantaneously (<10ms) and revalidate in background
-    if (cached && nowCheck < cached.staleUntil && !waitForAi) {
+    // Stale-While-Revalidate: return warm complete cached briefing instantaneously (<10ms) and revalidate in background
+    if (cached && isCachedComplete && nowCheck < cached.staleUntil && !waitForAi) {
       saveServerBriefing(cached.payload.data);
       if (!inFlightBackgroundRefresh.has(sortedKey)) {
         inFlightBackgroundRefresh.add(sortedKey);
@@ -464,6 +475,27 @@ export async function generateLiveSummaryPayload(
         source: 'collection-empty',
       };
     }
+
+    const stubFrontCount = realBriefing.frontPageStories.filter(
+      (s) => !s.fullContent || s.fullContent.length < 80
+    ).length;
+    const isPartialScrape =
+      realBriefing.frontPageStories.length < Math.ceil(targetOutletIds.length * 0.85) ||
+      stubFrontCount > Math.floor(targetOutletIds.length * 0.15) ||
+      (realBriefing.sectorHeadlines || []).length < 4;
+
+    const triggerBackgroundCompletion = () => {
+      if (waitForAi || inFlightBackgroundRefresh.has(sortedKey)) return;
+      inFlightBackgroundRefresh.add(sortedKey);
+      void generateLiveSummaryPayload(targetOutletIds, tone, false, {
+        skipGemini,
+        waitForAi: true,
+      })
+        .catch(() => {})
+        .finally(() => {
+          inFlightBackgroundRefresh.delete(sortedKey);
+        });
+    };
 
     const titlesSignature = realBriefing.frontPageStories
       .map((s) => `${s.outletId}:${s.title}`)
@@ -879,16 +911,20 @@ ${JSON.stringify(unifiedInput)}
           source: 'live-fast-hydrating',
         };
         const cacheNow = Date.now();
-        liveSummaryResponseCache.set(sortedKey, {
-          expiresAt: cacheNow + 12_000, // Short TTL so next silent poll picks up completed Gemini insights
-          staleUntil: cacheNow + LIVE_SUMMARY_STALE_TTL_MS,
-          payload: fastPayload,
-        });
+        if (!isPartialScrape) {
+          liveSummaryResponseCache.set(sortedKey, {
+            expiresAt: cacheNow + 12_000, // Short TTL so next silent poll picks up completed Gemini insights
+            staleUntil: cacheNow + LIVE_SUMMARY_STALE_TTL_MS,
+            payload: fastPayload,
+          });
+        } else {
+          triggerBackgroundCompletion();
+        }
         return fastPayload;
       }
     }
 
-    if (hydratedCount > 0) {
+    if (hydratedCount > 0 && !isPartialScrape) {
       geminiSummaryCache.set(briefingCacheKey, {
         expiresAt: Date.now() + GEMINI_BRIEFING_CACHE_TTL_MS,
         data: realBriefing,
@@ -903,7 +939,11 @@ ${JSON.stringify(unifiedInput)}
     realBriefing.degraded = collectorStatus !== 'ok' || resolvedAiStatus !== 'ok';
 
     saveServerBriefing(realBriefing);
-    const sourceLabel = hydratedCount > 0 ? 'gemini-verified-cache' : 'real-rss-verified';
+    const sourceLabel = isPartialScrape
+      ? 'live-fast-hydrating'
+      : hydratedCount > 0
+      ? 'gemini-verified-cache'
+      : 'real-rss-verified';
     const payload: LiveSummaryResult = {
       success: true,
       degraded: Boolean(realBriefing.degraded),
@@ -914,11 +954,15 @@ ${JSON.stringify(unifiedInput)}
       source: sourceLabel,
     };
     const cacheNow = Date.now();
-    liveSummaryResponseCache.set(sortedKey, {
-      expiresAt: cacheNow + LIVE_SUMMARY_CACHE_TTL_MS,
-      staleUntil: cacheNow + LIVE_SUMMARY_STALE_TTL_MS,
-      payload,
-    });
+    if (!isPartialScrape) {
+      liveSummaryResponseCache.set(sortedKey, {
+        expiresAt: cacheNow + LIVE_SUMMARY_CACHE_TTL_MS,
+        staleUntil: cacheNow + LIVE_SUMMARY_STALE_TTL_MS,
+        payload,
+      });
+    } else {
+      triggerBackgroundCompletion();
+    }
     return payload;
   })();
 

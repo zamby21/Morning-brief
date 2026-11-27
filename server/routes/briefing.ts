@@ -113,8 +113,7 @@ export function registerBriefingRoutes(app: express.Express): void {
       const nowMs = Date.now();
       const allowForce =
         Boolean(forceRefresh) &&
-        isAdminRefreshAuthorized(req) &&
-        nowMs - lastForcedRefreshAt >= FORCE_REFRESH_COOLDOWN_MS;
+        (isAdminRefreshAuthorized(req) || nowMs - lastForcedRefreshAt >= FORCE_REFRESH_COOLDOWN_MS);
       if (allowForce) {
         lastForcedRefreshAt = nowMs;
       }
