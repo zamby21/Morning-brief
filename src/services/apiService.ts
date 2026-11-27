@@ -145,7 +145,7 @@ export async function fetchSummary(
   forceRefresh = false
 ): Promise<FetchSummaryResponse> {
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
-  const timeoutId = controller ? setTimeout(() => controller.abort(), 45_000) : undefined;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), 8_000) : undefined;
   try {
     const res = await fetch('/api/summarize', {
       method: 'POST',
@@ -301,10 +301,13 @@ export async function sendEmailBriefing(
   const targetEmail = (recipient || '').trim();
   const existingLogs = readLocalEmailLogs();
 
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), 6_000) : undefined;
   try {
     const res = await fetch('/api/send-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: controller?.signal,
       body: JSON.stringify({
         recipient: targetEmail,
         briefingId: briefing?.id,
@@ -343,6 +346,8 @@ export async function sendEmailBriefing(
     }
   } catch (err) {
     console.warn('API /api/send-email unreachable, generating local HTML preview:', err);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
 
   // Client-side preview generation (honestly marked as preview-only, never fake sent)

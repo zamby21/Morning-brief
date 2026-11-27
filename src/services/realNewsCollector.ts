@@ -10,7 +10,7 @@ import type {
 } from '../types/news.ts';
 import { PRESS_OUTLETS, DEFAULT_10_OUTLETS, SAMPLE_DATA_SNAPSHOT_DATE } from '../data/pressMetadata.ts';
 import { getCurrentKoreanDateString } from '../utils/dateUtils.ts';
-import { extractSearchKeywords, getOfficialOutletHomepage } from '../utils/linkUtils.ts';
+import { cleanTitleForSearch, extractSearchKeywords, getOfficialOutletHomepage } from '../utils/linkUtils.ts';
 import { transformBriefingTone } from '../utils/toneTransformer.ts';
 import { computeKeywordTrends } from '../utils/keywordTrend.ts';
 
@@ -285,33 +285,48 @@ function decodeHtmlBuffer(buf: Buffer, contentTypeHeader = ''): string {
   return buf.toString('utf8');
 }
 
+const KEEP_ALIVE_HTTP_AGENT = new http.Agent({ keepAlive: true, maxSockets: 48, keepAliveMsecs: 15_000 });
+const KEEP_ALIVE_HTTPS_AGENT = new https.Agent({ keepAlive: true, maxSockets: 48, keepAliveMsecs: 15_000 });
+
 /**
- * IPv4-guaranteed fast HTML fetcher (avoids container IPv6 DNS hangs on Naver/Korean news domains)
+ * IPv4-guaranteed fast HTML fetcher with keep-alive pooling and a strict wall-clock deadline
+ * (avoids container IPv6 DNS hangs and slow trickle sockets on Naver/Korean news domains).
  * Automatically decodes gzip/br/deflate and EUC-KR/CP949 legacy Korean press encodings.
  */
 async function fetchHtmlFast(
   url: string,
-  timeoutMs = 4500,
-  redirectsLeft = 4,
-  retriesLeft = 1
+  timeoutMs = 2400,
+  redirectsLeft = 3,
+  retriesLeft = 0
 ): Promise<{ ok: boolean; status: number; text: string; finalUrl: string }> {
   const attempt = (): Promise<{ ok: boolean; status: number; text: string; finalUrl: string }> =>
     new Promise((resolve) => {
       let settled = false;
+      let reqRef: http.ClientRequest | null = null;
+      const wallTimer = setTimeout(() => {
+        if (!settled) {
+          reqRef?.destroy();
+          done({ ok: false, status: 0, text: '', finalUrl: url });
+        }
+      }, timeoutMs);
+
       const done = (resObj: { ok: boolean; status: number; text: string; finalUrl: string }) => {
         if (!settled) {
           settled = true;
+          clearTimeout(wallTimer);
           resolve(resObj);
         }
       };
 
       try {
         const parsed = new URL(url);
-        const lib = parsed.protocol === 'https:' ? https : http;
+        const isHttps = parsed.protocol === 'https:';
+        const lib = isHttps ? https : http;
         const req = lib.get(
           url,
           {
             family: 4,
+            agent: isHttps ? KEEP_ALIVE_HTTPS_AGENT : KEEP_ALIVE_HTTP_AGENT,
             timeout: timeoutMs,
             headers: BROWSER_HEADERS,
           },
@@ -320,7 +335,8 @@ async function fetchHtmlFast(
             if (status >= 300 && status < 400 && res.headers.location && redirectsLeft > 0) {
               res.resume();
               const nextUrl = new URL(res.headers.location, url).toString();
-              fetchHtmlFast(nextUrl, timeoutMs, redirectsLeft - 1, retriesLeft).then(done);
+              clearTimeout(wallTimer);
+              fetchHtmlFast(nextUrl, Math.max(800, timeoutMs - 250), redirectsLeft - 1, retriesLeft).then(done);
               return;
             }
 
@@ -343,6 +359,7 @@ async function fetchHtmlFast(
             res.on('error', () => done({ ok: false, status, text: '', finalUrl: url }));
           }
         );
+        reqRef = req;
         req.on('timeout', () => {
           req.destroy();
           done({ ok: false, status: 0, text: '', finalUrl: url });
@@ -900,34 +917,52 @@ function extractArticleTextAndSummary(
       }
     }
 
-    // 4. Common Korean press CMS body containers (covers Edaily, SBS, JoongAng, MK, Hankyung, NewsTomato, regional CMS)
+    // 4. Common Korean press CMS body containers using balanced tag matching
+    //    (covers NewDaily article_conent/itemprop=articleBody, Edaily, SBS, JoongAng, MK, Hankyung, Ilyo, regional CMS)
     if (fullBodyParas.length < 2) {
-      const cmsContainerMatch =
-        articleHtml.match(/<(?:article|div|section)[^>]*(?:id|class)=["'][^"']*(?:article-view-content-div|article_body|articleBody|news_body|news_text|rns_text|text_area|art_txt|article_txt|view_con|news_cnt|content_body|article_view_body)[^"']*["'][^>]*>([\s\S]*?)<\/(?:article|section)>/i)?.[1] ||
-        articleHtml.match(/<div[^>]*(?:id|class)=["'][^"']*(?:article-view-content-div|article_body|articleBody|news_body|news_text|rns_text|text_area|art_txt|article_txt|view_con|news_cnt)[^"']*["'][^>]*>([\s\S]{150,45000}?)(?:<div[^>]*class=["'][^"']*(?:copyright|byline|reporter|share|related|tag|banner|ad_|comment)|<\/section>|<\/article>)/i)?.[1] ||
-        articleHtml.match(/itemprop=["']articleBody["'][^>]*>([\s\S]{150,45000}?)(?:<\/article>|<\/section>|<div[^>]*class=["'][^"']*(?:copyright|byline|related|share))/i)?.[1];
+      const extractBalancedContainer = (html: string, openRe: RegExp): string => {
+        const m = openRe.exec(html);
+        if (!m || m.index === undefined) return '';
+        const tagName = (m[1] || 'div').toLowerCase();
+        const start = m.index + m[0].length;
+        const tagTokenRe = new RegExp(`<(\\/)?${tagName}\\b[^>]*>`, 'gi');
+        tagTokenRe.lastIndex = start;
+        let depth = 1;
+        let tok: RegExpExecArray | null;
+        while ((tok = tagTokenRe.exec(html)) !== null) {
+          if (tok.index - start > 80000) break;
+          const isClosing = Boolean(tok[1]);
+          const isSelfClosing = tok[0].endsWith('/>');
+          if (isClosing) {
+            depth -= 1;
+            if (depth === 0) {
+              return html.slice(start, tok.index);
+            }
+          } else if (!isSelfClosing) {
+            depth += 1;
+          }
+        }
+        return html.slice(start, Math.min(html.length, start + 25000));
+      };
 
-      if (cmsContainerMatch) {
-        absorbOrderedBlocks(extractOrderedArticleBlocks(cmsContainerMatch, articleUrl));
+      const containerPatterns: RegExp[] = [
+        /<(div|article|section)[^>]*\bitemprop=["']articleBody["'][^>]*>/i,
+        /<(div|article|section)[^>]*\b(?:id|class)=["'][^"']*(?:article_conent|article_content|article-content|article-view-content-div|article_body|article-body|articleBody|news_body|news_text|rns_text|text_area|art_txt|article_txt|view_con|news_cnt|content_body|article_view_body)[^"']*["'][^>]*>/i,
+      ];
+
+      for (const pat of containerPatterns) {
+        const inner = extractBalancedContainer(articleHtml, pat);
+        if (inner && inner.length >= 120) {
+          const cleanedInner = inner
+            .replace(/<!--[\s\S]*?-->/g, ' ')
+            .replace(/<div[^>]*class=["'][^"']*(?:article_body_ad|ad_box|related|editor-newsbox|share|copyright|byline)[^"']*["'][^>]*>[\s\S]*?<\/div>/gi, '\n');
+          absorbOrderedBlocks(extractOrderedArticleBlocks(cleanedInner, articleUrl));
+          if (fullBodyParas.length >= 2) break;
+        }
       }
     }
 
-    // 5. Standard <p> body paragraphs from newspaper article pages
-    if (fullBodyParas.length < 2) {
-      const bodyOnly = articleHtml.replace(
-        /<(?:header|footer|nav|aside|script|style)[\s\S]*?<\/(?:header|footer|nav|aside|script|style)>/gi,
-        ' '
-      );
-      const pMatches = [...bodyOnly.matchAll(/<p(?:\s+[^>]*)?>([\s\S]*?)<\/p>/gi)];
-      const pLines: string[] = [];
-      for (const pm of pMatches) {
-        const clean = stripInlineTagsCleanly(pm[1]).replace(/\s+/g, ' ').trim();
-        if (clean) pLines.push(clean);
-      }
-      pushLinesToPools(pLines);
-    }
-
-    // 6. JSON-LD articleBody fallback
+    // 5. JSON-LD articleBody (always canonical to the exact article — never leaks sidebar text)
     if (fullBodyParas.length < 2 || paragraphPool.length < 3) {
       const ldMatches = [
         ...articleHtml.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi),
@@ -947,6 +982,20 @@ function extractArticleTextAndSummary(
           // Ignore malformed JSON-LD
         }
       }
+    }
+
+    // 6. Standard <p> body paragraphs from newspaper article pages (strip sidebars/headers/navs first)
+    if (fullBodyParas.length < 2) {
+      const bodyOnly = articleHtml
+        .replace(/<(?:header|footer|nav|aside|script|style)[\s\S]*?<\/(?:header|footer|nav|aside|script|style)>/gi, ' ')
+        .replace(/<div[^>]*class=["'][^"']*(?:rightzone|sidebar|side_area|aside|related_news|best_news|ranking)[^"']*["'][^>]*>[\s\S]*?<\/div>/gi, ' ');
+      const pMatches = [...bodyOnly.matchAll(/<p(?:\s+[^>]*)?>([\s\S]*?)<\/p>/gi)];
+      const pLines: string[] = [];
+      for (const pm of pMatches) {
+        const clean = stripInlineTagsCleanly(pm[1]).replace(/\s+/g, ' ').trim();
+        if (clean) pLines.push(clean);
+      }
+      pushLinesToPools(pLines);
     }
 
     // 7. Generic <br>-delimited body line fallback for legacy Korean sites that avoid <p> tags
@@ -1481,6 +1530,9 @@ async function fetchHomepageCenterLeadArticle(
       const deskRes = await fetchHtmlFast(`https://media.naver.com/press/${naverCode}`, 4500);
       if (deskRes.ok && deskRes.text) {
         const candidates = parseNaverPressDeskCandidates(deskRes.text, naverCode);
+        if (candidates.length > 0) {
+          pressDeskCandidatesCache.set(naverCode, { candidates, fetchedAt: Date.now() });
+        }
 
         // If we already have a homepage title, try matching that exact story on Naver first for cleaner full body & photos
         if (title && candidates.length > 0) {
@@ -1602,13 +1654,374 @@ function matchesOutletSourceName(sourceTagText: string, outletName: string, logo
   return targets.some((t) => cleanSource === t || cleanSource.includes(t) || t.includes(cleanSource));
 }
 
+const PRESS_DESK_CACHE_TTL_MS = 5 * 60 * 1000;
+const pressDeskCandidatesCache = new Map<
+  string,
+  { candidates: Array<{ url: string; title: string }>; fetchedAt: number }
+>();
+
+function isSafeExternalHttpUrl(rawUrl?: string): boolean {
+  if (!rawUrl) return false;
+  try {
+    const parsed = new URL(rawUrl.trim());
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    const host = parsed.hostname.toLowerCase();
+    if (
+      !host ||
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host === '0.0.0.0' ||
+      host === '::1' ||
+      host.startsWith('10.') ||
+      host.startsWith('192.168.') ||
+      host.startsWith('169.254.') ||
+      /^172\.(?:1[6-9]|2\d|3[0-1])\./.test(host)
+    ) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isAggregatorRedirectUrl(rawUrl?: string): boolean {
+  if (!rawUrl) return true;
+  const lower = rawUrl.toLowerCase();
+  return (
+    lower.includes('news.google.com/rss/articles') ||
+    lower.includes('news.google.com/articles') ||
+    lower.includes('news.google.com/read') ||
+    lower.includes('news.google.com/')
+  );
+}
+
+function computeHeadlineMatchScore(targetTitle: string, candidateTitle: string): number {
+  if (!targetTitle || !candidateTitle) return 0;
+  if (areTitlesNearDuplicate(targetTitle, candidateTitle)) return 1;
+
+  const na = normalizeTitleForDedup(targetTitle);
+  const nb = normalizeTitleForDedup(candidateTitle);
+  if (!na || !nb) return 0;
+  if (na === nb) return 1;
+  if (na.length >= 12 && nb.length >= 12 && (na.includes(nb) || nb.includes(na))) return 0.92;
+
+  const ta = new Set(na.split(' ').filter((w) => w.length >= 2));
+  const tb = new Set(nb.split(' ').filter((w) => w.length >= 2));
+  if (ta.size === 0 || tb.size === 0) return 0;
+
+  let exactMatches = 0;
+  let partialMatches = 0;
+  for (const w of ta) {
+    if (tb.has(w)) {
+      exactMatches += 1;
+    } else if (
+      w.length >= 2 &&
+      Array.from(tb).some(
+        (tw) =>
+          tw.length >= 2 &&
+          (tw.includes(w) || w.includes(tw)) &&
+          Math.min(w.length, tw.length) >= 2
+      )
+    ) {
+      partialMatches += 0.65;
+    }
+  }
+
+  const denom = Math.max(1, Math.min(ta.size, tb.size));
+  return Math.min(1, (exactMatches + partialMatches) / denom);
+}
+
+function extractProgressiveSearchQueries(title: string, outletName: string): Array<{ query: string; sort: '0' | '1' }> {
+  const cleaned = cleanTitleForSearch(title);
+  const rawTokens = cleaned
+    .split(/\s+/)
+    .map((w) => w.replace(/[^a-zA-Z0-9가-힣]/g, '').trim())
+    .filter((w) => w.length >= 2 && w !== '단독' && w !== '속보' && w !== '종합');
+
+  const uniqueTokens: string[] = [];
+  const seen = new Set<string>();
+  for (const tok of rawTokens) {
+    const key = tok.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniqueTokens.push(tok);
+    }
+  }
+
+  const cleanOutlet = (outletName || '').replace(/[^a-zA-Z0-9가-힣]/g, '').trim();
+  const queries: Array<{ query: string; sort: '0' | '1' }> = [];
+  const seenQ = new Set<string>();
+  const pushQ = (q: string, sort: '0' | '1') => {
+    const trimmed = q.trim();
+    const key = `${sort}:${trimmed}`;
+    if (trimmed.length >= 4 && !seenQ.has(key)) {
+      seenQ.add(key);
+      queries.push({ query: trimmed, sort });
+    }
+  };
+
+  if (uniqueTokens.length >= 3) {
+    const top4 = uniqueTokens.slice(0, 4).join(' ');
+    const top3 = uniqueTokens.slice(0, 3).join(' ');
+    const top2 = uniqueTokens.slice(0, 2).join(' ');
+    if (cleanOutlet) {
+      pushQ(`${top4} ${cleanOutlet}`, '1');
+    }
+    pushQ(top3, '1');
+    pushQ(top2, '0');
+    if (cleanOutlet) {
+      pushQ(`${top2} ${cleanOutlet}`, '0');
+    }
+  } else if (uniqueTokens.length > 0) {
+    const joined = uniqueTokens.join(' ');
+    if (cleanOutlet) pushQ(`${joined} ${cleanOutlet}`, '1');
+    pushQ(joined, '0');
+  }
+
+  return queries.slice(0, 3);
+}
+
+function extractDirectDomainArticleUrlsFromSearchHtml(searchHtml: string, homepageUrl: string): string[] {
+  let hostBase = '';
+  try {
+    hostBase = new URL(homepageUrl).hostname.replace(/^(?:www|news|biz|it|m|imnews)\./, '');
+  } catch {
+    return [];
+  }
+  if (!hostBase || hostBase.length < 4) return [];
+
+  const domainRe = new RegExp(
+    `https?:\\/\\/[a-zA-Z0-9.-]*${hostBase.replace(/\./g, '\\.')}\\/[^"'\\s<>\\\\]+`,
+    'gi'
+  );
+  const urls: string[] = [];
+  const seen = new Set<string>();
+
+  for (const m of searchHtml.matchAll(domainRe)) {
+    const raw = decodeHtmlEntities(m[0]).replace(/[),.;]+$/, '').trim();
+    if (!isSafeExternalHttpUrl(raw)) continue;
+    if (raw.length <= homepageUrl.length + 5) continue;
+    if (
+      /\/(?:index|main|login|member|join|rss|search|image|img|photo|static|assets|favicon|company|about|privacy|terms|subscribe)\b/i.test(
+        raw
+      ) ||
+      /\.(?:jpg|jpeg|png|gif|webp|svg|css|js|ico|pdf|xml)(?:\?|$)/i.test(raw)
+    ) {
+      continue;
+    }
+    if (!seen.has(raw)) {
+      seen.add(raw);
+      urls.push(raw);
+      if (urls.length >= 6) break;
+    }
+  }
+
+  return urls;
+}
+
+/**
+ * Resolves Google News RSS stubs or thin secondary articles into verified direct publisher / Naver article URLs
+ * and extracts real full body text + 3-line summary sentences (parallelized & bounded for low latency).
+ */
+async function resolveAndExtractArticleByTitle(
+  art: RawRSSArticle,
+  timeoutBudgetMs = 2400
+): Promise<RawRSSArticle> {
+  const hasVerifiedUrl = isSafeExternalHttpUrl(art.link) && !isAggregatorRedirectUrl(art.link);
+  const hasRealBody =
+    ((art.fullBody && art.fullBody.length >= 120) || (art.snippet && art.snippet.length >= 160)) &&
+    (art.leadSentences?.length || 0) >= 2;
+  if (hasVerifiedUrl && hasRealBody) {
+    return art;
+  }
+
+  const deadline = Date.now() + timeoutBudgetMs;
+  const remaining = () => Math.max(600, deadline - Date.now());
+
+  const outletMeta = PRESS_OUTLETS.find((p) => p.id === art.outletId || p.name === art.outletName);
+  const desk = OUTLET_PRESS_DESK_MAP[art.outletId];
+  const naverCode = desk?.naverCode || '';
+  const homepageUrl =
+    desk?.homepageUrl || outletMeta?.homepageUrl || getOfficialOutletHomepage(art.outletId, art.outletName);
+
+  const queries = extractProgressiveSearchQueries(art.title, art.outletName).slice(0, 2);
+
+  try {
+    // Run top 2 Naver News Search queries in parallel to eliminate sequential round-trip stalls
+    const searchResults = await Promise.all(
+      queries.map(({ query, sort }) =>
+        fetchHtmlFast(
+          `https://search.naver.com/search.naver?where=news&sm=tab_jum&sort=${sort}&query=${encodeURIComponent(query)}`,
+          Math.min(1600, remaining()),
+          2,
+          0
+        )
+      )
+    );
+
+    const naverCandidates: string[] = [];
+    const directCandidates: string[] = [];
+    const seenNaver = new Set<string>();
+    const seenDirect = new Set<string>();
+
+    for (const sr of searchResults) {
+      if (!sr.ok || !sr.text) continue;
+      if (naverCode) {
+        const naverRe = new RegExp(
+          `https:\\/\\/n\\.news\\.naver\\.com\\/(?:mnews\\/)?article\\/${naverCode}\\/\\d+`,
+          'g'
+        );
+        for (const m of sr.text.matchAll(naverRe)) {
+          if (!seenNaver.has(m[0])) {
+            seenNaver.add(m[0]);
+            naverCandidates.push(m[0]);
+          }
+        }
+      }
+      for (const u of extractDirectDomainArticleUrlsFromSearchHtml(sr.text, homepageUrl)) {
+        if (!seenDirect.has(u)) {
+          seenDirect.add(u);
+          directCandidates.push(u);
+        }
+      }
+    }
+
+    // Tier 1: Fetch top 3 Naver CP candidates in parallel
+    if (naverCandidates.length > 0 && Date.now() < deadline) {
+      const details = await Promise.all(
+        naverCandidates.slice(0, 3).map((url) => fetchNaverArticleDetail(url, '', art.outletName))
+      );
+      for (const detail of details) {
+        if (!detail) continue;
+        const score = computeHeadlineMatchScore(art.title, detail.title);
+        if (score < 0.42) continue;
+        const directOrigin =
+          isSafeExternalHttpUrl(detail.originUrl) && !isAggregatorRedirectUrl(detail.originUrl)
+            ? detail.originUrl
+            : '';
+        if (detail.fullBody.length >= 60 || detail.leadSentences.length >= 1) {
+          return {
+            ...art,
+            link: directOrigin || detail.naverUrl,
+            naverUrl: detail.naverUrl,
+            pubDate: detail.pubDate || art.pubDate,
+            snippet: detail.fullBody || detail.leadSentences.join(' ') || art.snippet,
+            leadSentences: detail.leadSentences.length > 0 ? detail.leadSentences : art.leadSentences,
+            fullBody: detail.fullBody || art.fullBody,
+            articleBlocks:
+              detail.articleBlocks.length > 0 ? detail.articleBlocks : art.articleBlocks,
+            leadImage: detail.leadImage || art.leadImage,
+            leadImageCaption: detail.leadImageCaption || art.leadImageCaption,
+            reporter: detail.reporter || art.reporter,
+          };
+        }
+      }
+    }
+
+    // Tier 2: Fetch top 3 direct publisher domain candidates in parallel (non-CP outlets like 뉴데일리/일요신문)
+    if (directCandidates.length > 0 && Date.now() < deadline) {
+      const directPages = await Promise.all(
+        directCandidates.slice(0, 3).map(async (directUrl) => ({
+          directUrl,
+          res: await fetchHtmlFast(directUrl, Math.min(1800, remaining()), 2, 0),
+        }))
+      );
+      for (const { directUrl, res: artRes } of directPages) {
+        if (!artRes.ok || !artRes.text) continue;
+        const candTitle = extractCleanHtmlTitle(artRes.text, art.outletName);
+        if (computeHeadlineMatchScore(art.title, candTitle) < 0.42) continue;
+
+        const finalDirectUrl =
+          isSafeExternalHttpUrl(artRes.finalUrl) && !isAggregatorRedirectUrl(artRes.finalUrl)
+            ? artRes.finalUrl
+            : directUrl;
+        const extracted = extractArticleTextAndSummary(artRes.text, [], '', finalDirectUrl);
+        const detectedPubDate = extractRealPubDateFromHtml(artRes.text);
+
+        if (extracted.fullBody.length >= 60 || extracted.sentences.length >= 1) {
+          return {
+            ...art,
+            link: finalDirectUrl,
+            pubDate: detectedPubDate || art.pubDate,
+            snippet: extracted.fullBody || extracted.sentences.join(' ') || art.snippet,
+            leadSentences: extracted.sentences.length > 0 ? extracted.sentences : art.leadSentences,
+            fullBody: extracted.fullBody || art.fullBody,
+            articleBlocks:
+              extracted.articleBlocks.length > 0 ? extracted.articleBlocks : art.articleBlocks,
+            leadImage: extracted.leadImage || art.leadImage,
+            leadImageCaption: extracted.leadImageCaption || art.leadImageCaption,
+            reporter: extracted.reporter || art.reporter,
+          };
+        }
+      }
+    }
+  } catch {
+    // Proceed to Tier 3 cached press desk fallback
+  }
+
+  // Tier 3: Fast cached Naver Press Desk lookup for CP outlets
+  if (naverCode && Date.now() < deadline) {
+    try {
+      let candidates: Array<{ url: string; title: string }> = [];
+      const cachedDesk = pressDeskCandidatesCache.get(naverCode);
+      if (cachedDesk && Date.now() - cachedDesk.fetchedAt < PRESS_DESK_CACHE_TTL_MS) {
+        candidates = cachedDesk.candidates;
+      } else {
+        const deskRes = await fetchHtmlFast(`https://media.naver.com/press/${naverCode}`, Math.min(1600, remaining()), 2, 0);
+        if (deskRes.ok && deskRes.text) {
+          candidates = parseNaverPressDeskCandidates(deskRes.text, naverCode);
+          if (candidates.length > 0) {
+            pressDeskCandidatesCache.set(naverCode, { candidates, fetchedAt: Date.now() });
+          }
+        }
+      }
+
+      const bestMatch = candidates
+        .map((c) => ({ cand: c, score: computeHeadlineMatchScore(art.title, c.title) }))
+        .filter((x) => x.score >= 0.45)
+        .sort((a, b) => b.score - a.score)[0];
+
+      if (bestMatch) {
+        const detail = await fetchNaverArticleDetail(bestMatch.cand.url, art.title, art.outletName);
+        if (detail && (detail.fullBody.length >= 60 || detail.leadSentences.length >= 1)) {
+          const directOrigin =
+            isSafeExternalHttpUrl(detail.originUrl) && !isAggregatorRedirectUrl(detail.originUrl)
+              ? detail.originUrl
+              : '';
+          return {
+            ...art,
+            link: directOrigin || detail.naverUrl,
+            naverUrl: detail.naverUrl,
+            pubDate: detail.pubDate || art.pubDate,
+            snippet: detail.fullBody || detail.leadSentences.join(' ') || art.snippet,
+            leadSentences: detail.leadSentences.length > 0 ? detail.leadSentences : art.leadSentences,
+            fullBody: detail.fullBody || art.fullBody,
+            articleBlocks:
+              detail.articleBlocks.length > 0 ? detail.articleBlocks : art.articleBlocks,
+            leadImage: detail.leadImage || art.leadImage,
+            leadImageCaption: detail.leadImageCaption || art.leadImageCaption,
+            reporter: detail.reporter || art.reporter,
+          };
+        }
+      }
+    } catch {
+      // Ignore press desk fallback error
+    }
+  }
+
+  return art;
+}
+
 /**
  * Fetch real articles for specified Korean press outlets in real-time.
- * Strictly returns ONLY the requested outletIds and evicts entries from previous KST dates.
+ * Strictly returns ONLY the requested outletIds, runs homepage + RSS in parallel,
+ * and enforces an optional foreground budget so a single sluggish outlet never stalls refresh past 3-5s.
  */
 export async function fetchRealArticlesForOutlets(
   outletIds: string[] = DEFAULT_10_OUTLETS,
-  forceRefresh = false
+  forceRefresh = false,
+  budgetMs = 2800
 ): Promise<Record<string, RawRSSArticle[]>> {
   const outletsToFetch = PRESS_OUTLETS.filter((p) =>
     outletIds.length > 0 ? outletIds.includes(p.id) : p.isDefaultMajor
@@ -1638,106 +2051,172 @@ export async function fetchRealArticlesForOutlets(
     ) {
       results[outlet.id] = cached.articles;
     } else {
+      // Pre-seed today's prior cached snapshot as fallback in case a forced refresh hits a slow site
+      if (cached && cached.kstDate === todayKst && cached.articles.length > 0) {
+        results[outlet.id] = cached.articles;
+      }
       outletsNeedingFetch.push(outlet);
     }
   }
 
-  // Process in controlled concurrency batches (max 8 outlets at a time)
-  const BATCH_SIZE = 8;
-  for (let i = 0; i < outletsNeedingFetch.length; i += BATCH_SIZE) {
-    const batch = outletsNeedingFetch.slice(i, i + BATCH_SIZE);
-    await Promise.allSettled(
-      batch.map(async (outlet) => {
-        const articles: RawRSSArticle[] = [];
+  if (outletsNeedingFetch.length === 0) {
+    return results;
+  }
 
-        // 1. Fetch verified full-text lead article (Homepage -> Naver Press Desk -> Universal Direct/Search)
-        const topLead = await fetchHomepageCenterLeadArticle(outlet.id, outlet.name);
-        if (topLead) {
-          articles.push(topLead);
+  const fetchSingleOutlet = async (outlet: (typeof outletsToFetch)[number]): Promise<void> => {
+    const fetchSecondaryRss = async (): Promise<RawRSSArticle[]> => {
+      const secondaryCandidates: RawRSSArticle[] = [];
+      try {
+        const searchUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(`"${outlet.name}" when:1d`)}&hl=ko&gl=KR&ceid=KR:ko`;
+        const res = await fetch(searchUrl, {
+          signal: AbortSignal.timeout(1800),
+          headers: { 'User-Agent': 'Mozilla/5.0 (MorningBrief/1.0)' },
+        });
+        if (!res.ok) return secondaryCandidates;
+
+        const xml = await res.text();
+        const itemBlocks = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)].slice(0, 8);
+        const escapedOutlet = outlet.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+        for (const blockMatch of itemBlocks) {
+          if (secondaryCandidates.length >= 3) break;
+          const itemXml = blockMatch[1] || '';
+          const sourceText = itemXml.match(/<source[^>]*>([\s\S]*?)<\/source>/i)?.[1] || '';
+          if (!matchesOutletSourceName(sourceText, outlet.name, outlet.logoText)) {
+            continue;
+          }
+
+          const rawTitle = itemXml.match(/<title>([\s\S]*?)<\/title>/i)?.[1] || '';
+          const rawLink = itemXml.match(/<link>([\s\S]*?)<\/link>/i)?.[1] || '';
+          const rawPubDate = itemXml.match(/<pubDate>([\s\S]*?)<\/pubDate>/i)?.[1]?.trim() || '';
+          const rawDesc = itemXml.match(/<description>([\s\S]*?)<\/description>/i)?.[1] || '';
+
+          if (rawPubDate && !isWithinLast24Hours(rawPubDate, now)) {
+            continue;
+          }
+
+          let t = decodeHtmlEntities(rawTitle.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1'));
+          t = t
+            .replace(new RegExp(`\\s*-\\s*${escapedOutlet}(?:\\s*뉴스)?\\s*$`, 'i'), '')
+            .replace(/\s*-\s*(?:KBS|MBC|SBS|YTN|JTBC)\s*뉴스\s*$/i, '')
+            .trim();
+
+          let snip = decodeHtmlEntities(
+            rawDesc
+              .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/https?:\/\/[^\s]+/g, ' ')
+              .replace(/[\r\n]+/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim()
+          );
+
+          if (snip.includes('news.google.com') || snip.length < 25 || snip === t) {
+            snip = '';
+          }
+
+          if (t && !secondaryCandidates.some((a) => areTitlesNearDuplicate(a.title, t))) {
+            secondaryCandidates.push({
+              outletId: outlet.id,
+              outletName: outlet.name,
+              title: t,
+              link: rawLink.replace(/&amp;/g, '&').trim(),
+              pubDate: parseKstDateTimeString(rawPubDate) || rawPubDate || new Date().toISOString(),
+              snippet: snip,
+            });
+          }
         }
+      } catch {
+        // Ignore RSS secondary feed failure
+      }
+      return secondaryCandidates;
+    };
 
-        // 2. Fetch Google News RSS strictly verified by <source> matching outlet.name and within 24h
-        try {
-          const searchUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(`"${outlet.name}" when:1d`)}&hl=ko&gl=KR&ceid=KR:ko`;
-          const res = await fetch(searchUrl, {
-            signal: AbortSignal.timeout(3000),
-            headers: { 'User-Agent': 'Mozilla/5.0 (MorningBrief/1.0)' },
-          });
+    // Run primary lead scrape AND Google News RSS in parallel (cuts per-outlet latency nearly in half)
+    const [topLead, rawSecondary] = await Promise.all([
+      fetchHomepageCenterLeadArticle(outlet.id, outlet.name).catch(() => null),
+      fetchSecondaryRss(),
+    ]);
 
-          if (res.ok) {
-            const xml = await res.text();
-            const itemBlocks = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)].slice(0, 8);
-            const escapedOutlet = outlet.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            let secondaryAdded = 0;
+    const articles: RawRSSArticle[] = [];
+    if (topLead) {
+      articles.push(topLead);
+    }
 
-            for (const blockMatch of itemBlocks) {
-              if (secondaryAdded >= 3) break;
-              const itemXml = blockMatch[1] || '';
-              const sourceText = itemXml.match(/<source[^>]*>([\s\S]*?)<\/source>/i)?.[1] || '';
-              // Reject articles that merely mention the outlet name without actually being published by it
-              if (!matchesOutletSourceName(sourceText, outlet.name, outlet.logoText)) {
-                continue;
-              }
+    const dedupedSecondary = rawSecondary.filter(
+      (cand) => !articles.some((a) => areTitlesNearDuplicate(a.title, cand.title))
+    );
 
-              const rawTitle = itemXml.match(/<title>([\s\S]*?)<\/title>/i)?.[1] || '';
-              const rawLink = itemXml.match(/<link>([\s\S]*?)<\/link>/i)?.[1] || '';
-              const rawPubDate = itemXml.match(/<pubDate>([\s\S]*?)<\/pubDate>/i)?.[1]?.trim() || '';
-              const rawDesc = itemXml.match(/<description>([\s\S]*?)<\/description>/i)?.[1] || '';
+    // Eagerly resolve [단독] exclusives right away (fast parallel path), and resolve remaining
+    // non-exclusive secondary items in background so foreground refresh stays well under 3s
+    if (dedupedSecondary.length > 0) {
+      const resolvedSecondary = await Promise.all(
+        dedupedSecondary.map(async (cand) => {
+          const isExclusive = EXPLICIT_EXCLUSIVE_TITLE_REGEX.test(cand.title.trim());
+          if (!isExclusive) return cand;
+          try {
+            return await resolveAndExtractArticleByTitle(cand, 2200);
+          } catch {
+            return cand;
+          }
+        })
+      );
+      articles.push(...resolvedSecondary);
 
-              if (rawPubDate && !isWithinLast24Hours(rawPubDate, now)) {
-                continue;
-              }
-
-              let t = decodeHtmlEntities(rawTitle.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1'));
-              t = t
-                .replace(new RegExp(`\\s*-\\s*${escapedOutlet}(?:\\s*뉴스)?\\s*$`, 'i'), '')
-                .replace(/\s*-\s*(?:KBS|MBC|SBS|YTN|JTBC)\s*뉴스\s*$/i, '')
-                .trim();
-
-              let snip = decodeHtmlEntities(
-                rawDesc
-                  .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
-                  .replace(/<[^>]+>/g, ' ')
-                  .replace(/https?:\/\/[^\s]+/g, ' ')
-                  .replace(/[\r\n]+/g, ' ')
-                  .replace(/\s+/g, ' ')
-                  .trim()
-              );
-
-              if (snip.includes('news.google.com') || snip.length < 25 || snip === t) {
-                snip = '';
-              }
-
-              if (t && !articles.some((a) => areTitlesNearDuplicate(a.title, t))) {
-                articles.push({
-                  outletId: outlet.id,
-                  outletName: outlet.name,
-                  title: t,
-                  link: rawLink.replace(/&amp;/g, '&').trim(),
-                  pubDate: parseKstDateTimeString(rawPubDate) || rawPubDate || new Date().toISOString(),
-                  snippet: snip,
-                });
-                secondaryAdded += 1;
+      // Background enrichment for non-exclusive secondary stubs (updates outletCache silently)
+      const nonExclusiveStubs = resolvedSecondary.filter(
+        (cand) =>
+          !EXPLICIT_EXCLUSIVE_TITLE_REGEX.test(cand.title.trim()) &&
+          (isAggregatorRedirectUrl(cand.link) || !cand.fullBody || cand.fullBody.length < 120)
+      );
+      if (nonExclusiveStubs.length > 0) {
+        void Promise.allSettled(
+          nonExclusiveStubs.map(async (stub) => {
+            const enriched = await resolveAndExtractArticleByTitle(stub, 2800).catch(() => stub);
+            if (enriched !== stub) {
+              const idx = articles.findIndex((a) => a.title === stub.title && a.outletId === stub.outletId);
+              if (idx >= 0) {
+                articles[idx] = enriched;
               }
             }
-          }
-        } catch {
-          // Ignore RSS secondary feed failure
-        }
+          })
+        );
+      }
+    }
 
-        if (articles.length > 0) {
-          recordOutletHealth(outlet.id, true);
-          outletCache.set(outlet.id, {
-            articles,
-            fetchedAt: Date.now(),
-            kstDate: todayKst,
-          });
-          results[outlet.id] = articles;
-        } else {
-          recordOutletHealth(outlet.id, false);
-        }
-      })
-    );
+    if (articles.length > 0) {
+      recordOutletHealth(outlet.id, true);
+      outletCache.set(outlet.id, {
+        articles,
+        fetchedAt: Date.now(),
+        kstDate: todayKst,
+      });
+      results[outlet.id] = articles;
+    } else {
+      recordOutletHealth(outlet.id, false);
+    }
+  };
+
+  // Run up to 20 outlets concurrently in a single wave, racing against foreground budgetMs
+  const allWork = (async () => {
+    const BATCH_SIZE = 20;
+    for (let i = 0; i < outletsNeedingFetch.length; i += BATCH_SIZE) {
+      const batch = outletsNeedingFetch.slice(i, i + BATCH_SIZE);
+      await Promise.allSettled(batch.map((outlet) => fetchSingleOutlet(outlet)));
+    }
+  })();
+
+  if (budgetMs > 0) {
+    let budgetTimer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      allWork,
+      new Promise<void>((resolve) => {
+        budgetTimer = setTimeout(resolve, budgetMs);
+      }),
+    ]);
+    if (budgetTimer) clearTimeout(budgetTimer);
+  } else {
+    await allWork;
   }
 
   return results;
@@ -1827,15 +2306,15 @@ function extractSectorHighlight(title: string, summaryText: string): {
  * Harvests live real-time Construction, Real Estate, Urban Development, and Finance articles
  * sorted by latest (sort=1) and strictly filtered to articles published within the last 24 hours.
  */
-export async function fetchSectorHeadlinesReal(forceRefresh = false): Promise<SectorHeadlineItem[]> {
+export async function fetchSectorHeadlinesReal(
+  forceRefresh = false,
+  budgetMs = 2400
+): Promise<SectorHeadlineItem[]> {
   const now = Date.now();
   const todayKst = getKstDateKey();
-  if (
-    !forceRefresh &&
-    lastSectorFetchedKstDate === todayKst &&
-    cachedSectorHeadlines.length >= 6 &&
-    now - lastSectorFetchedTime < CACHE_TTL_MS
-  ) {
+  const hasTodayCache =
+    lastSectorFetchedKstDate === todayKst && cachedSectorHeadlines.length >= 6;
+  if (!forceRefresh && hasTodayCache && now - lastSectorFetchedTime < CACHE_TTL_MS) {
     return cachedSectorHeadlines;
   }
 
@@ -1853,16 +2332,18 @@ export async function fetchSectorHeadlinesReal(forceRefresh = false): Promise<Se
   const seenNaverUrls = new Set<string>();
   const seenTitles: string[] = [];
 
-  await Promise.allSettled(
+  const scrapeWork = Promise.allSettled(
     SECTOR_CONFIGS.map(async (cfg) => {
       const candidateLinks: string[] = [];
 
-      // Run 4 latest-sorted (sort=1) topic search queries in parallel for this sector
+      // Run top 2 latest-sorted (sort=1) topic search queries in parallel for fast response
       const searchPages = await Promise.allSettled(
-        cfg.queries.map((q) =>
+        cfg.queries.slice(0, 2).map((q) =>
           fetchHtmlFast(
             `https://search.naver.com/search.naver?where=news&sort=1&query=${encodeURIComponent(q)}`,
-            3500
+            1800,
+            2,
+            0
           )
         )
       );
@@ -1880,11 +2361,11 @@ export async function fetchSectorHeadlinesReal(forceRefresh = false): Promise<Se
         }
       }
 
-      // Fetch up to 10 distinct Naver article pages in parallel
-      const targetLinks = candidateLinks.slice(0, 10);
+      // Fetch up to 6 distinct Naver article pages in parallel with tight timeout
+      const targetLinks = candidateLinks.slice(0, 6);
       const articleResponses = await Promise.allSettled(
         targetLinks.map(async (naverUrl) => {
-          const res = await fetchHtmlFast(naverUrl, 3500);
+          const res = await fetchHtmlFast(naverUrl, 1800, 2, 0);
           return { naverUrl, res };
         })
       );
@@ -1978,15 +2459,36 @@ export async function fetchSectorHeadlinesReal(forceRefresh = false): Promise<Se
     })
   );
 
-  // Do NOT silently mix MOCK_SECTOR_HEADLINES into live sector collection.
-  if (collected.length > 0) {
-    cachedSectorHeadlines = collected;
-    lastSectorFetchedTime = now;
-    lastSectorFetchedKstDate = todayKst;
-    return collected;
+  if (budgetMs > 0) {
+    let budgetTimer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      scrapeWork,
+      new Promise<void>((resolve) => {
+        budgetTimer = setTimeout(resolve, budgetMs);
+      }),
+    ]);
+    if (budgetTimer) clearTimeout(budgetTimer);
+    // Keep updating cache cleanly if remaining promises finish slightly after foreground budget
+    void scrapeWork.then(() => {
+      if (collected.length >= 6) {
+        cachedSectorHeadlines = [...collected];
+        lastSectorFetchedTime = Date.now();
+        lastSectorFetchedKstDate = todayKst;
+      }
+    });
+  } else {
+    await scrapeWork;
   }
 
-  return lastSectorFetchedKstDate === todayKst ? cachedSectorHeadlines : [];
+  // Do NOT silently mix MOCK_SECTOR_HEADLINES into live sector collection.
+  if (collected.length > 0) {
+    cachedSectorHeadlines = [...collected];
+    lastSectorFetchedTime = Date.now();
+    lastSectorFetchedKstDate = todayKst;
+    return cachedSectorHeadlines;
+  }
+
+  return hasTodayCache ? cachedSectorHeadlines : [];
 }
 
 /**
@@ -2514,8 +3016,10 @@ export function buildRealBriefing(
     const clusterOutlets = uniqueByOutlet.map((m) => {
       const meta = PRESS_OUTLETS.find((p) => p.id === m.outletId || p.name === m.outletName);
       const cleanUrl =
-        m.link && !m.link.includes('news.google.com')
+        m.link && isSafeExternalHttpUrl(m.link) && !isAggregatorRedirectUrl(m.link)
           ? m.link
+          : m.naverUrl && isSafeExternalHttpUrl(m.naverUrl)
+          ? m.naverUrl
           : getOfficialOutletHomepage(m.outletId, m.outletName);
       return {
         outletId: m.outletId,
@@ -2580,17 +3084,38 @@ export function buildRealBriefing(
 
   // 3. Exclusive stories: strictly require explicit [단독] marker in title
   //    AND verify that NO other outlet covered the same story (not in any multi-outlet cluster & low cross-outlet similarity).
+  //    Prioritize exclusives that have both a verified direct/Naver URL and extracted body text.
   const EXCLUSIVE_CROSS_COVERAGE_CUTOFF = 0.34;
+  const exclusiveQualityScore = (art: RawRSSArticle): number => {
+    let score = 0;
+    if (isSafeExternalHttpUrl(art.link) && !isAggregatorRedirectUrl(art.link)) score += 3;
+    if (isSafeExternalHttpUrl(art.naverUrl)) score += 1;
+    if ((art.fullBody?.length || 0) >= 120) score += 4;
+    else if ((art.fullBody?.length || 0) >= 60 || (art.leadSentences?.length || 0) >= 1) score += 2;
+    if (art.isTopLead) score += 1;
+    return score;
+  };
+
   const realExclusives = indexed
     .filter((item) => EXPLICIT_EXCLUSIVE_TITLE_REGEX.test(item.art.title.trim()))
     .filter((item) => !multiOutletClusterIndices.has(item.idx))
     .filter((item) => (maxOtherOutletSimilarity.get(item.idx) || 0) < EXCLUSIVE_CROSS_COVERAGE_CUTOFF)
     .map((item) => item.art)
     .filter((art, idx, arr) => arr.findIndex((x) => x.outletId === art.outletId && areTitlesNearDuplicate(x.title, art.title)) === idx)
+    .sort((a, b) => exclusiveQualityScore(b) - exclusiveQualityScore(a))
     .slice(0, 6);
 
   const exclusiveStories: NewsStory[] = realExclusives.map((art, idx) => {
     const baseSummary = generate3LineSummaryFromSnippet(art.title, art.snippet, art.outletName, art.leadSentences);
+    const verifiedOriginalUrl =
+      art.link && isSafeExternalHttpUrl(art.link) && !isAggregatorRedirectUrl(art.link)
+        ? art.link
+        : art.naverUrl && isSafeExternalHttpUrl(art.naverUrl)
+        ? art.naverUrl
+        : getOfficialOutletHomepage(art.outletId, art.outletName);
+    const verifiedNaverUrl =
+      art.naverUrl && isSafeExternalHttpUrl(art.naverUrl) ? art.naverUrl : undefined;
+
     return {
       id: `ex-${art.outletId}-${idx}-${Date.now().toString(36)}`,
       outletId: art.outletId,
@@ -2599,8 +3124,8 @@ export function buildRealBriefing(
       title: art.title,
       leadSummary: baseSummary,
       baseSummary,
-      originalUrl: art.link || getOfficialOutletHomepage(art.outletId, art.outletName),
-      naverUrl: art.naverUrl || undefined,
+      originalUrl: verifiedOriginalUrl,
+      naverUrl: verifiedNaverUrl,
       publishedAt: formatPublishedAtFromRaw(art.pubDate, todayFormatted, shortTime),
       keywords: extractSearchKeywords(art.title).split(' ').slice(0, 3),
       topic: inferTopicFromText(art.title),

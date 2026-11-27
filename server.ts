@@ -7,6 +7,7 @@ import { registerImageProxyRoutes } from './server/routes/imageProxy.ts';
 import { registerBriefingRoutes } from './server/routes/briefing.ts';
 import { registerEmailRoutes } from './server/routes/email.ts';
 import { generateLiveSummaryPayload } from './server/services/gemini.ts';
+import { warmUpMailTransporter } from './server/services/mailService.ts';
 
 dotenv.config();
 
@@ -44,21 +45,28 @@ if (!process.env.VERCEL) {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Morning Brief Server running on http://0.0.0.0:${PORT}`);
+    // Pre-warm pooled Naver SMTP connection in background so live email sends complete under 3s
+    setTimeout(() => {
+      warmUpMailTransporter().catch(() => {});
+    }, 400);
+
     // Pre-warm live news cache immediately on startup (1 consolidated Gemini call max)
     const initialWarmUp = () => {
-      generateLiveSummaryPayload(DEFAULT_10_OUTLETS, 'insight', false, { skipGemini: false }).catch(
-        (err) => {
-          console.info('Initial live news warm-up deferred:', err?.message || 'unavailable');
-        }
-      );
+      generateLiveSummaryPayload(DEFAULT_10_OUTLETS, 'insight', false, {
+        skipGemini: false,
+        waitForAi: true,
+      }).catch((err) => {
+        console.info('Initial live news warm-up deferred:', err?.message || 'unavailable');
+      });
     };
     // Background ticks refresh scraped RSS articles only and reuse 6h per-item Gemini summaries
     const backgroundRssRefresh = () => {
-      generateLiveSummaryPayload(DEFAULT_10_OUTLETS, 'insight', false, { skipGemini: true }).catch(
-        (err) => {
-          console.info('Background RSS refresh deferred:', err?.message || 'unavailable');
-        }
-      );
+      generateLiveSummaryPayload(DEFAULT_10_OUTLETS, 'insight', false, {
+        skipGemini: true,
+        waitForAi: true,
+      }).catch((err) => {
+        console.info('Background RSS refresh deferred:', err?.message || 'unavailable');
+      });
     };
     setTimeout(initialWarmUp, 250);
     setInterval(backgroundRssRefresh, BACKGROUND_RSS_REFRESH_MS);

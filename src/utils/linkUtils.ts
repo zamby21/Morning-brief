@@ -1,4 +1,5 @@
 import React from 'react';
+import { PRESS_OUTLETS } from '../data/pressMetadata.ts';
 
 /**
  * Verified canonical homepage URLs for all major Korean press outlets.
@@ -414,7 +415,17 @@ export function getOfficialOutletHomepage(
     }
   }
 
-  // 3. Fallback to Naver News Portal
+  // 3. Check full PRESS_OUTLETS metadata directory (covers all 100+ outlets including 뉴데일리, 일요신문, etc.)
+  const metaMatch = PRESS_OUTLETS.find(
+    (p) =>
+      (id && p.id.toLowerCase() === id) ||
+      (name && (p.name === name || p.logoText === name))
+  );
+  if (metaMatch?.homepageUrl) {
+    return metaMatch.homepageUrl;
+  }
+
+  // 4. Fallback to Naver News Portal
   return 'https://news.naver.com';
 }
 
@@ -542,6 +553,7 @@ export function getOfficialOutletSearchUrl(
 
 const BARE_HOMEPAGE_SET = new Set([
   ...Object.values(OUTLET_CANONICAL_HOMEPAGES).map((u) => u.replace(/\/+$/, '')),
+  ...PRESS_OUTLETS.map((p) => (p.homepageUrl || '').replace(/\/+$/, '')).filter(Boolean),
   'https://www.heraldcorp.com',
   'https://news.naver.com',
 ]);

@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer';
+import nodemailer, { type Transporter } from 'nodemailer';
 import { escapeHtml, isValidEmailAddress, sanitizeHttpUrl } from '../../src/utils/htmlSanitizer.ts';
 import { maskEmailAddress } from '../utils/security.ts';
 
@@ -390,8 +390,79 @@ function translateNaverSmtpError(err: unknown): { message: string; httpStatus: n
   };
 }
 
+const SMTP_SEND_HARD_TIMEOUT_MS = 4500;
+
+let cachedTransporter: Transporter | null = null;
+let cachedTransporterKey = '';
+
+function getPooledNaverTransporter(naverEmail: string, naverAppPassword: string): Transporter {
+  const key = `${naverEmail}:${naverAppPassword.length}:${naverAppPassword.slice(0, 2)}:${naverAppPassword.slice(-2)}`;
+  if (cachedTransporter && cachedTransporterKey === key) {
+    return cachedTransporter;
+  }
+
+  if (cachedTransporter) {
+    try {
+      cachedTransporter.close();
+    } catch {
+      // Ignore close error on old pool
+    }
+    cachedTransporter = null;
+  }
+
+  cachedTransporter = nodemailer.createTransport({
+    host: NAVER_SMTP_HOST,
+    port: NAVER_SMTP_PORT,
+    secure: false,
+    pool: true,
+    maxConnections: 3,
+    maxMessages: 100,
+    auth: {
+      user: naverEmail,
+      pass: naverAppPassword,
+    },
+    connectionTimeout: 2500,
+    greetingTimeout: 2000,
+    socketTimeout: 3500,
+  });
+  cachedTransporterKey = key;
+  return cachedTransporter;
+}
+
+function resetPooledNaverTransporter(): void {
+  if (cachedTransporter) {
+    try {
+      cachedTransporter.close();
+    } catch {
+      // Ignore close error
+    }
+    cachedTransporter = null;
+    cachedTransporterKey = '';
+  }
+}
+
 /**
- * Send newsletter email via Naver Mail SMTP (smtp.naver.com, port 587, secure: false) using nodemailer.
+ * Pre-warms the pooled Naver Mail SMTP connection on server startup so real-time sends finish under 3s.
+ */
+export async function warmUpMailTransporter(): Promise<void> {
+  const status = getMailProviderStatus();
+  if (!status.configured) return;
+  const naverEmail = (process.env.NAVER_EMAIL || '').trim();
+  const naverAppPassword = (process.env.NAVER_APP_PASSWORD || '').trim();
+  try {
+    const transporter = getPooledNaverTransporter(naverEmail, naverAppPassword);
+    await Promise.race([
+      transporter.verify(),
+      new Promise<void>((resolve) => setTimeout(resolve, 3500)),
+    ]);
+  } catch {
+    // Non-blocking warm-up; will retry cleanly on first actual send
+  }
+}
+
+/**
+ * Send newsletter email via pooled Naver Mail SMTP (smtp.naver.com, port 587, secure: false) using nodemailer.
+ * Strictly capped under 5s to guarantee snappy real-time responsiveness.
  */
 export async function dispatchBriefingEmail(
   params: SendBriefingMailParams
@@ -410,27 +481,26 @@ export async function dispatchBriefingEmail(
 
   const naverEmail = (process.env.NAVER_EMAIL || '').trim();
   const naverAppPassword = (process.env.NAVER_APP_PASSWORD || '').trim();
+  const transporter = getPooledNaverTransporter(naverEmail, naverAppPassword);
 
-  const transporter = nodemailer.createTransport({
-    host: NAVER_SMTP_HOST,
-    port: NAVER_SMTP_PORT,
-    secure: false,
-    auth: {
-      user: naverEmail,
-      pass: naverAppPassword,
-    },
-    connectionTimeout: 12_000,
-    greetingTimeout: 10_000,
-    socketTimeout: 15_000,
-  });
-
+  let sendTimeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    const info = await transporter.sendMail({
-      from: naverEmail,
-      to: params.recipient,
-      subject: sanitizeMailHeaderValue(params.subject),
-      html: params.htmlBody,
-    });
+    const info = await Promise.race([
+      transporter.sendMail({
+        from: naverEmail,
+        to: params.recipient,
+        subject: sanitizeMailHeaderValue(params.subject),
+        html: params.htmlBody,
+      }),
+      new Promise<never>((_, reject) => {
+        sendTimeout = setTimeout(() => {
+          const timeoutErr = Object.assign(new Error('Naver SMTP send timeout'), {
+            code: 'ETIMEDOUT',
+          });
+          reject(timeoutErr);
+        }, SMTP_SEND_HARD_TIMEOUT_MS);
+      }),
+    ]);
 
     return {
       success: true,
@@ -441,8 +511,11 @@ export async function dispatchBriefingEmail(
       message: `${params.recipient} 주소로 네이버 메일 SMTP를 통해 뉴스레터 이메일이 발송되었습니다.`,
     };
   } catch (err) {
-    const translated = translateNaverSmtpError(err);
     const errCode = (err as { code?: string; responseCode?: number } | undefined)?.code || 'unknown';
+    if (errCode === 'ETIMEDOUT' || errCode === 'ECONNECTION' || errCode === 'ESOCKET') {
+      resetPooledNaverTransporter();
+    }
+    const translated = translateNaverSmtpError(err);
     console.warn(
       `[NaverSMTP] Delivery failed (${errCode}) for ${maskEmailAddress(params.recipient)}`
     );
@@ -455,6 +528,6 @@ export async function dispatchBriefingEmail(
       httpStatus: translated.httpStatus,
     };
   } finally {
-    transporter.close();
+    if (sendTimeout) clearTimeout(sendTimeout);
   }
 }
