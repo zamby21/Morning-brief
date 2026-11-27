@@ -737,6 +737,24 @@ export default function App() {
     }
   };
 
+  // Support deep-link hashes from email newsletter section titles (#section-keywords, #section-frontpage, etc.)
+  useEffect(() => {
+    if (typeof window === 'undefined' || isInitialLiveSyncing) return;
+    const rawHash = window.location.hash.replace(/^#/, '');
+    const allowedSectionIds = new Set([
+      'section-keywords',
+      'section-frontpage',
+      'section-overlapping',
+      'section-exclusive',
+      'section-realestate-finance',
+    ]);
+    if (!allowedSectionIds.has(rawHash)) return;
+    const timer = window.setTimeout(() => {
+      scrollToSection(rawHash);
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [isInitialLiveSyncing]);
+
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -1535,14 +1553,16 @@ export default function App() {
             ) : null}
 
             {/* 1. Keyword Tags + Weekly Report Shortcut (태그 필터링 + 24h 트렌드 + 주간 종합 리포트) */}
-            <KeywordTags
-              keywords={briefing.topKeywords}
-              selectedKeyword={selectedKeyword}
-              onSelectKeyword={(kw) => setSelectedKeyword(kw)}
-              briefing={briefing}
-              onOpenWeeklyReport={handleOpenWeeklyModal}
-              isMobileView={isMobilePreview}
-            />
+            <div id="section-keywords">
+              <KeywordTags
+                keywords={briefing.topKeywords}
+                selectedKeyword={selectedKeyword}
+                onSelectKeyword={(kw) => setSelectedKeyword(kw)}
+                briefing={briefing}
+                onOpenWeeklyReport={handleOpenWeeklyModal}
+                isMobileView={isMobilePreview}
+              />
+            </div>
 
             {/* 2. Topic Subscription Filtering (Personalized) */}
             <TopicFilter

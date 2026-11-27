@@ -70,6 +70,12 @@ function generateClientHtmlNewsletter(
     })
     .join('');
 
+  const appOrigin =
+    typeof window !== 'undefined' && window.location?.origin
+      ? sanitizeHttpUrl(window.location.origin).replace(/\/+$/, '')
+      : '';
+  const safeOrigin = escapeHtml(appOrigin);
+
   return `<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -78,12 +84,12 @@ function generateClientHtmlNewsletter(
     body { font-family: -apple-system, BlinkMacSystemFont, "Pretendard", sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
     .container { max-width: 680px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; }
     .header { background: #0f172a; color: #ffffff; padding: 32px 28px; }
-    .badge { display: inline-block; background: #2563eb; color: #ffffff; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 9999px; }
-    .title { font-size: 22px; font-weight: 800; margin: 12px 0 6px 0; color: #ffffff; }
+    .badge { display: inline-block; background: #2563eb; color: #ffffff; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 9999px; text-decoration: none; }
+    .title { font-size: 22px; font-weight: 800; margin: 12px 0 6px 0; color: #ffffff; text-decoration: none; display: block; }
     .meta { font-size: 13px; color: #94a3b8; }
     .notice { background: #fffbeb; border-bottom: 1px solid #fde68a; color: #92400e; padding: 12px 28px; font-size: 12px; font-weight: 600; }
     .section { padding: 24px 28px; border-bottom: 1px solid #f1f5f9; }
-    .sec-title { font-size: 16px; font-weight: 800; color: #0f172a; margin-bottom: 16px; }
+    .sec-title { font-size: 16px; font-weight: 800; color: #0f172a; margin-bottom: 16px; text-decoration: none; display: inline-block; }
     .card { background: #f8fafc; border-left: 4px solid #2563eb; border-radius: 6px; padding: 14px 16px; margin-bottom: 14px; }
     .card-title { font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 8px; }
     .card-outlet { font-size: 11px; font-weight: 700; color: #2563eb; margin-bottom: 4px; }
@@ -95,17 +101,17 @@ function generateClientHtmlNewsletter(
 <body>
   <div class="container">
     <div class="header">
-      <span class="badge">뉴스레터 미리보기 · 희망 시각 ${safeTime}</span>
-      <div class="title">모닝브리프 - 대한민국 주요 언론사 뉴스 요약</div>
+      <a class="badge" href="${safeOrigin || '#'}" target="_blank" rel="noopener noreferrer">뉴스레터 미리보기 · 희망 시각 ${safeTime}</a>
+      <a class="title" href="${safeOrigin || '#'}" target="_blank" rel="noopener noreferrer">모닝브리프 - 대한민국 주요 언론사 뉴스 요약</a>
       <div class="meta">${safeDate} | 수신 예정: ${safeEmail}</div>
     </div>
     <div class="notice">안내: 외부 이메일 발송 서버가 아직 연동되지 않은 미리보기 화면입니다.</div>
     <div class="section">
-      <div class="sec-title">오늘의 핵심 키워드</div>
+      <a class="sec-title" href="${safeOrigin ? `${safeOrigin}#section-keywords` : '#'}" target="_blank" rel="noopener noreferrer">오늘의 핵심 키워드 ↗</a>
       <p style="font-size: 13px; color: #2563eb; font-weight: 600;">${safeKeywords}</p>
     </div>
     <div class="section">
-      <div class="sec-title">언론사별 홈페이지 첫화면 주요 기사</div>
+      <a class="sec-title" href="${safeOrigin ? `${safeOrigin}#section-frontpage` : '#'}" target="_blank" rel="noopener noreferrer">언론사별 홈페이지 첫화면 주요 기사 ↗</a>
       ${frontCards}
     </div>
     <div class="footer">

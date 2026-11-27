@@ -48,12 +48,14 @@ export function registerEmailRoutes(app: express.Express): void {
     const frontStories = Array.isArray(briefing?.frontPageStories) ? briefing.frontPageStories.slice(0, 5) : [];
     const overlapStories = Array.isArray(briefing?.overlappingStories) ? briefing.overlappingStories.slice(0, 2) : [];
     const exclStories = Array.isArray(briefing?.exclusiveStories) ? briefing.exclusiveStories.slice(0, 2) : [];
+    const sectorStories = Array.isArray(briefing?.sectorHeadlines) ? briefing.sectorHeadlines.slice(0, 3) : [];
     const topKeywords = Array.isArray(briefing?.topKeywords)
       ? briefing.topKeywords.slice(0, 10).map((k: unknown) => String(k || '').slice(0, 40))
       : [];
 
     const emailSubject = `[모닝브리프] ${safeBriefingDate} 대한민국 주요 언론사 뉴스 요약`;
-    const totalStoriesCount = frontStories.length + overlapStories.length + exclStories.length;
+    const totalStoriesCount =
+      frontStories.length + overlapStories.length + exclStories.length + sectorStories.length;
 
     const htmlNewsletter = buildNewsletterHtml({
       recipientEmail: targetEmail,
@@ -64,6 +66,7 @@ export function registerEmailRoutes(app: express.Express): void {
       frontStories,
       overlapStories,
       exclStories,
+      sectorStories,
       mailProviderConfigured: providerStatus.configured,
     });
 
